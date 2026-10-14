@@ -1,0 +1,96 @@
+{
+  "customer": "Sample - Telco DWH modernisation",
+  "region": "europe-west1",
+  "skill": "spark",
+  "orchestration": "auto",
+  "environment": "production",
+  "bq_model": "enterprise",
+  "bq_slots": 500,
+  "annual_growth_pct": 15,
+  "contingency_pct": 10,
+  "sources": [
+    {
+      "id": "t1",
+      "name": "Enterprise DWH (Teradata)",
+      "type": "teradata",
+      "data_type": "structured",
+      "frequency": "daily",
+      "location": "on_prem",
+      "transform": "none",
+      "initial_volume_gb": 150000,
+      "daily_change_gb": 300
+    },
+    {
+      "id": "t2",
+      "name": "CDR data lake (Hadoop/Hive)",
+      "type": "hadoop",
+      "data_type": "semi_structured",
+      "frequency": "daily",
+      "location": "on_prem",
+      "transform": "heavy",
+      "initial_volume_gb": 400000,
+      "daily_change_gb": 800
+    },
+    {
+      "id": "t3",
+      "name": "Network probes (events)",
+      "type": "iot",
+      "data_type": "events",
+      "frequency": "realtime",
+      "location": "on_prem",
+      "transform": "heavy",
+      "initial_volume_gb": 0,
+      "daily_change_gb": 250
+    },
+    {
+      "id": "t4",
+      "name": "Billing (SAP S/4HANA)",
+      "type": "sap",
+      "data_type": "structured",
+      "frequency": "near_realtime",
+      "location": "on_prem",
+      "transform": "none",
+      "initial_volume_gb": 6000,
+      "daily_change_gb": 20
+    }
+  ],
+  "platform": {
+    "bi": {
+      "enabled": true,
+      "tool": "looker",
+      "users": 400,
+      "looker_annual_usd": 0
+    },
+    "gemini_enterprise": {
+      "enabled": true,
+      "edition": "plus",
+      "users": 200
+    },
+    "agents": {
+      "enabled": true,
+      "model": "pro",
+      "requests_month": 40000,
+      "input_tokens": 8000,
+      "output_tokens": 1200,
+      "agent_seconds": 10,
+      "bq_gb_per_request": 1
+    },
+    "gpu": {
+      "enabled": true,
+      "gpu": "a100",
+      "replicas": 1,
+      "hours_per_day": 24
+    },
+    "governance": {
+      "enabled": true,
+      "dq_share_pct": 15,
+      "dq_scans_per_month": 30
+    },
+    "security": {
+      "enabled": true,
+      "sdp_discovery": true,
+      "cmek": true,
+      "vpc_sc": true
+    }
+  }
+}

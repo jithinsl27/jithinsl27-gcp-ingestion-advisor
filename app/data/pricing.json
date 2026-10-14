@@ -1,0 +1,256 @@
+{
+  "_meta": {
+    "currency": "USD",
+    "baseline_region": "us-central1",
+    "last_reviewed": "2026-10-15",
+    "note": "Public list prices (on-demand, no negotiated discounts) for the baseline region. Regional uplift is applied via regions.json for services marked regional=true. Values flagged verify=true are approximations - confirm in the Google Cloud Pricing Calculator before quoting. Edit this file to update prices; no code change needed.",
+    "sources": [
+      "https://cloud.google.com/bigquery/pricing",
+      "https://cloud.google.com/datastream/pricing",
+      "https://cloud.google.com/dataflow/pricing",
+      "https://cloud.google.com/pubsub/pricing",
+      "https://cloud.google.com/data-fusion/pricing",
+      "https://cloud.google.com/composer/pricing",
+      "https://cloud.google.com/dataproc-serverless/pricing",
+      "https://cloud.google.com/storage/pricing",
+      "https://cloud.google.com/storage-transfer/pricing",
+      "https://cloud.google.com/network-connectivity/docs/vpn/pricing",
+      "https://cloud.google.com/run/pricing",
+      "https://cloud.google.com/vertex-ai/pricing",
+      "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+      "https://cloud.google.com/dataplex/pricing",
+      "https://cloud.google.com/sensitive-data-protection/pricing",
+      "https://cloud.google.com/kms/pricing",
+      "https://cloud.google.com/integration-connectors/pricing",
+      "https://cloud.google.com/gemini-enterprise"
+    ]
+  },
+  "bigquery": {
+    "regional": true,
+    "storage_active_gib_month": 0.02,
+    "storage_longterm_gib_month": 0.01,
+    "storage_free_gib": 10,
+    "ondemand_tib": 6.25,
+    "ondemand_free_tib": 1,
+    "storage_write_api_gib": 0.025,
+    "storage_write_api_free_tib": 2,
+    "streaming_inserts_gib": 0.05,
+    "editions": {
+      "standard": {
+        "payg": 0.04,
+        "cud1": 0.036,
+        "cud3": 0.032
+      },
+      "enterprise": {
+        "payg": 0.06,
+        "cud1": 0.048,
+        "cud3": 0.036
+      },
+      "enterprise_plus": {
+        "payg": 0.1,
+        "cud1": 0.08,
+        "cud3": 0.06
+      }
+    }
+  },
+  "datastream": {
+    "regional": false,
+    "cdc_tiers_gib": [
+      [
+        2500,
+        2.0
+      ],
+      [
+        5000,
+        1.5
+      ],
+      [
+        10000,
+        1.2
+      ],
+      [
+        null,
+        0.8
+      ]
+    ],
+    "backfill_free_gib": 500,
+    "backfill_gib": 0.4
+  },
+  "dataflow": {
+    "regional": true,
+    "batch_vcpu_hr": 0.056,
+    "streaming_vcpu_hr": 0.069,
+    "memory_gib_hr": 0.003557,
+    "streaming_engine_cu_hr": 0.089,
+    "shuffle_gib": 0.011,
+    "cud1_discount": 0.2,
+    "cud3_discount": 0.4
+  },
+  "pubsub": {
+    "regional": false,
+    "throughput_tib": 40.0,
+    "bq_subscription_tib": 50.0,
+    "free_gib": 10
+  },
+  "datafusion": {
+    "regional": true,
+    "developer_hr": 0.35,
+    "basic_hr": 1.8,
+    "basic_free_hours": 120,
+    "enterprise_hr": 4.2,
+    "pipeline_vcpu_hr_all_in": 0.06,
+    "verify": true
+  },
+  "dataproc_serverless": {
+    "regional": true,
+    "dcu_hr": 0.06,
+    "shuffle_storage_gib_month": 0.04
+  },
+  "composer": {
+    "regional": true,
+    "dcu_hr": 0.06,
+    "cud1_dcu_hr": 0.054,
+    "cud3_dcu_hr": 0.048,
+    "small_env_avg_dcu": 10,
+    "medium_env_avg_dcu": 20,
+    "large_env_avg_dcu": 40,
+    "verify": true
+  },
+  "gcs": {
+    "regional": true,
+    "standard_gib_month": 0.02
+  },
+  "storage_transfer": {
+    "regional": false,
+    "agent_gib": 0.0125,
+    "cloud_to_cloud_gib": 0.0
+  },
+  "network": {
+    "regional": false,
+    "ha_vpn_tunnel_hr": 0.05,
+    "ha_vpn_tunnels": 2,
+    "interconnect_note": "Dedicated / Partner Interconnect is quoted separately (port + VLAN attachment). Recommended when sustained change volume exceeds ~1 TB/day."
+  },
+  "integration_connectors": {
+    "regional": false,
+    "third_party_node_hr": 0.7,
+    "data_processed_gib": 10.0,
+    "free_gib": 20
+  },
+  "interconnect": {
+    "regional": false,
+    "dedicated_10g_port_month": 1700.0,
+    "vlan_attachment_hr": 0.1,
+    "vlan_attachments": 2,
+    "verify": true
+  },
+  "workflows": {
+    "regional": false,
+    "scheduler_job_month": 0.1
+  },
+  "compute_engine": {
+    "regional": true,
+    "vm_standard_4vcpu_hr": 0.19,
+    "verify": true
+  },
+  "cloud_run": {
+    "regional": true,
+    "vcpu_second": 1.8e-05,
+    "gib_second": 2e-06
+  },
+  "looker": {
+    "regional": false,
+    "studio_pro_user_month": 9.0,
+    "looker_note": "Looker (Google Cloud core) platform + user licences are quote-based; enter the customer's quote as an annual figure.",
+    "verify": true
+  },
+  "gemini_enterprise": {
+    "regional": false,
+    "business_user_month": 21.0,
+    "standard_user_month": 30.0,
+    "plus_user_month": 60.0,
+    "note": "Indicative annual-commitment list prices per user; confirm with a Google quote.",
+    "verify": true
+  },
+  "gemini_models": {
+    "regional": false,
+    "flash_lite": {
+      "name": "Gemini Flash-Lite",
+      "input_mtok": 0.1,
+      "output_mtok": 0.4
+    },
+    "flash": {
+      "name": "Gemini Flash",
+      "input_mtok": 0.3,
+      "output_mtok": 2.5
+    },
+    "pro": {
+      "name": "Gemini Pro",
+      "input_mtok": 1.25,
+      "output_mtok": 10.0
+    }
+  },
+  "agent_engine": {
+    "regional": true,
+    "vcpu_hr": 0.085,
+    "gib_hr": 0.009,
+    "cud1_vcpu_hr": 0.0765,
+    "cud1_gib_hr": 0.0081,
+    "cud3_vcpu_hr": 0.068,
+    "cud3_gib_hr": 0.0072,
+    "free_vcpu_hr": 50,
+    "free_gib_hr": 100
+  },
+  "vertex_prediction": {
+    "regional": true,
+    "nodes": {
+      "cpu": {
+        "name": "CPU node (n1-standard-4)",
+        "hr": 0.219
+      },
+      "l4": {
+        "name": "NVIDIA L4 (g2-standard-8, 1 GPU)",
+        "hr": 0.98181
+      },
+      "a100": {
+        "name": "NVIDIA A100 40GB (a2-highgpu-1g)",
+        "hr": 4.2244949
+      },
+      "h100": {
+        "name": "NVIDIA H100 80GB (a3-highgpu, per GPU)",
+        "hr": 12.8,
+        "verify": true
+      }
+    }
+  },
+  "dataplex": {
+    "regional": true,
+    "standard_dcu_hr": 0.06,
+    "premium_dcu_hr": 0.089,
+    "premium_cud1_dcu_hr": 0.0801,
+    "premium_cud3_dcu_hr": 0.0712,
+    "metadata_gib_month": 2.0,
+    "standard_free_dcu_hr": 100,
+    "dq_dcu_hr_per_table_scan": 0.05,
+    "lineage_dcu_hr_per_table_month": 0.17,
+    "verify": true
+  },
+  "sensitive_data_protection": {
+    "regional": false,
+    "discovery_gb": 0.03,
+    "discovery_table_cap_gb": 3072
+  },
+  "kms": {
+    "regional": false,
+    "key_version_month": 0.06,
+    "ops_per_10k": 0.03
+  },
+  "fx": {
+    "USD": 1.0,
+    "SAR": 3.75,
+    "AED": 3.6725,
+    "EUR": 0.92,
+    "GBP": 0.79,
+    "INR": 84.0
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "note": "uplift = approximate price multiplier vs us-central1 for regionally-priced services (compute, BigQuery, storage). Derived from typical Compute Engine / BigQuery regional price ratios; verify for the exact SKU in the Pricing Calculator. Update freely."
+  },
+  "regions": [
+    {"id": "US",                       "name": "US (multi-region)",            "geo": "Americas",     "uplift": 1.00, "multi": true},
+    {"id": "EU",                       "name": "EU (multi-region)",            "geo": "Europe",       "uplift": 1.00, "multi": true},
+    {"id": "us-central1",              "name": "Iowa (us-central1)",           "geo": "Americas",     "uplift": 1.00},
+    {"id": "us-east1",                 "name": "South Carolina (us-east1)",    "geo": "Americas",     "uplift": 1.00},
+    {"id": "us-east4",                 "name": "N. Virginia (us-east4)",       "geo": "Americas",     "uplift": 1.13},
+    {"id": "us-west1",                 "name": "Oregon (us-west1)",            "geo": "Americas",     "uplift": 1.00},
+    {"id": "northamerica-northeast1",  "name": "Montréal (northamerica-northeast1)", "geo": "Americas", "uplift": 1.10},
+    {"id": "southamerica-east1",       "name": "São Paulo (southamerica-east1)", "geo": "Americas",   "uplift": 1.50},
+    {"id": "europe-west1",             "name": "Belgium (europe-west1)",       "geo": "Europe",       "uplift": 1.10},
+    {"id": "europe-west2",             "name": "London (europe-west2)",        "geo": "Europe",       "uplift": 1.21},
+    {"id": "europe-west3",             "name": "Frankfurt (europe-west3)",     "geo": "Europe",       "uplift": 1.21},
+    {"id": "europe-west4",             "name": "Netherlands (europe-west4)",   "geo": "Europe",       "uplift": 1.10},
+    {"id": "europe-west9",             "name": "Paris (europe-west9)",         "geo": "Europe",       "uplift": 1.16},
+    {"id": "europe-north1",            "name": "Finland (europe-north1)",      "geo": "Europe",       "uplift": 1.10},
+    {"id": "me-central2",              "name": "Dammam, KSA (me-central2)",    "geo": "Middle East",  "uplift": 1.27},
+    {"id": "me-central1",              "name": "Doha, Qatar (me-central1)",    "geo": "Middle East",  "uplift": 1.24},
+    {"id": "me-west1",                 "name": "Tel Aviv (me-west1)",          "geo": "Middle East",  "uplift": 1.14},
+    {"id": "africa-south1",            "name": "Johannesburg (africa-south1)", "geo": "Africa",       "uplift": 1.30},
+    {"id": "asia-south1",              "name": "Mumbai (asia-south1)",         "geo": "Asia Pacific", "uplift": 1.20},
+    {"id": "asia-southeast1",          "name": "Singapore (asia-southeast1)",  "geo": "Asia Pacific", "uplift": 1.23},
+    {"id": "asia-northeast1",          "name": "Tokyo (asia-northeast1)",      "geo": "Asia Pacific", "uplift": 1.29},
+    {"id": "australia-southeast1",     "name": "Sydney (australia-southeast1)", "geo": "Asia Pacific", "uplift": 1.42}
+  ]
+}

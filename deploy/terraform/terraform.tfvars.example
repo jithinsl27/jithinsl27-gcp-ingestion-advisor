@@ -1,0 +1,7 @@
+project_id   = "my-gcp-project"
+region       = "me-central2"
+image        = "me-central2-docker.pkg.dev/my-gcp-project/ingestion-advisor/app:latest"
+public       = false
+invokers     = ["group:data-architects@example.com"]
+github_owner = "jithinsl27"
+github_repo  = "jithinsl27-gcp-ingestion-advisor"

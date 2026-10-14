@@ -1,0 +1,27 @@
+# Optional: deploy to Cloud Run from GitHub using Workload Identity Federation.
+# Set repository variables GCP_PROJECT_ID, GCP_REGION and secrets GCP_WIF_PROVIDER, GCP_DEPLOY_SA
+# (see docs/deployment.md). Runs manually or on tags v*.
+name: Deploy to Cloud Run
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ vars.GCP_PROJECT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy
+        run: |
+          gcloud run deploy ingestion-advisor --source . \
+            --project "${{ vars.GCP_PROJECT_ID }}" --region "${{ vars.GCP_REGION || 'us-central1' }}" \
+            --allow-unauthenticated --memory 512Mi --quiet

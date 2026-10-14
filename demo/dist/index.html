@@ -1,0 +1,2197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GCP Ingestion Advisor</title>
+  <meta name="description" content="Discovery-phase advisor for BigQuery ingestion: GCP-native ETL/ELT recommendations and 1/3-year ballpark consumption.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314233B'/%3E%3Cpath d='M7 10h8M7 16h12M7 22h6' stroke='%2378B6FF' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='16' r='4' fill='%2338C3A8'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>:root {
+  --ink: #14233B;
+  --ink-2: #33445E;
+  --muted: #5B6B80;
+  --paper: #F3F5F8;
+  --surface: #FFFFFF;
+  --surface-2: #F8FAFC;
+  --line: #D6DDE6;
+  --line-strong: #B8C3D1;
+  --blue: #2F5DA8;
+  --blue-soft: #E5EDF9;
+  --stream: #0F8B7E;
+  --stream-soft: #E1F3F0;
+  --batch: #B7791F;
+  --batch-soft: #FBF0DD;
+  --once: #7A63B8;
+  --once-soft: #EEEAF7;
+  --bq: #2F5DA8;
+  --danger: #B42318;
+  --focus: #2F5DA8;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --shadow-pop: 0 10px 30px rgba(20, 35, 59, .16);
+  --font: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #E7ECF3; --ink-2: #C3CCD9; --muted: #93A1B5;
+    --paper: #0F1724; --surface: #162132; --surface-2: #1B283B;
+    --line: #2A3A52; --line-strong: #3B4F6C;
+    --blue: #78A6F0; --blue-soft: #1C2E4C; --bq: #78A6F0;
+    --stream: #38C3A8; --stream-soft: #123631;
+    --batch: #E3A64A; --batch-soft: #3A2C14;
+    --once: #A792E6; --once-soft: #2A2442;
+    --danger: #F97066; --focus: #78A6F0;
+    --shadow-pop: 0 10px 30px rgba(0, 0, 0, .45);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+    --ink: #E7ECF3; --ink-2: #C3CCD9; --muted: #93A1B5;
+    --paper: #0F1724; --surface: #162132; --surface-2: #1B283B;
+    --line: #2A3A52; --line-strong: #3B4F6C;
+    --blue: #78A6F0; --blue-soft: #1C2E4C; --bq: #78A6F0;
+    --stream: #38C3A8; --stream-soft: #123631;
+    --batch: #E3A64A; --batch-soft: #3A2C14;
+    --once: #A792E6; --once-soft: #2A2442;
+    --danger: #F97066; --focus: #78A6F0;
+    --shadow-pop: 0 10px 30px rgba(0, 0, 0, .45);
+    color-scheme: dark;
+  }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { line-height: 1.25; margin: 0; }
+h2 { font-size: 15px; font-weight: 600; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 0 0 .6em; }
+a { color: var(--blue); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------- top bar */
+.topbar {
+  top: env(safe-area-inset-top, 0px);
+  display: flex; align-items: center; gap: 20px;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky; z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand svg { width: 32px; height: 32px; flex: none; }
+.brand-bg { fill: var(--ink); }
+.brand-lines { stroke: #78B6FF; stroke-width: 3; stroke-linecap: round; }
+.brand-dot { fill: #38C3A8; }
+.brand strong { display: block; font-size: 16px; }
+.brand span { display: block; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.customer { flex: 1; min-width: 160px; }
+.customer input {
+  width: 100%; font: inherit; font-size: 17px; font-weight: 600;
+  border: 1px solid transparent; background: transparent; color: var(--ink);
+  padding: 6px 10px; border-radius: var(--radius-s);
+}
+.customer input:hover { border-color: var(--line); }
+.customer input:focus { border-color: var(--blue); background: var(--surface); outline: none; }
+.top-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inline-field { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- controls */
+select, input[type=number], input[type=text], textarea {
+  font: inherit; font-size: 14px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s); padding: 7px 9px; width: 100%;
+}
+.inline-field select { width: auto; max-width: 230px; }
+textarea { resize: vertical; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); font-weight: 500; }
+
+.btn {
+  font: inherit; font-size: 14px; font-weight: 600;
+  border-radius: var(--radius-s); padding: 8px 14px; cursor: pointer;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+}
+.btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn.primary:hover { background: var(--blue); border-color: var(--blue); }
+.btn.ghost:hover { background: var(--surface-2); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+.btn.danger { color: var(--danger); }
+
+.menu { position: relative; }
+.menu-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; min-width: 260px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m);
+  box-shadow: var(--shadow-pop); padding: 6px; z-index: 30;
+}
+.menu-pop.right { left: auto; right: 0; }
+.menu-pop button, .menu-file {
+  display: block; width: 100%; text-align: left; font: inherit; font-size: 14px; font-weight: 500;
+  background: none; border: 0; padding: 8px 10px; border-radius: var(--radius-s); color: var(--ink); cursor: pointer;
+}
+.menu-pop button:hover, .menu-file:hover { background: var(--surface-2); }
+.menu-pop button small { display: block; color: var(--muted); font-weight: 400; }
+.menu-pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.menu-file input { display: none; }
+
+/* ---------------------------------------------------------------- layout */
+.workspace {
+  display: grid; grid-template-columns: 380px minmax(0, 1fr);
+  gap: 20px; padding: 20px; align-items: start;
+}
+.side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 78px; max-height: calc(100vh - 98px); overflow: auto; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 14px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.settings summary { cursor: pointer; list-style: none; margin-bottom: 10px; }
+.settings summary::-webkit-details-marker { display: none; }
+.settings summary h2::after { content: " ▾"; color: var(--muted); }
+.settings:not([open]) summary { margin-bottom: 0; }
+.settings:not([open]) summary h2::after { content: " ▸"; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.span2 { grid-column: span 2; }
+
+.source-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.source-item {
+  display: grid; grid-template-columns: 4px 1fr auto; gap: 10px; align-items: center;
+  padding: 9px 10px 9px 0; border: 1px solid var(--line); border-radius: var(--radius-s);
+  background: var(--surface-2); cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit;
+}
+.source-item:hover { border-color: var(--line-strong); }
+.source-item .bar { align-self: stretch; border-radius: 0 3px 3px 0; }
+.source-item .bar.stream { background: var(--stream); }
+.source-item .bar.batch { background: var(--batch); }
+.source-item .bar.once { background: var(--once); }
+.source-item b { display: block; font-size: 14px; font-weight: 600; }
+.source-item span { display: block; font-size: 12.5px; color: var(--muted); }
+.source-item .tool { font-size: 12px; color: var(--ink-2); text-align: right; max-width: 120px; }
+.empty p { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
+
+/* ---------------------------------------------------------------- stage */
+.stage { min-width: 0; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 14px; overflow-x: auto; }
+.tabs button {
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--muted);
+  background: none; border: 0; padding: 10px 14px; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+
+.summary-strip { display: flex; gap: 28px; align-items: baseline; flex-wrap: wrap; margin: 0 2px 14px; }
+.summary-strip .fig b { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.summary-strip .fig span { display: block; font-size: 12.5px; color: var(--muted); }
+.summary-strip .note { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+.tabpanel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 18px; }
+
+/* ---------------------------------------------------------------- diagram */
+.legend { display: flex; gap: 18px; font-size: 13px; color: var(--muted); margin-bottom: 10px; flex-wrap: wrap; }
+.legend .ln { display: inline-block; width: 26px; height: 0; vertical-align: middle; margin-right: 6px; border-top: 3px solid; }
+.legend .ln.stream { border-color: var(--stream); border-top-style: dashed; }
+.legend .ln.batch { border-color: var(--batch); }
+.legend .ln.once { border-color: var(--once); border-top-style: dotted; }
+.diagram-wrap { overflow-x: auto; }
+.diagram-wrap svg { display: block; min-width: 980px; width: 100%; height: auto; }
+.dg-col-title { font: 600 12.5px var(--font); fill: var(--muted); }
+.dg-node rect { fill: var(--surface-2); stroke: var(--line-strong); }
+.dg-node.src rect { fill: var(--surface); }
+.dg-node.bq rect { fill: var(--blue-soft); stroke: var(--bq); stroke-width: 1.5; }
+.dg-node.platform rect { fill: var(--surface); stroke-dasharray: 4 3; }
+.dg-node text { font: 500 12.5px var(--font); fill: var(--ink); }
+.dg-node text.sub { font-size: 11px; fill: var(--muted); font-weight: 400; }
+.dg-node.clickable { cursor: pointer; }
+.dg-node.clickable:hover rect { stroke: var(--ink); }
+.dg-edge { fill: none; stroke-width: 2.2; }
+.dg-edge.stream { stroke: var(--stream); stroke-dasharray: 7 5; animation: flow 1.2s linear infinite; }
+.dg-edge.batch { stroke: var(--batch); }
+.dg-edge.once { stroke: var(--once); stroke-dasharray: 2 4; }
+.dg-edge.plain { stroke: var(--line-strong); }
+@keyframes flow { to { stroke-dashoffset: -24; } }
+@media (prefers-reduced-motion: reduce) { .dg-edge.stream { animation: none; } }
+.dg-empty { font: 500 15px var(--font); fill: var(--muted); }
+
+/* ---------------------------------------------------------------- recommendations */
+.rec { border-top: 1px solid var(--line); padding: 16px 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; }
+.rec:first-child { border-top: 0; padding-top: 0; }
+.rec-src b { display: block; font-size: 15px; }
+.rec-src span { display: block; font-size: 13px; color: var(--muted); }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-top: 6px; }
+.chip.stream { background: var(--stream-soft); color: var(--stream); }
+.chip.batch { background: var(--batch-soft); color: var(--batch); }
+.chip.once { background: var(--once-soft); color: var(--once); }
+.rec-main h3 { margin-bottom: 6px; }
+.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 13px; }
+.chain a { text-decoration: none; background: var(--blue-soft); color: var(--blue); padding: 3px 9px; border-radius: var(--radius-s); font-weight: 600; }
+.chain a:hover { text-decoration: underline; }
+.chain .arrow { color: var(--muted); }
+.rec-main ul { margin: 0 0 10px; padding-left: 18px; }
+.rec-main li { margin-bottom: 4px; max-width: 78ch; }
+.rec-main .sub { font-size: 13px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
+.alt li b { font-weight: 600; }
+.caveat li { color: var(--ink-2); }
+.platform-block { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 14px 16px; margin-bottom: 18px; }
+.platform-block dl { display: grid; grid-template-columns: 170px 1fr; gap: 6px 14px; margin: 8px 0 0; }
+.platform-block dt { font-weight: 600; font-size: 14px; }
+.platform-block dd { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- cost */
+.horizon { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+.horizon .card { border: 1px solid var(--line); border-radius: var(--radius-m); padding: 16px 18px; }
+.horizon .card h3 { font-size: 14px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.horizon .big { font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.horizon .row { display: flex; justify-content: space-between; font-size: 14px; padding-top: 8px; margin-top: 8px; border-top: 1px dashed var(--line); }
+.horizon .row span:first-child { color: var(--muted); }
+.horizon .range { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.chart-wrap { margin: 6px 0 22px; }
+.chart-wrap svg { width: 100%; height: auto; display: block; }
+.chart-axis { font: 400 11.5px var(--font); fill: var(--muted); }
+.chart-grid { stroke: var(--line); }
+.chart-line.payg { stroke: var(--ink); fill: none; stroke-width: 2; }
+.chart-line.cud { stroke: var(--stream); fill: none; stroke-width: 2; stroke-dasharray: 5 4; }
+.chart-key { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.chart-key i { display: inline-block; width: 18px; border-top: 2px solid var(--ink); vertical-align: middle; margin-right: 6px; }
+.chart-key i.cud { border-top: 2px dashed var(--stream); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 22px; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; }
+th { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+tfoot td { font-weight: 700; border-bottom: 0; border-top: 2px solid var(--ink); }
+.share { display: inline-block; height: 6px; background: var(--blue); border-radius: 3px; vertical-align: middle; margin-left: 8px; opacity: .7; }
+.disclaimer { font-size: 13px; color: var(--muted); border-left: 3px solid var(--batch); padding: 6px 12px; background: var(--batch-soft); border-radius: 0 var(--radius-s) var(--radius-s) 0; max-width: 100ch; }
+
+/* ---------------------------------------------------------------- assumptions */
+.assume dl { display: grid; grid-template-columns: minmax(200px, 320px) 1fr; gap: 6px 16px; font-size: 14px; }
+.assume dt { color: var(--ink-2); }
+.assume dd { margin: 0; }
+.assume h3 { margin: 18px 0 8px; }
+.assume h3:first-child { margin-top: 0; }
+
+/* ---------------------------------------------------------------- dialog */
+dialog {
+  border: 1px solid var(--line); border-radius: 14px; padding: 22px; width: min(620px, calc(100vw - 32px));
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-pop);
+}
+dialog::backdrop { background: rgba(15, 23, 36, .45); }
+dialog h2 { font-size: 18px; margin-bottom: 14px; }
+.hint { font-size: 13px; color: var(--muted); min-height: 1.2em; margin: 10px 0 0; }
+.dlg-actions { display: flex; gap: 8px; margin-top: 16px; }
+.spacer { flex: 1; }
+
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: var(--radius-s);
+  font-size: 14px; box-shadow: var(--shadow-pop); z-index: 50;
+}
+
+/* ---------------------------------------------------------------- responsive */
+@media (max-width: 1100px) {
+  .workspace { grid-template-columns: 1fr; }
+  .side { position: static; max-height: none; }
+  .brand span { display: none; }
+}
+@media (max-width: 720px) {
+  .topbar { flex-wrap: wrap; padding: 10px 16px; gap: 10px; }
+  .customer { order: 3; flex-basis: 100%; }
+  .workspace { padding: 16px; }
+  .horizon { grid-template-columns: 1fr; }
+  .rec { grid-template-columns: 1fr; gap: 8px; }
+  .grid2 { grid-template-columns: 1fr; }
+  .span2 { grid-column: auto; }
+  .platform-block dl, .assume dl { grid-template-columns: 1fr; }
+  .summary-strip .note { margin-left: 0; }
+  table { font-size: 13px; }
+}
+
+/* ---------------------------------------------------------------- print */
+@media print {
+  .topbar .top-actions, .side .panel-head button, .tabs, .settings, dialog, .toast { display: none !important; }
+  body { background: #fff; }
+  .workspace { display: block; padding: 0; }
+  .side { position: static; max-height: none; }
+  .tabpanel { display: block !important; border: 0; padding: 0; margin-bottom: 24px; page-break-inside: auto; }
+  .tabpanel[hidden] { display: block !important; }
+  .dg-edge.stream { animation: none; }
+}
+
+/* ---------------------------------------------------------------- AI & governance layer */
+
+:root { --ai: #8A4FD6; --ai-soft: #F1EAFB; --gov: #3D7A3A; --gov-soft: #E7F2E6; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --ai: #C3A0F5; --ai-soft: #2C2142; --gov: #8FCB8B; --gov-soft: #1D3220; }
+}
+.layer fieldset { border: 0; border-top: 1px solid var(--line); margin: 0; padding: 10px 0 12px; }
+.layer fieldset:first-of-type { border-top: 0; padding-top: 0; }
+.layer legend { padding: 0; margin-bottom: 8px; }
+.layer fieldset.off .grid2, .layer fieldset.off .checks { display: none; }
+.layer fieldset.off { padding-bottom: 6px; }
+.toggle { flex-direction: row; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.toggle input { width: 16px; height: 16px; accent-color: var(--ink); margin: 0; }
+.checks { display: flex; flex-direction: column; gap: 6px; }
+.checks .toggle { font-weight: 500; font-size: 13.5px; }
+
+.dg-node.ai rect { fill: var(--ai-soft); stroke: var(--ai); }
+.dg-node.gov rect { fill: var(--gov-soft); stroke: var(--gov); }
+.dg-band rect { fill: none; stroke: var(--gov); stroke-dasharray: 5 4; }
+.dg-band text.band-title { font: 600 12.5px var(--font); fill: var(--gov); }
+.dg-edge.ai { stroke: var(--ai); stroke-width: 1.8; }
+
+.story { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.story-block { border: 1px solid var(--line); border-radius: var(--radius-m); padding: 16px 18px; border-top: 4px solid var(--blue); }
+.story-block.ai { border-top-color: var(--ai); }
+.story-block.governance, .story-block.security { border-top-color: var(--gov); }
+.story-block.bi { border-top-color: var(--batch); }
+.story-block h3 { margin-bottom: 8px; }
+.story-block ul { margin: 8px 0 0; padding-left: 18px; }
+.story-block li { margin-bottom: 5px; }
+.tool-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tool-chips a { font-size: 12.5px; font-weight: 600; text-decoration: none; padding: 3px 9px; border-radius: var(--radius-s); background: var(--blue-soft); color: var(--blue); }
+.story-block.ai .tool-chips a { background: var(--ai-soft); color: var(--ai); }
+.story-block.governance .tool-chips a, .story-block.security .tool-chips a { background: var(--gov-soft); color: var(--gov); }
+.story-cost { font-size: 13px; color: var(--muted); margin-top: 10px; }
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 22px; }
+.groups div { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 10px 12px; }
+.groups b { display: block; font-size: 17px; }
+.groups span { font-size: 12.5px; color: var(--muted); }
+.lede { color: var(--ink-2); max-width: 90ch; margin-bottom: 16px; }
+.demo-steps { margin: 0; padding-left: 20px; max-width: 90ch; } .demo-steps li { margin-bottom: 6px; }
+[hidden] { display: none !important; }
+.inline-field { flex-direction: row; }
+
+.toast { display: flex; align-items: center; gap: 14px; }
+.toast-action { font: inherit; font-weight: 700; background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+#copyText { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+:root[data-theme="dark"] { --ai: #C3A0F5; --ai-soft: #2C2142; --gov: #8FCB8B; --gov-soft: #1D3220; }
+
+.demo-banner{background:var(--blue-soft);color:var(--ink);font-size:13px;padding:6px max(16px, env(safe-area-inset-left, 0px));text-align:center}</style>
+</head>
+<body>
+  <div class="demo-banner">Interactive demo running fully in your browser. Deploy your own copy to Google Cloud in a few clicks - see the project README.</div>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" class="brand-bg"/><path d="M7 10h8M7 16h12M7 22h6" class="brand-lines"/><circle cx="24" cy="16" r="4" class="brand-dot"/></svg>
+      <div>
+        <strong>Ingestion Advisor</strong>
+        <span>Sources to BigQuery, sized for discovery</span>
+      </div>
+    </div>
+    <label class="customer">
+      <span class="sr-only">Customer / engagement name</span>
+      <input id="customer" type="text" placeholder="Customer or engagement name" autocomplete="off">
+    </label>
+    <div class="top-actions">
+      <label class="inline-field">Region
+        <select id="region"></select>
+      </label>
+      <label class="inline-field">Currency
+        <select id="currency"></select>
+      </label>
+      <div class="menu">
+        <button class="btn ghost" id="samplesBtn" aria-haspopup="true" aria-expanded="false">Load sample</button>
+        <div class="menu-pop" id="samplesMenu" role="menu" hidden></div>
+      </div>
+      <div class="menu">
+        <button class="btn primary" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export</button>
+        <div class="menu-pop right" id="exportMenu" role="menu" hidden>
+          <button role="menuitem" data-export="md">Proposal (Markdown)</button>
+          <button role="menuitem" data-export="csv">Cost breakdown (CSV)</button>
+          <button role="menuitem" data-export="json">Save scenario (JSON)</button>
+          <button role="menuitem" data-export="svg">Architecture diagram (SVG)</button>
+          <button role="menuitem" data-export="print">Print / Save as PDF</button>
+          <hr>
+          <label class="menu-file">Open scenario (JSON)<input type="file" id="importFile" accept="application/json,.json"></label>
+          <button role="menuitem" data-export="reset">Start a new scenario</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="side">
+      <section class="panel" aria-labelledby="srcHead">
+        <div class="panel-head">
+          <h2 id="srcHead">Source systems</h2>
+          <button class="btn primary small" id="addSourceBtn">Add source</button>
+        </div>
+        <ol class="source-list" id="sourceList"></ol>
+        <div class="empty" id="sourceEmpty">
+          <p>Add each system the customer wants in BigQuery. You'll get a pattern per source and a running cost.</p>
+        </div>
+      </section>
+
+      <details class="panel settings" open>
+        <summary><h2>Engagement settings</h2></summary>
+        <div class="grid2">
+          <label>Team skill set
+            <select id="skill"></select>
+          </label>
+          <label>Orchestration
+            <select id="orchestration"></select>
+          </label>
+          <label>BigQuery pricing
+            <select id="bq_model"></select>
+          </label>
+          <label id="slotsField">Avg. slots (editions)
+            <input id="bq_slots" type="number" min="0" step="50" value="100">
+          </label>
+          <label>Analytics scan, TiB/month
+            <input id="analytics_tib_month" type="number" min="0" step="1" placeholder="Auto">
+          </label>
+          <label>Annual data growth %
+            <input id="annual_growth_pct" type="number" min="-50" max="500" step="5" value="20">
+          </label>
+          <label>Environment
+            <select id="environment">
+              <option value="poc">Proof of concept</option>
+              <option value="production" selected>Production</option>
+              <option value="production_ha">Production (HA)</option>
+            </select>
+          </label>
+          <label>Contingency %
+            <input id="contingency_pct" type="number" min="0" max="100" step="5" value="10">
+          </label>
+        </div>
+      </details>
+      <details class="panel settings layer" open>
+        <summary><h2>Analytics, AI &amp; governance</h2></summary>
+        <fieldset data-group="bi">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> BI &amp; semantic layer</label></legend>
+          <div class="grid2">
+            <label>Tool<select data-k="tool"></select></label>
+            <label>Users<input type="number" min="0" step="10" data-k="users"></label>
+            <label class="span2" data-show="looker">Looker annual licence quote (USD)<input type="number" min="0" step="1000" data-k="looker_annual_usd" placeholder="0 = not included"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="gemini_enterprise">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Gemini Enterprise</label></legend>
+          <div class="grid2">
+            <label>Edition<select data-k="edition"></select></label>
+            <label>Users<input type="number" min="0" step="10" data-k="users"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="agents">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Data agents (Agent Platform)</label></legend>
+          <div class="grid2">
+            <label>Model<select data-k="model"></select></label>
+            <label>Agent requests / month<input type="number" min="0" step="1000" data-k="requests_month"></label>
+            <label>Input tokens / request<input type="number" min="0" step="500" data-k="input_tokens"></label>
+            <label>Output tokens / request<input type="number" min="0" step="100" data-k="output_tokens"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="gpu">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Model serving on GPU endpoints</label></legend>
+          <div class="grid2">
+            <label>Accelerator<select data-k="gpu"></select></label>
+            <label>Replicas<input type="number" min="0" step="1" data-k="replicas"></label>
+            <label>Hours per day<input type="number" min="0" max="24" step="1" data-k="hours_per_day"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="governance">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Governance (Knowledge Catalog / Dataplex)</label></legend>
+          <div class="grid2">
+            <label>Tables with quality scans %<input type="number" min="0" max="100" step="5" data-k="dq_share_pct"></label>
+            <label>Scans per month<input type="number" min="0" step="1" data-k="dq_scans_per_month"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="security">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Security &amp; compliance</label></legend>
+          <div class="checks">
+            <label class="toggle"><input type="checkbox" data-k="sdp_discovery"> Sensitive Data Protection discovery</label>
+            <label class="toggle"><input type="checkbox" data-k="cmek"> Customer-managed keys (CMEK)</label>
+            <label class="toggle"><input type="checkbox" data-k="vpc_sc"> VPC Service Controls</label>
+          </div>
+        </fieldset>
+      </details>
+    </aside>
+
+    <section class="stage">
+      <nav class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="arch">Architecture</button>
+        <button role="tab" aria-selected="false" data-tab="recs">Ingestion patterns</button>
+        <button role="tab" aria-selected="false" data-tab="platform">AI, governance &amp; security</button>
+        <button role="tab" aria-selected="false" data-tab="cost">Consumption estimate</button>
+        <button role="tab" aria-selected="false" data-tab="assume">Assumptions</button>
+      </nav>
+
+      <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
+
+      <div class="tabpanel" id="tab-arch" role="tabpanel">
+        <div class="legend">
+          <span><i class="ln stream"></i>Streaming / CDC</span>
+          <span><i class="ln batch"></i>Scheduled batch</span>
+          <span><i class="ln once"></i>One-time migration</span>
+        </div>
+        <div class="diagram-wrap" id="diagram"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-recs" role="tabpanel" hidden>
+        <div id="recsBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-platform" role="tabpanel" hidden>
+        <div id="platformBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-cost" role="tabpanel" hidden>
+        <div id="costBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-assume" role="tabpanel" hidden>
+        <div id="assumeBody"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="sourceDialog" aria-labelledby="dlgTitle">
+    <form id="sourceForm" method="dialog">
+      <h2 id="dlgTitle">Add source system</h2>
+      <div class="grid2">
+        <label class="span2">Source system type
+          <select id="f_type" required></select>
+        </label>
+        <label class="span2">Name used in the customer's estate
+          <input id="f_name" type="text" placeholder="e.g. Core banking (Oracle 19c)" maxlength="120">
+        </label>
+        <label>Data type
+          <select id="f_data_type"></select>
+        </label>
+        <label>Where it runs
+          <select id="f_location"></select>
+        </label>
+        <label>Freshness needed
+          <select id="f_frequency"></select>
+        </label>
+        <label>In-flight transformation
+          <select id="f_transform"></select>
+        </label>
+        <label>Initial / historical volume (GB)
+          <input id="f_initial_volume_gb" type="number" min="0" step="any" value="100">
+        </label>
+        <label>Daily change volume (GB/day)
+          <input id="f_daily_change_gb" type="number" min="0" step="any" value="1">
+        </label>
+        <label class="span2">Discovery notes
+          <textarea id="f_notes" rows="2" placeholder="Owners, constraints, SLAs, licensing..."></textarea>
+        </label>
+      </div>
+      <p class="hint" id="f_hint"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn ghost danger" id="f_delete" hidden>Remove source</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="f_cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="f_save">Add source</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="copyDialog" aria-labelledby="copyTitle">
+    <form method="dialog">
+      <h2 id="copyTitle">Export</h2>
+      <p class="hint">Copy the text below (Ctrl/Cmd + C).</p>
+      <textarea id="copyText" rows="14" readonly></textarea>
+      <div class="dlg-actions"><span class="spacer"></span><button class="btn primary" id="copyClose">Done</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script>window.ADVISOR_DATA = {"catalog":{"source_types":[{"id":"oracle","name":"Oracle Database","category":"rdbms","icon":"db","cdc":true},{"id":"sqlserver","name":"Microsoft SQL Server","category":"rdbms","icon":"db","cdc":true},{"id":"mysql","name":"MySQL / MariaDB","category":"rdbms","icon":"db","cdc":true},{"id":"postgresql","name":"PostgreSQL","category":"rdbms","icon":"db","cdc":true},{"id":"cloudsql","name":"Cloud SQL (MySQL / PostgreSQL / SQL Server)","category":"rdbms_gcp","icon":"db","cdc":true},{"id":"alloydb","name":"AlloyDB","category":"rdbms_gcp","icon":"db","cdc":true},{"id":"spanner","name":"Cloud Spanner","category":"rdbms_gcp","icon":"db","cdc":true},{"id":"db2","name":"IBM Db2","category":"rdbms_nocdc","icon":"db","cdc":false},{"id":"other_jdbc","name":"Other JDBC database","category":"rdbms_nocdc","icon":"db","cdc":false},{"id":"teradata","name":"Teradata","category":"dwh","icon":"dwh"},{"id":"redshift","name":"Amazon Redshift","category":"dwh","icon":"dwh"},{"id":"snowflake","name":"Snowflake","category":"dwh","icon":"dwh"},{"id":"netezza","name":"IBM Netezza","category":"dwh","icon":"dwh"},{"id":"synapse","name":"Azure Synapse","category":"dwh","icon":"dwh"},{"id":"hadoop","name":"Hadoop / Hive / HDFS","category":"hadoop","icon":"dwh"},{"id":"sap","name":"SAP ECC / S/4HANA / BW","category":"sap","icon":"app"},{"id":"mainframe","name":"Mainframe (z/OS, VSAM, Db2 z)","category":"mainframe","icon":"app"},{"id":"mongodb","name":"MongoDB","category":"nosql","icon":"db"},{"id":"cassandra","name":"Cassandra","category":"nosql","icon":"db"},{"id":"firestore","name":"Firestore / Bigtable","category":"nosql_gcp","icon":"db"},{"id":"files_onprem","name":"Files - on-prem (NFS / SMB / SFTP)","category":"files_onprem","icon":"file"},{"id":"s3","name":"Amazon S3","category":"object_aws","icon":"file"},{"id":"azure_blob","name":"Azure Blob / ADLS Gen2","category":"object_azure","icon":"file"},{"id":"gcs","name":"Cloud Storage files","category":"object_gcp","icon":"file"},{"id":"kafka","name":"Apache Kafka / Confluent","category":"kafka","icon":"stream"},{"id":"kinesis","name":"Amazon Kinesis / MSK","category":"stream_aws","icon":"stream"},{"id":"event_hubs","name":"Azure Event Hubs","category":"stream_azure","icon":"stream"},{"id":"iot","name":"IoT devices / telemetry","category":"events","icon":"stream"},{"id":"clickstream","name":"Web / app clickstream events","category":"events","icon":"stream"},{"id":"logs","name":"Application & infra logs (Cloud Logging)","category":"logs","icon":"stream"},{"id":"google_marketing","name":"Google Ads / GA4 / YouTube / Campaign Manager","category":"saas_google","icon":"saas"},{"id":"salesforce","name":"Salesforce","category":"saas_salesforce","icon":"saas"},{"id":"saas_other","name":"Other SaaS (ServiceNow, Workday, HubSpot, ...)","category":"saas_other","icon":"saas"},{"id":"rest_api","name":"Custom REST / GraphQL API","category":"api","icon":"saas"},{"id":"documents","name":"Documents / images / media","category":"unstructured","icon":"file"}],"frequencies":[{"id":"realtime","name":"Real-time (seconds)","runs_per_month":null},{"id":"near_realtime","name":"Near real-time (minutes)","runs_per_month":null},{"id":"hourly","name":"Hourly","runs_per_month":730},{"id":"daily","name":"Daily","runs_per_month":30},{"id":"weekly","name":"Weekly","runs_per_month":4.3},{"id":"monthly","name":"Monthly","runs_per_month":1},{"id":"one_time","name":"One-time migration","runs_per_month":0}],"data_types":[{"id":"structured","name":"Structured (tables)"},{"id":"semi_structured","name":"Semi-structured (JSON, XML, Avro, Parquet)"},{"id":"unstructured","name":"Unstructured (documents, images, audio)"},{"id":"events","name":"Event streams / messages"}],"locations":[{"id":"on_prem","name":"On-premises / private DC"},{"id":"gcp","name":"Google Cloud"},{"id":"aws","name":"AWS"},{"id":"azure","name":"Azure"},{"id":"saas","name":"SaaS (internet)"}],"transforms":[{"id":"none","name":"None - land as-is (ELT later)"},{"id":"light","name":"Light - filter, map, mask PII"},{"id":"heavy","name":"Heavy - joins, enrichment, complex logic"}],"skills":[{"id":"sql","name":"SQL-first (analysts / BI engineers)"},{"id":"low_code","name":"Low-code / visual (ETL developers)"},{"id":"code","name":"Code-first (Python / Java / Beam)"},{"id":"spark","name":"Spark / Hadoop"}],"tools":{"datastream":{"name":"Datastream","layer":"ingest","summary":"Serverless CDC replication from Oracle, MySQL, PostgreSQL, SQL Server, AlloyDB, Spanner straight into BigQuery.","doc":"https://cloud.google.com/datastream/docs/overview"},"dataflow":{"name":"Dataflow","layer":"process","summary":"Serverless Apache Beam for batch and streaming ETL; Google-provided templates (JDBC, Kafka, MongoDB, Pub/Sub to BigQuery).","doc":"https://cloud.google.com/dataflow/docs/guides/templates/provided-templates"},"pubsub":{"name":"Pub/Sub","layer":"ingest","summary":"Global messaging; BigQuery subscriptions write messages to tables with no pipeline code. Import topics can pull from Kinesis, MSK, Event Hubs, Confluent.","doc":"https://cloud.google.com/pubsub/docs/bigquery"},"bq_dts":{"name":"BigQuery Data Transfer Service","layer":"ingest","summary":"Managed, scheduled loads from Google SaaS, S3, Azure Blob, Cloud Storage, Salesforce and warehouse migrations (Teradata, Redshift, Snowflake).","doc":"https://cloud.google.com/bigquery/docs/dts-introduction"},"bq_migration":{"name":"BigQuery Migration Service","layer":"ingest","summary":"Assessment, batch + interactive SQL translation and data validation for warehouse migrations.","doc":"https://cloud.google.com/bigquery/docs/migration-intro"},"datafusion":{"name":"Cloud Data Fusion","layer":"process","summary":"Visual, low-code ETL (CDAP) with 150+ connectors incl. SAP, Db2, mainframe, SaaS; executes on Dataproc.","doc":"https://cloud.google.com/data-fusion/docs/concepts/overview"},"dataproc_serverless":{"name":"Dataproc Serverless (Spark)","layer":"process","summary":"Run Spark batch jobs without clusters - best for existing Spark/Hadoop skills and code.","doc":"https://cloud.google.com/dataproc-serverless/docs/overview"},"storage_transfer":{"name":"Storage Transfer Service","layer":"ingest","summary":"Scheduled, incremental file transfer from on-prem file systems (agent), S3, Azure and HTTP into Cloud Storage.","doc":"https://cloud.google.com/storage-transfer/docs/overview"},"transfer_appliance":{"name":"Transfer Appliance","layer":"ingest","summary":"Physical appliance for offline transfer of 100s of TB when network bandwidth is the bottleneck.","doc":"https://cloud.google.com/transfer-appliance/docs/4.0/overview"},"bq_omni":{"name":"BigQuery Omni / BigLake","layer":"ingest","summary":"Query data in place on S3 / Azure Blob, or as BigLake external tables, without copying it first.","doc":"https://cloud.google.com/bigquery/docs/omni-introduction"},"sap_connector":{"name":"BigQuery Connector for SAP","layer":"ingest","summary":"Near real-time replication from SAP (via SLT) into BigQuery; pairs with Google Cloud Cortex Framework data models.","doc":"https://cloud.google.com/solutions/sap/docs/bq-connector/latest/planning"},"mainframe_connector":{"name":"Mainframe Connector","layer":"ingest","summary":"Moves mainframe datasets (incl. EBCDIC/COBOL copybooks) to Cloud Storage/BigQuery and transcodes to ORC.","doc":"https://cloud.google.com/mainframe-connector/docs/overview"},"managed_kafka":{"name":"Managed Service for Apache Kafka","layer":"ingest","summary":"Fully managed Kafka on GCP with Connect clusters (BigQuery sink) - for teams standardising on Kafka.","doc":"https://cloud.google.com/managed-service-for-apache-kafka/docs/overview"},"federated":{"name":"BigQuery federated queries","layer":"ingest","summary":"EXTERNAL_QUERY against Cloud SQL / AlloyDB / Spanner + scheduled queries - zero pipeline for low volumes.","doc":"https://cloud.google.com/bigquery/docs/federated-queries-intro"},"log_sink":{"name":"Cloud Logging sink to BigQuery","layer":"ingest","summary":"Route logs to BigQuery datasets (or Log Analytics linked datasets) with a filter - no pipeline needed.","doc":"https://cloud.google.com/logging/docs/export/bigquery"},"cloud_run_jobs":{"name":"Cloud Run jobs + Cloud Scheduler","layer":"process","summary":"Lightweight Python/Node extractors for REST APIs and niche SaaS, loading via the Storage Write API.","doc":"https://cloud.google.com/run/docs/create-jobs"},"app_integration":{"name":"Application Integration / Integration Connectors","layer":"ingest","summary":"100+ managed SaaS connectors (ServiceNow, Workday, HubSpot ...) with visual integration flows.","doc":"https://cloud.google.com/integration-connectors/docs/connector-reference-overview"},"object_tables":{"name":"Cloud Storage + BigQuery object tables","layer":"land","summary":"Land files in Cloud Storage and expose them as object tables; enrich with Document AI / Gemini via BigQuery ML.","doc":"https://cloud.google.com/bigquery/docs/object-table-introduction"},"gcs_load":{"name":"Cloud Storage landing + BigQuery load jobs","layer":"land","summary":"Batch loads from a GCS landing bucket are free on the shared slot pool; or expose as BigLake tables.","doc":"https://cloud.google.com/bigquery/docs/loading-data-cloud-storage"},"dataform":{"name":"Dataform","layer":"transform","summary":"SQL-based ELT inside BigQuery with version control, dependencies, assertions and scheduling. No extra charge.","doc":"https://cloud.google.com/dataform/docs/overview"},"composer":{"name":"Managed Service for Apache Airflow (Cloud Composer)","layer":"orchestrate","summary":"Managed Airflow to orchestrate cross-system pipelines, dependencies, retries and SLAs.","doc":"https://cloud.google.com/composer/docs/composer-3/composer-overview"},"workflows":{"name":"Workflows + Cloud Scheduler","layer":"orchestrate","summary":"Serverless, low-cost orchestration for a handful of simple pipelines.","doc":"https://cloud.google.com/workflows/docs/overview"},"looker":{"name":"Looker","layer":"consume","summary":"Governed BI and semantic layer (LookML / BigQuery measures) directly on BigQuery; also powers Conversational Analytics and Looker Studio.","doc":"https://cloud.google.com/looker/docs/intro"},"looker_studio":{"name":"Looker Studio","layer":"consume","summary":"Self-service dashboards on BigQuery; Pro adds team workspaces, governance and SLA.","doc":"https://cloud.google.com/looker-studio"},"conversational_analytics":{"name":"Conversational Analytics & BigQuery data agents","layer":"ai","summary":"Natural-language questions over BigQuery and Looker with traceable answers; Data Engineering and Data Science agents in BigQuery Studio.","doc":"https://cloud.google.com/gemini/docs/conversational-analytics-api/overview"},"gemini_enterprise":{"name":"Gemini Enterprise","layer":"ai","summary":"Agentic workspace for every employee: grounded search, Deep Research, no-code and custom agents over BigQuery and enterprise apps.","doc":"https://cloud.google.com/gemini-enterprise"},"agent_platform":{"name":"Gemini Enterprise Agent Platform (Vertex AI)","layer":"ai","summary":"Build agents with ADK, host them on Agent Engine (sessions, Memory Bank), call Gemini models, and expose BigQuery via MCP tools.","doc":"https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview"},"gpu_endpoints":{"name":"Vertex AI GPU endpoints","layer":"ai","summary":"Deploy open, fine-tuned or custom models (Model Garden, vLLM) to autoscaling online endpoints on L4, A100 or H100 GPUs.","doc":"https://cloud.google.com/vertex-ai/docs/predictions/overview"},"bqml":{"name":"BigQuery ML & AI functions","layer":"ai","summary":"AI.GENERATE / ML.GENERATE_TEXT, embeddings and vector search in SQL; remote models call Gemini or your own Vertex endpoint.","doc":"https://cloud.google.com/bigquery/docs/generative-ai-overview"},"reverse_etl":{"name":"Reverse ETL to AlloyDB / Spanner","layer":"consume","summary":"Sync curated BigQuery results back into operational databases that serve applications and agents.","doc":"https://cloud.google.com/bigquery/docs/export-to-spanner"},"knowledge_catalog":{"name":"Knowledge Catalog (Dataplex)","layer":"govern","summary":"Successor to Dataplex Universal Catalog: semantic search, business glossary, lineage, data profiling and quality scans - the context layer for agents.","doc":"https://cloud.google.com/dataplex/docs/introduction"},"sdp":{"name":"Sensitive Data Protection","layer":"security","summary":"Discovers and classifies PII across BigQuery and Cloud Storage; de-identifies data and drives policy tags.","doc":"https://cloud.google.com/sensitive-data-protection/docs/sensitive-data-protection-overview"},"cmek":{"name":"Cloud KMS (CMEK)","layer":"security","summary":"Customer-managed encryption keys for BigQuery, Cloud Storage, Pub/Sub, Datastream, Dataflow and Vertex AI.","doc":"https://cloud.google.com/kms/docs/cmek"},"vpc_sc":{"name":"VPC Service Controls","layer":"security","summary":"Service perimeter around data and AI projects to prevent exfiltration.","doc":"https://cloud.google.com/vpc-service-controls/docs/overview"},"fine_grained":{"name":"BigQuery policy tags, row access & data masking","layer":"security","summary":"Column- and row-level security and dynamic masking enforced for SQL, Looker and agents alike.","doc":"https://cloud.google.com/bigquery/docs/column-level-security-intro"},"scc":{"name":"Security Command Center","layer":"security","summary":"Posture management and threat detection, including AI workload protection and data security posture.","doc":"https://cloud.google.com/security-command-center/docs/security-command-center-overview"},"ha_vpn":{"name":"Cloud HA VPN","layer":"connect","summary":"Encrypted private connectivity from on-prem / other clouds (up to ~3 Gbps per tunnel).","doc":"https://cloud.google.com/network-connectivity/docs/vpn/concepts/overview"},"interconnect":{"name":"Cloud Interconnect","layer":"connect","summary":"Dedicated or Partner Interconnect for sustained high-volume transfer with SLA.","doc":"https://cloud.google.com/network-connectivity/docs/interconnect/concepts/overview"}},"regions":[{"id":"US","name":"US (multi-region)","geo":"Americas","uplift":1.0,"multi":true},{"id":"EU","name":"EU (multi-region)","geo":"Europe","uplift":1.0,"multi":true},{"id":"us-central1","name":"Iowa (us-central1)","geo":"Americas","uplift":1.0},{"id":"us-east1","name":"South Carolina (us-east1)","geo":"Americas","uplift":1.0},{"id":"us-east4","name":"N. Virginia (us-east4)","geo":"Americas","uplift":1.13},{"id":"us-west1","name":"Oregon (us-west1)","geo":"Americas","uplift":1.0},{"id":"northamerica-northeast1","name":"Montr\u00e9al (northamerica-northeast1)","geo":"Americas","uplift":1.1},{"id":"southamerica-east1","name":"S\u00e3o Paulo (southamerica-east1)","geo":"Americas","uplift":1.5},{"id":"europe-west1","name":"Belgium (europe-west1)","geo":"Europe","uplift":1.1},{"id":"europe-west2","name":"London (europe-west2)","geo":"Europe","uplift":1.21},{"id":"europe-west3","name":"Frankfurt (europe-west3)","geo":"Europe","uplift":1.21},{"id":"europe-west4","name":"Netherlands (europe-west4)","geo":"Europe","uplift":1.1},{"id":"europe-west9","name":"Paris (europe-west9)","geo":"Europe","uplift":1.16},{"id":"europe-north1","name":"Finland (europe-north1)","geo":"Europe","uplift":1.1},{"id":"me-central2","name":"Dammam, KSA (me-central2)","geo":"Middle East","uplift":1.27},{"id":"me-central1","name":"Doha, Qatar (me-central1)","geo":"Middle East","uplift":1.24},{"id":"me-west1","name":"Tel Aviv (me-west1)","geo":"Middle East","uplift":1.14},{"id":"africa-south1","name":"Johannesburg (africa-south1)","geo":"Africa","uplift":1.3},{"id":"asia-south1","name":"Mumbai (asia-south1)","geo":"Asia Pacific","uplift":1.2},{"id":"asia-southeast1","name":"Singapore (asia-southeast1)","geo":"Asia Pacific","uplift":1.23},{"id":"asia-northeast1","name":"Tokyo (asia-northeast1)","geo":"Asia Pacific","uplift":1.29},{"id":"australia-southeast1","name":"Sydney (australia-southeast1)","geo":"Asia Pacific","uplift":1.42}],"bq_models":[{"id":"ondemand","name":"On-demand (per TiB scanned)"},{"id":"standard","name":"Editions - Standard"},{"id":"enterprise","name":"Editions - Enterprise"},{"id":"enterprise_plus","name":"Editions - Enterprise Plus"}],"bi_options":[{"id":"looker","name":"Looker (quote-based licence)"},{"id":"looker_studio_pro","name":"Looker Studio Pro"},{"id":"looker_studio","name":"Looker Studio (no cost)"}],"gemini_enterprise_editions":[{"id":"business","name":"Business"},{"id":"standard","name":"Standard"},{"id":"plus","name":"Plus"}],"gemini_models":[{"id":"flash_lite","name":"Gemini Flash-Lite"},{"id":"flash","name":"Gemini Flash"},{"id":"pro","name":"Gemini Pro"}],"gpu_types":[{"id":"l4","name":"NVIDIA L4 (g2-standard-8)"},{"id":"a100","name":"NVIDIA A100 40GB"},{"id":"h100","name":"NVIDIA H100 80GB"},{"id":"cpu","name":"CPU only (n1-standard-4)"}],"orchestration":[{"id":"auto","name":"Auto-select"},{"id":"composer","name":"Cloud Composer (Airflow)"},{"id":"workflows","name":"Workflows + Scheduler"},{"id":"none","name":"None / built-in schedules"}]},"pricing":{"_meta":{"currency":"USD","baseline_region":"us-central1","last_reviewed":"2026-10-15","note":"Public list prices (on-demand, no negotiated discounts) for the baseline region. Regional uplift is applied via regions.json for services marked regional=true. Values flagged verify=true are approximations - confirm in the Google Cloud Pricing Calculator before quoting. Edit this file to update prices; no code change needed.","sources":["https://cloud.google.com/bigquery/pricing","https://cloud.google.com/datastream/pricing","https://cloud.google.com/dataflow/pricing","https://cloud.google.com/pubsub/pricing","https://cloud.google.com/data-fusion/pricing","https://cloud.google.com/composer/pricing","https://cloud.google.com/dataproc-serverless/pricing","https://cloud.google.com/storage/pricing","https://cloud.google.com/storage-transfer/pricing","https://cloud.google.com/network-connectivity/docs/vpn/pricing","https://cloud.google.com/run/pricing","https://cloud.google.com/vertex-ai/pricing","https://cloud.google.com/vertex-ai/generative-ai/pricing","https://cloud.google.com/dataplex/pricing","https://cloud.google.com/sensitive-data-protection/pricing","https://cloud.google.com/kms/pricing","https://cloud.google.com/integration-connectors/pricing","https://cloud.google.com/gemini-enterprise"]},"bigquery":{"regional":true,"storage_active_gib_month":0.02,"storage_longterm_gib_month":0.01,"storage_free_gib":10,"ondemand_tib":6.25,"ondemand_free_tib":1,"storage_write_api_gib":0.025,"storage_write_api_free_tib":2,"streaming_inserts_gib":0.05,"editions":{"standard":{"payg":0.04,"cud1":0.036,"cud3":0.032},"enterprise":{"payg":0.06,"cud1":0.048,"cud3":0.036},"enterprise_plus":{"payg":0.1,"cud1":0.08,"cud3":0.06}}},"datastream":{"regional":false,"cdc_tiers_gib":[[2500,2.0],[5000,1.5],[10000,1.2],[null,0.8]],"backfill_free_gib":500,"backfill_gib":0.4},"dataflow":{"regional":true,"batch_vcpu_hr":0.056,"streaming_vcpu_hr":0.069,"memory_gib_hr":0.003557,"streaming_engine_cu_hr":0.089,"shuffle_gib":0.011,"cud1_discount":0.2,"cud3_discount":0.4},"pubsub":{"regional":false,"throughput_tib":40.0,"bq_subscription_tib":50.0,"free_gib":10},"datafusion":{"regional":true,"developer_hr":0.35,"basic_hr":1.8,"basic_free_hours":120,"enterprise_hr":4.2,"pipeline_vcpu_hr_all_in":0.06,"verify":true},"dataproc_serverless":{"regional":true,"dcu_hr":0.06,"shuffle_storage_gib_month":0.04},"composer":{"regional":true,"dcu_hr":0.06,"cud1_dcu_hr":0.054,"cud3_dcu_hr":0.048,"small_env_avg_dcu":10,"medium_env_avg_dcu":20,"large_env_avg_dcu":40,"verify":true},"gcs":{"regional":true,"standard_gib_month":0.02},"storage_transfer":{"regional":false,"agent_gib":0.0125,"cloud_to_cloud_gib":0.0},"network":{"regional":false,"ha_vpn_tunnel_hr":0.05,"ha_vpn_tunnels":2,"interconnect_note":"Dedicated / Partner Interconnect is quoted separately (port + VLAN attachment). Recommended when sustained change volume exceeds ~1 TB/day."},"integration_connectors":{"regional":false,"third_party_node_hr":0.7,"data_processed_gib":10.0,"free_gib":20},"interconnect":{"regional":false,"dedicated_10g_port_month":1700.0,"vlan_attachment_hr":0.1,"vlan_attachments":2,"verify":true},"workflows":{"regional":false,"scheduler_job_month":0.1},"compute_engine":{"regional":true,"vm_standard_4vcpu_hr":0.19,"verify":true},"cloud_run":{"regional":true,"vcpu_second":1.8e-05,"gib_second":2e-06},"looker":{"regional":false,"studio_pro_user_month":9.0,"looker_note":"Looker (Google Cloud core) platform + user licences are quote-based; enter the customer's quote as an annual figure.","verify":true},"gemini_enterprise":{"regional":false,"business_user_month":21.0,"standard_user_month":30.0,"plus_user_month":60.0,"note":"Indicative annual-commitment list prices per user; confirm with a Google quote.","verify":true},"gemini_models":{"regional":false,"flash_lite":{"name":"Gemini Flash-Lite","input_mtok":0.1,"output_mtok":0.4},"flash":{"name":"Gemini Flash","input_mtok":0.3,"output_mtok":2.5},"pro":{"name":"Gemini Pro","input_mtok":1.25,"output_mtok":10.0}},"agent_engine":{"regional":true,"vcpu_hr":0.085,"gib_hr":0.009,"cud1_vcpu_hr":0.0765,"cud1_gib_hr":0.0081,"cud3_vcpu_hr":0.068,"cud3_gib_hr":0.0072,"free_vcpu_hr":50,"free_gib_hr":100},"vertex_prediction":{"regional":true,"nodes":{"cpu":{"name":"CPU node (n1-standard-4)","hr":0.219},"l4":{"name":"NVIDIA L4 (g2-standard-8, 1 GPU)","hr":0.98181},"a100":{"name":"NVIDIA A100 40GB (a2-highgpu-1g)","hr":4.2244949},"h100":{"name":"NVIDIA H100 80GB (a3-highgpu, per GPU)","hr":12.8,"verify":true}}},"dataplex":{"regional":true,"standard_dcu_hr":0.06,"premium_dcu_hr":0.089,"premium_cud1_dcu_hr":0.0801,"premium_cud3_dcu_hr":0.0712,"metadata_gib_month":2.0,"standard_free_dcu_hr":100,"dq_dcu_hr_per_table_scan":0.05,"lineage_dcu_hr_per_table_month":0.17,"verify":true},"sensitive_data_protection":{"regional":false,"discovery_gb":0.03,"discovery_table_cap_gb":3072},"kms":{"regional":false,"key_version_month":0.06,"ops_per_10k":0.03},"fx":{"USD":1.0,"SAR":3.75,"AED":3.6725,"EUR":0.92,"GBP":0.79,"INR":84.0}},"regions":[{"id":"US","name":"US (multi-region)","geo":"Americas","uplift":1.0,"multi":true},{"id":"EU","name":"EU (multi-region)","geo":"Europe","uplift":1.0,"multi":true},{"id":"us-central1","name":"Iowa (us-central1)","geo":"Americas","uplift":1.0},{"id":"us-east1","name":"South Carolina (us-east1)","geo":"Americas","uplift":1.0},{"id":"us-east4","name":"N. Virginia (us-east4)","geo":"Americas","uplift":1.13},{"id":"us-west1","name":"Oregon (us-west1)","geo":"Americas","uplift":1.0},{"id":"northamerica-northeast1","name":"Montr\u00e9al (northamerica-northeast1)","geo":"Americas","uplift":1.1},{"id":"southamerica-east1","name":"S\u00e3o Paulo (southamerica-east1)","geo":"Americas","uplift":1.5},{"id":"europe-west1","name":"Belgium (europe-west1)","geo":"Europe","uplift":1.1},{"id":"europe-west2","name":"London (europe-west2)","geo":"Europe","uplift":1.21},{"id":"europe-west3","name":"Frankfurt (europe-west3)","geo":"Europe","uplift":1.21},{"id":"europe-west4","name":"Netherlands (europe-west4)","geo":"Europe","uplift":1.1},{"id":"europe-west9","name":"Paris (europe-west9)","geo":"Europe","uplift":1.16},{"id":"europe-north1","name":"Finland (europe-north1)","geo":"Europe","uplift":1.1},{"id":"me-central2","name":"Dammam, KSA (me-central2)","geo":"Middle East","uplift":1.27},{"id":"me-central1","name":"Doha, Qatar (me-central1)","geo":"Middle East","uplift":1.24},{"id":"me-west1","name":"Tel Aviv (me-west1)","geo":"Middle East","uplift":1.14},{"id":"africa-south1","name":"Johannesburg (africa-south1)","geo":"Africa","uplift":1.3},{"id":"asia-south1","name":"Mumbai (asia-south1)","geo":"Asia Pacific","uplift":1.2},{"id":"asia-southeast1","name":"Singapore (asia-southeast1)","geo":"Asia Pacific","uplift":1.23},{"id":"asia-northeast1","name":"Tokyo (asia-northeast1)","geo":"Asia Pacific","uplift":1.29},{"id":"australia-southeast1","name":"Sydney (australia-southeast1)","geo":"Asia Pacific","uplift":1.42}],"assumptions":{"batch_gb_per_vcpu_hr":{"none":25.0,"light":20.0,"heavy":8.0},"batch_min_vcpu_hr_per_run":1.0,"stream_gb_per_vcpu_day":{"none":150.0,"light":100.0,"heavy":40.0},"stream_min_vcpu":2,"memory_gib_per_vcpu":3.75,"streaming_engine_cu_per_vcpu_hr":0.5,"datafusion_gb_per_vcpu_hr":15.0,"datafusion_min_vcpu_hr_per_run":4.0,"spark_gb_per_dcu_hr":{"none":20.0,"light":15.0,"heavy":6.0},"spark_min_dcu_hr_per_run":3.0,"landing_retention_days":7,"net_new_ratio":{"cdc":0.3,"append":1.0},"longterm_share_after_90d":0.7,"curated_layers_overhead":0.5,"elt_scan_multiplier":3.0,"auto_analytics_scan_multiplier":2.0,"teradata_agent_gb_per_hr":500.0,"cloud_run_minutes_per_run":10,"contingency":0.1},"cdc_categories":["dwh","nosql","nosql_gcp","rdbms","rdbms_gcp","rdbms_nocdc","sap"],"default_layer":{"bi":{"enabled":true,"tool":"looker","users":50,"looker_annual_usd":0},"gemini_enterprise":{"enabled":true,"edition":"standard","users":100},"agents":{"enabled":true,"model":"flash","requests_month":50000,"input_tokens":4000,"output_tokens":800,"agent_seconds":6,"bq_gb_per_request":0.2},"gpu":{"enabled":false,"gpu":"l4","replicas":1,"hours_per_day":24},"governance":{"enabled":true,"dq_share_pct":20,"dq_scans_per_month":30},"security":{"enabled":true,"sdp_discovery":true,"cmek":true,"vpc_sc":true}},"samples":[{"file":"manufacturing-quickstart.json","title":"Sample - Manufacturing quick start","scenario":{"customer":"Sample - Manufacturing quick start","region":"us-central1","skill":"low_code","orchestration":"auto","environment":"production","bq_model":"ondemand","annual_growth_pct":20,"contingency_pct":10,"sources":[{"id":"m1","name":"MES database (MySQL)","type":"mysql","data_type":"structured","frequency":"near_realtime","location":"on_prem","transform":"none","initial_volume_gb":500,"daily_change_gb":4},{"id":"m2","name":"Shop-floor sensors","type":"iot","data_type":"events","frequency":"realtime","location":"on_prem","transform":"none","initial_volume_gb":0,"daily_change_gb":15},{"id":"m3","name":"Supplier files (S3)","type":"s3","data_type":"semi_structured","frequency":"daily","location":"aws","transform":"none","initial_volume_gb":200,"daily_change_gb":1},{"id":"m4","name":"ServiceNow tickets","type":"saas_other","data_type":"structured","frequency":"daily","location":"saas","transform":"light","initial_volume_gb":20,"daily_change_gb":0.2}],"platform":{"bi":{"enabled":true,"tool":"looker_studio_pro","users":25,"looker_annual_usd":0},"gemini_enterprise":{"enabled":true,"edition":"business","users":40},"agents":{"enabled":true,"model":"flash_lite","requests_month":10000,"input_tokens":3000,"output_tokens":500,"agent_seconds":4,"bq_gb_per_request":0.05},"gpu":{"enabled":false,"gpu":"l4","replicas":1,"hours_per_day":12},"governance":{"enabled":true,"dq_share_pct":20,"dq_scans_per_month":30},"security":{"enabled":true,"sdp_discovery":true,"cmek":false,"vpc_sc":true}}}},{"file":"retail-bank-ksa.json","title":"Sample - Retail Bank (KSA)","scenario":{"customer":"Sample - Retail Bank (KSA)","region":"me-central2","skill":"sql","orchestration":"auto","environment":"production","bq_model":"enterprise","bq_slots":200,"annual_growth_pct":25,"contingency_pct":10,"sources":[{"id":"s1","name":"Core banking (Oracle 19c)","type":"oracle","data_type":"structured","frequency":"near_realtime","location":"on_prem","transform":"light","initial_volume_gb":8000,"daily_change_gb":60,"tables":450},{"id":"s2","name":"Cards & payments (SQL Server)","type":"sqlserver","data_type":"structured","frequency":"hourly","location":"on_prem","transform":"none","initial_volume_gb":2500,"daily_change_gb":25,"tables":120},{"id":"s3","name":"Transaction events (Kafka)","type":"kafka","data_type":"events","frequency":"realtime","location":"on_prem","transform":"light","initial_volume_gb":0,"daily_change_gb":40},{"id":"s4","name":"Regulatory files (SFTP)","type":"files_onprem","data_type":"semi_structured","frequency":"daily","location":"on_prem","transform":"none","initial_volume_gb":1500,"daily_change_gb":5},{"id":"s5","name":"CRM (Salesforce)","type":"salesforce","data_type":"structured","frequency":"daily","location":"saas","transform":"none","initial_volume_gb":300,"daily_change_gb":2},{"id":"s6","name":"Mobile app analytics (GA4)","type":"google_marketing","data_type":"events","frequency":"daily","location":"saas","transform":"none","initial_volume_gb":200,"daily_change_gb":3}],"platform":{"bi":{"enabled":true,"tool":"looker","users":150,"looker_annual_usd":0},"gemini_enterprise":{"enabled":true,"edition":"standard","users":300},"agents":{"enabled":true,"model":"flash","requests_month":120000,"input_tokens":5000,"output_tokens":800,"agent_seconds":6,"bq_gb_per_request":0.2},"gpu":{"enabled":true,"gpu":"l4","replicas":2,"hours_per_day":24},"governance":{"enabled":true,"dq_share_pct":25,"dq_scans_per_month":30},"security":{"enabled":true,"sdp_discovery":true,"cmek":true,"vpc_sc":true}}}},{"file":"telco-dwh-modernisation.json","title":"Sample - Telco DWH modernisation","scenario":{"customer":"Sample - Telco DWH modernisation","region":"europe-west1","skill":"spark","orchestration":"auto","environment":"production","bq_model":"enterprise","bq_slots":500,"annual_growth_pct":15,"contingency_pct":10,"sources":[{"id":"t1","name":"Enterprise DWH (Teradata)","type":"teradata","data_type":"structured","frequency":"daily","location":"on_prem","transform":"none","initial_volume_gb":150000,"daily_change_gb":300},{"id":"t2","name":"CDR data lake (Hadoop/Hive)","type":"hadoop","data_type":"semi_structured","frequency":"daily","location":"on_prem","transform":"heavy","initial_volume_gb":400000,"daily_change_gb":800},{"id":"t3","name":"Network probes (events)","type":"iot","data_type":"events","frequency":"realtime","location":"on_prem","transform":"heavy","initial_volume_gb":0,"daily_change_gb":250},{"id":"t4","name":"Billing (SAP S/4HANA)","type":"sap","data_type":"structured","frequency":"near_realtime","location":"on_prem","transform":"none","initial_volume_gb":6000,"daily_change_gb":20}],"platform":{"bi":{"enabled":true,"tool":"looker","users":400,"looker_annual_usd":0},"gemini_enterprise":{"enabled":true,"edition":"plus","users":200},"agents":{"enabled":true,"model":"pro","requests_month":40000,"input_tokens":8000,"output_tokens":1200,"agent_seconds":10,"bq_gb_per_request":1},"gpu":{"enabled":true,"gpu":"a100","replicas":1,"hours_per_day":24},"governance":{"enabled":true,"dq_share_pct":15,"dq_scans_per_month":30},"security":{"enabled":true,"sdp_discovery":true,"cmek":true,"vpc_sc":true}}}}]};</script>
+<script>/* In-browser port of app/recommender.py + app/estimator.py for the static demo.
+ *
+ * Data (catalog, pricing, regions, assumptions, samples) is injected by
+ * demo/build_demo.py as window.ADVISOR_DATA, generated from the Python sources,
+ * so only the logic lives here. tests/test_demo_parity.py runs this file under
+ * Node against every sample and compares it with the Python engine.
+ */
+(function (root) {
+  "use strict";
+  const D = root.ADVISOR_DATA;
+  const SOURCE_BY_ID = Object.fromEntries(D.catalog.source_types.map((s) => [s.id, s]));
+  const STREAMING = new Set(["realtime", "near_realtime"]);
+  const DATASTREAM_NATIVE = new Set(["oracle", "sqlserver", "mysql", "postgresql", "cloudsql", "alloydb", "spanner"]);
+  const TB = 1024, GIB_PER_TIB = 1024, HOURS = 730;
+  const A = D.assumptions;
+  const CDC_CATEGORIES = new Set(D.cdc_categories);
+  const RUNS = Object.fromEntries(D.catalog.frequencies.map((f) => [f.id, f.runs_per_month]));
+
+  const titleCase = (s) => s.replace(/_/g, " ").replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+  const num = (v) => Number(v || 0);
+
+  function Rec(sid, primary, pattern, chain, engine) {
+    return { source_id: sid, primary, pattern, chain: chain.slice(), engine, rationale: [], alternatives: [], caveats: [], needs_connectivity: false, needs_datafusion: false };
+  }
+  const alt = (tool, why) => ({ tool, why });
+
+  // ------------------------------------------------------------------ recommender
+  function recommend(src, prefs) {
+    prefs = prefs || {};
+    const skill = prefs.skill || "sql";
+    const stype = src.type;
+    const meta = SOURCE_BY_ID[stype] || { category: "api", name: stype };
+    const cat = meta.category;
+    const freq = src.frequency || "daily";
+    const transform = src.transform || "none";
+    const location = src.location || "on_prem";
+    const dailyGb = num(src.daily_change_gb);
+    const initialGb = num(src.initial_volume_gb);
+    const streaming = STREAMING.has(freq);
+    const oneTime = freq === "one_time";
+    const heavy = transform === "heavy";
+    const sid = src.id !== undefined ? src.id : stype;
+    let r;
+
+    if (cat === "rdbms" || cat === "rdbms_gcp") {
+      if (DATASTREAM_NATIVE.has(stype) && (streaming || freq === "hourly" || !heavy)) {
+        if (heavy) {
+          r = Rec(sid, "datastream", "CDC via Datastream -> GCS -> Dataflow -> BigQuery", ["datastream", "gcs_load", "dataflow"], "datastream+dataflow_stream");
+          r.rationale.push("Heavy in-flight transformation requested, so Datastream lands change files in Cloud Storage and the Google-provided 'Datastream to BigQuery' Dataflow template applies the logic before merge.");
+        } else {
+          r = Rec(sid, "datastream", "Change Data Capture via Datastream -> BigQuery", ["datastream"], "datastream");
+          r.rationale.push(`${meta.name} is a native Datastream source: log-based CDC replicates inserts/updates/deletes into BigQuery with seconds-to-minutes latency and no infrastructure to manage.`);
+          r.rationale.push("Backfill of existing tables is included, so the same stream handles the initial load and ongoing changes.");
+          if (!streaming) r.rationale.push("Even for hourly/daily needs, CDC avoids heavy full-table extracts on the source and keeps BigQuery continuously fresh; set the BigQuery staleness ('max_staleness') to control merge cost.");
+        }
+        r.alternatives.push(alt("dataflow", "JDBC to BigQuery template for scheduled batch extracts when CDC/supplemental logging cannot be enabled on the source."));
+        if (cat === "rdbms_gcp") r.alternatives.push(alt("federated", "EXTERNAL_QUERY + scheduled queries for small tables / reference data - zero pipeline."));
+        r.alternatives.push(alt("datafusion", "Low-code alternative with replication and batch plugins if the team prefers visual ETL."));
+        if (stype === "oracle") r.caveats.push("Oracle CDC uses LogMiner (or binary log reader): requires ARCHIVELOG mode and supplemental logging; check DBA approval early.");
+        if (stype === "sqlserver") r.caveats.push("SQL Server CDC requires either CDC tables or transaction-log reads to be enabled on the source.");
+        if (stype === "postgresql") r.caveats.push("PostgreSQL requires logical replication (pgoutput) and a replication slot/publication.");
+      } else {
+        r = batchEtl(sid, meta, skill, transform);
+        r.rationale.unshift(`${titleCase(freq)} batch extracts with transformation '${transform}' - a scheduled JDBC pipeline is simpler than continuous CDC here.`);
+        if (DATASTREAM_NATIVE.has(stype)) r.alternatives.unshift(alt("datastream", "Switch to CDC if near real-time freshness or reduced source load becomes a requirement."));
+      }
+      r.needs_connectivity = !["gcp", "saas"].includes(location) && cat !== "rdbms_gcp";
+    } else if (cat === "rdbms_nocdc") {
+      r = batchEtl(sid, meta, skill, transform);
+      r.rationale.unshift(`${meta.name} is not a native Datastream source, so ingestion uses JDBC-based pipelines.`);
+      if (streaming) {
+        r.caveats.push("True real-time CDC for this database needs a third-party log reader (e.g. IBM IIDR, Debezium on Kafka) feeding Pub/Sub or Kafka; consider micro-batches every few minutes instead.");
+        r.alternatives.unshift(alt("managed_kafka", "Debezium/IIDR -> Managed Kafka -> BigQuery sink for real-time CDC."));
+      }
+      r.needs_connectivity = !["gcp", "saas"].includes(location);
+    } else if (cat === "dwh") {
+      if (["teradata", "redshift", "snowflake"].includes(stype)) {
+        r = Rec(sid, "bq_dts", "Warehouse migration: BigQuery Migration Service + Data Transfer Service", ["bq_migration", "bq_dts"], "dts_migration");
+        r.rationale.push(`BigQuery Data Transfer Service has a managed ${meta.name} migration connector (schema + data, incremental runs supported), and BigQuery Migration Service translates SQL/ETL code and validates results.`);
+      } else {
+        r = Rec(sid, "bq_migration", "Export -> Cloud Storage -> BigQuery load + SQL translation", ["bq_migration", "storage_transfer", "gcs_load"], "files_transfer");
+        r.rationale.push(`No direct DTS connector for ${meta.name}: export tables to files (Parquet/CSV), move them with Storage Transfer Service, load to BigQuery; Migration Service translates the SQL.`);
+      }
+      r.rationale.push("Run an assessment first (BigQuery Migration Assessment) to size slots and plan waves.");
+      r.alternatives.push(alt("dataflow", "JDBC to BigQuery template for selective tables or continuous sync during parallel run."));
+      if (initialGb >= 100 * TB) r.alternatives.push(alt("transfer_appliance", "Initial volume >= 100 TB - consider an offline appliance if bandwidth is limited."));
+      r.caveats.push("Plan a parallel-run period; ongoing incremental sync until cut-over drives most of the run cost.");
+      r.needs_connectivity = location === "on_prem";
+    } else if (cat === "hadoop") {
+      if (skill === "spark" || skill === "code") {
+        r = Rec(sid, "dataproc_serverless", "HDFS -> Cloud Storage, Spark jobs on Dataproc Serverless -> BigQuery / BigLake", ["storage_transfer", "dataproc_serverless"], "dataproc");
+        r.rationale.push("Existing Spark/Hive code ports to Dataproc Serverless with minimal change; data lands in Cloud Storage and is exposed through BigLake or loaded to BigQuery.");
+      } else {
+        r = Rec(sid, "storage_transfer", "HDFS -> Cloud Storage -> BigLake / BigQuery load + Dataform", ["storage_transfer", "gcs_load"], "files_transfer");
+        r.rationale.push("Move Hive/HDFS data to Cloud Storage (Storage Transfer Service supports HDFS), expose as BigLake Iceberg/Parquet tables, and rewrite HiveQL as BigQuery SQL with Migration Service.");
+      }
+      r.alternatives.push(alt("bq_migration", "Translate HiveQL / Spark SQL to BigQuery SQL automatically."));
+      r.needs_connectivity = location === "on_prem";
+    } else if (cat === "sap") {
+      if (streaming || freq === "hourly") {
+        r = Rec(sid, "sap_connector", "SAP SLT -> BigQuery Connector for SAP -> BigQuery (+ Cortex Framework)", ["sap_connector"], "sap_connector");
+        r.rationale.push("BigQuery Connector for SAP plugs into SAP Landscape Transformation (SLT) and streams table changes into BigQuery in near real-time.");
+        r.rationale.push("Google Cloud Cortex Framework provides ready data models (OTC, P2P, finance) on top of the replicated tables.");
+        r.alternatives.push(alt("datafusion", "Data Fusion SAP plugins (Table Batch Source, ODP/BW extractors) when SLT is not licensed."));
+      } else {
+        r = Rec(sid, "datafusion", "SAP extractors / ODP via Cloud Data Fusion -> BigQuery", ["datafusion"], "datafusion");
+        r.needs_datafusion = true;
+        r.rationale.push("Cloud Data Fusion's SAP connectors (ODP, BW Open Hub, SLT, table batch) handle scheduled extracts with low-code pipelines.");
+        r.alternatives.push(alt("sap_connector", "BigQuery Connector for SAP if SLT is available and fresher data is needed."));
+      }
+      r.caveats.push("Confirm SAP licensing (SLT / ODP / runtime licence) - indirect access rules can apply.");
+      r.needs_connectivity = location === "on_prem";
+    } else if (cat === "mainframe") {
+      r = Rec(sid, "mainframe_connector", "Mainframe Connector -> Cloud Storage (ORC) -> BigQuery", ["mainframe_connector", "gcs_load"], "files_transfer");
+      r.rationale.push("Mainframe Connector runs as a JCL step, transcodes EBCDIC/COBOL copybook data to ORC and loads to BigQuery - no custom parsing.");
+      r.alternatives.push(alt("datafusion", "Data Fusion mainframe/COBOL plugins for low-code parsing."));
+      r.alternatives.push(alt("dataflow", "Dataflow with copybook parsing for complex record layouts."));
+      if (streaming) r.caveats.push("Real-time mainframe CDC requires a partner log reader (e.g. Precisely, IBM IIDR) into Pub/Sub/Kafka.");
+      r.needs_connectivity = true;
+    } else if (cat === "nosql") {
+      if (streaming) {
+        r = Rec(sid, "dataflow", "Change streams via Dataflow (MongoDB/Cassandra template) -> BigQuery", ["dataflow"], "dataflow_stream");
+        r.rationale.push("Dataflow's Google-provided MongoDB-to-BigQuery (CDC) templates read change streams and write JSON documents to BigQuery; BigQuery's JSON type keeps nested structures queryable.");
+      } else {
+        r = Rec(sid, "dataflow", "Scheduled Dataflow batch (MongoDB/Cassandra to BigQuery template)", ["dataflow"], "dataflow_batch");
+        r.rationale.push("Batch templates export collections to BigQuery on a schedule; documents land in a JSON column and are flattened with Dataform.");
+      }
+      r.alternatives.push(alt("datastream", "Check Datastream source support for MongoDB in your region - serverless CDC without templates."));
+      r.needs_connectivity = location === "on_prem";
+    } else if (cat === "nosql_gcp") {
+      r = Rec(sid, "dataflow", "Native export / change streams -> BigQuery", ["dataflow"], streaming ? "dataflow_stream" : "dataflow_batch");
+      r.rationale.push("Firestore and Bigtable change streams feed Dataflow templates into BigQuery; Bigtable can also be queried in place as an external table.");
+      r.alternatives.push(alt("federated", "BigQuery external tables over Bigtable for low-volume / ad-hoc analysis."));
+    } else if (cat === "files_onprem") {
+      const chain = initialGb >= 100 * TB ? ["transfer_appliance", "storage_transfer", "gcs_load"] : ["storage_transfer", "gcs_load"];
+      r = Rec(sid, "storage_transfer", "Storage Transfer Service (agent) -> Cloud Storage -> BigQuery load", chain, "files_transfer");
+      r.rationale.push("Storage Transfer Service agents copy new/changed files from NFS/SMB/HDFS on a schedule; event-driven BigQuery loads (or BigLake tables) make them queryable.");
+      if (initialGb >= 100 * TB) r.rationale.push("Initial volume >= 100 TB: seed with Transfer Appliance, then switch to incremental online transfers.");
+      if (src.data_type === "semi_structured") r.rationale.push("Semi-structured files (JSON/Avro/Parquet) load natively; schema auto-detection or BigLake tables avoid custom parsers.");
+      if (heavy) {
+        r.chain.push("dataflow");
+        r.engine = "files_transfer+dataflow_batch";
+        r.rationale.push("Heavy transformations: a Dataflow batch job (GCS Text/Avro to BigQuery template) cleanses files on arrival.");
+      }
+      r.alternatives.push(alt("datafusion", "Low-code file pipelines with SFTP source plugin."));
+      r.needs_connectivity = true;
+    } else if (cat === "object_aws" || cat === "object_azure") {
+      const cloud = cat === "object_aws" ? "S3" : "Azure Blob Storage";
+      r = Rec(sid, "bq_dts", `BigQuery Data Transfer Service (${cloud}) -> BigQuery`, ["bq_dts"], "dts_free");
+      r.rationale.push(`DTS has a native ${cloud} connector: scheduled, incremental loads with no infrastructure (minimum interval is hourly).`);
+      r.alternatives.push(alt("bq_omni", `BigQuery Omni / BigLake to query data in place on ${cloud} and avoid egress for large, rarely-used data.`));
+      r.alternatives.push(alt("storage_transfer", "Storage Transfer Service to replicate files to Cloud Storage for multi-consumer data lakes."));
+      r.caveats.push(`Egress charges from ${cat === "object_aws" ? "AWS" : "Azure"} are billed by that cloud and are not included in this estimate.`);
+      if (heavy) {
+        r.chain = ["storage_transfer", "gcs_load", "dataflow"];
+        r.engine = "files_transfer+dataflow_batch";
+        r.primary = "storage_transfer";
+        r.pattern = `${cloud} -> Storage Transfer -> Cloud Storage -> Dataflow -> BigQuery`;
+      }
+      if (streaming) r.caveats.push("DTS runs at most hourly; for sub-hour freshness use event notifications -> Pub/Sub -> Dataflow.");
+    } else if (cat === "object_gcp") {
+      r = Rec(sid, "gcs_load", "Cloud Storage -> BigQuery load jobs / BigLake tables", ["gcs_load"], "dts_free");
+      r.rationale.push("Data already in Cloud Storage: DTS for Cloud Storage or event-driven load jobs (free on the shared slot pool), or BigLake tables to query in place.");
+      if (heavy) { r.chain.push("dataflow"); r.engine = "dataflow_batch"; }
+    } else if (cat === "kafka") {
+      r = Rec(sid, "dataflow", "Kafka -> Dataflow (Kafka to BigQuery template) -> BigQuery", ["dataflow"], "dataflow_stream");
+      r.rationale.push("The Google-provided Kafka-to-BigQuery Dataflow template consumes topics directly (Confluent/self-managed/Managed Kafka) and writes via the Storage Write API with exactly-once semantics.");
+      r.alternatives.push(alt("managed_kafka", "Migrate brokers to Managed Service for Apache Kafka and use a BigQuery sink connector on a Connect cluster."));
+      r.alternatives.push(alt("pubsub", "Pub/Sub import topic from Confluent Cloud / MSK + BigQuery subscription when no transformation is needed."));
+      r.needs_connectivity = location === "on_prem";
+    } else if (cat === "stream_aws" || cat === "stream_azure") {
+      const svc = cat === "stream_aws" ? "Kinesis / MSK" : "Event Hubs";
+      if (heavy || transform === "light") {
+        r = Rec(sid, "pubsub", `${svc} -> Pub/Sub import topic -> Dataflow -> BigQuery`, ["pubsub", "dataflow"], "pubsub+dataflow_stream");
+        r.rationale.push(`Pub/Sub import topics ingest from ${svc} without custom consumers; Dataflow applies transformations before BigQuery.`);
+      } else {
+        r = Rec(sid, "pubsub", `${svc} -> Pub/Sub import topic -> BigQuery subscription`, ["pubsub"], "pubsub_bqsub");
+        r.rationale.push(`Pub/Sub import topics ingest from ${svc}; a BigQuery subscription writes messages to a table with zero pipeline code.`);
+      }
+      r.alternatives.push(alt("dataflow", `Dataflow reading ${svc} directly with Beam IO.`));
+      r.caveats.push("Cross-cloud egress from the source cloud is not included in this estimate.");
+    } else if (cat === "events") {
+      if (transform === "none") {
+        r = Rec(sid, "pubsub", "Pub/Sub -> BigQuery subscription (no-code streaming)", ["pubsub"], "pubsub_bqsub");
+        r.rationale.push("Events are published to Pub/Sub and a BigQuery subscription writes them straight into a table (schema-mapped or JSON) - lowest cost and zero ops.");
+        r.alternatives.push(alt("dataflow", "Add Dataflow when you need enrichment, windowed aggregations, deduplication or dead-letter routing."));
+      } else {
+        r = Rec(sid, "pubsub", "Pub/Sub -> Dataflow streaming -> BigQuery", ["pubsub", "dataflow"], "pubsub+dataflow_stream");
+        r.rationale.push("Pub/Sub decouples producers; Dataflow streaming handles parsing, enrichment, windowing and exactly-once writes to BigQuery.");
+        r.alternatives.push(alt("pubsub", "Pub/Sub BigQuery subscription + Dataform/continuous queries if transformations can run after landing (ELT)."));
+      }
+      if (stype === "iot") r.caveats.push("IoT Core is retired: devices publish via MQTT broker partners or HTTPS to Pub/Sub.");
+    } else if (cat === "logs") {
+      r = Rec(sid, "log_sink", "Cloud Logging sink -> BigQuery (or Log Analytics)", ["log_sink"], "log_sink");
+      r.rationale.push("A log router sink with a filter streams matching entries into BigQuery tables; Log Analytics linked datasets avoid duplication.");
+      r.alternatives.push(alt("pubsub", "Sink to Pub/Sub when logs also feed SIEM or real-time alerting."));
+    } else if (cat === "saas_google") {
+      r = Rec(sid, "bq_dts", "BigQuery Data Transfer Service (Google Ads / YouTube / CM360 / Merchant Center) + GA4 native export", ["bq_dts"], "dts_free");
+      r.rationale.push("Google marketing sources have first-party DTS connectors with no transfer charge; GA4 exports natively to BigQuery (daily + streaming).");
+      r.alternatives.push(alt("datafusion", "Only if data must be merged with other sources in-flight."));
+    } else if (cat === "saas_salesforce") {
+      r = Rec(sid, "bq_dts", "BigQuery Data Transfer Service (Salesforce connector) -> BigQuery", ["bq_dts"], "dts_free");
+      r.rationale.push("DTS provides a managed Salesforce connector for scheduled incremental object loads.");
+      r.alternatives.push(alt("datafusion", "Data Fusion Salesforce plugins (incl. streaming via PushTopic/CDC events)."));
+      r.alternatives.push(alt("app_integration", "Integration Connectors for event-driven or bidirectional flows."));
+      r.caveats.push("Salesforce API call limits apply - size extract frequency against the org's daily API allowance.");
+      if (streaming) r.caveats.push("For sub-hour freshness use Salesforce Change Data Capture events -> Pub/Sub via Application Integration.");
+    } else if (cat === "saas_other") {
+      if (skill === "low_code" || heavy) {
+        r = Rec(sid, "datafusion", "Cloud Data Fusion SaaS plugins -> BigQuery", ["datafusion"], "datafusion");
+        r.needs_datafusion = true;
+        r.rationale.push("Data Fusion Hub offers connectors for ServiceNow, Workday, Zendesk and others with visual mapping.");
+      } else {
+        r = Rec(sid, "app_integration", "Integration Connectors / Application Integration -> BigQuery", ["app_integration"], "app_integration");
+        r.rationale.push("Integration Connectors expose 100+ SaaS apps as managed connections; Application Integration schedules extracts into BigQuery.");
+      }
+      r.alternatives.push(alt("cloud_run_jobs", "Custom extractor on Cloud Run jobs for APIs without a managed connector."));
+      r.caveats.push("Check whether a DTS third-party connector exists for this specific SaaS - it is usually the cheapest option.");
+    } else if (cat === "api") {
+      r = Rec(sid, "cloud_run_jobs", "Cloud Scheduler -> Cloud Run job (extractor) -> BigQuery Storage Write API", ["cloud_run_jobs"], "cloud_run");
+      if (streaming) {
+        r.chain = ["cloud_run_jobs", "pubsub"];
+        r.engine = "cloud_run+pubsub";
+        r.pattern = "Webhook / push API -> Cloud Run service -> Pub/Sub -> BigQuery subscription";
+        r.rationale.push("Push/webhook APIs land on a Cloud Run service that publishes to Pub/Sub; a BigQuery subscription persists the events.");
+      } else {
+        r.rationale.push("A small Python/Node extractor packaged as a Cloud Run job handles auth, pagination and rate limits; scale-to-zero keeps cost near zero.");
+      }
+      r.alternatives.push(alt("app_integration", "Application Integration REST connector for no-code API pulls."));
+      r.alternatives.push(alt("datafusion", "Data Fusion HTTP plugin for low-code teams."));
+    } else if (cat === "unstructured") {
+      r = Rec(sid, "object_tables", "Cloud Storage -> BigQuery object tables + Document AI / Gemini (BigQuery ML)", ["storage_transfer", "object_tables"], "files_transfer");
+      r.rationale.push("Store files in Cloud Storage, register them as BigQuery object tables and extract entities/text with ML.GENERATE_TEXT (Gemini) or Document AI remote models - all in SQL.");
+      r.alternatives.push(alt("dataflow", "Dataflow for high-volume pre-processing (OCR, transcoding) pipelines."));
+      r.needs_connectivity = location === "on_prem";
+    } else {
+      r = batchEtl(sid, meta, skill, transform);
+    }
+
+    if (oneTime && r.engine !== "dts_migration") r.rationale.push("One-time migration: only the initial load is costed; ingestion services can be decommissioned afterwards.");
+    if (dailyGb >= TB && r.needs_connectivity) r.caveats.push("Sustained change volume >= 1 TB/day: size Cloud Interconnect rather than VPN.");
+    return r;
+  }
+
+  function batchEtl(sid, meta, skill, transform) {
+    let r;
+    if (skill === "low_code") {
+      r = Rec(sid, "datafusion", "Cloud Data Fusion batch pipeline -> BigQuery", ["datafusion"], "datafusion");
+      r.needs_datafusion = true;
+      r.rationale.push("Team prefers low-code: Data Fusion's visual pipelines and JDBC plugins with built-in scheduling.");
+      r.alternatives.push(alt("dataflow", "Dataflow JDBC to BigQuery template - cheaper at scale with no always-on instance."));
+    } else if (skill === "spark") {
+      r = Rec(sid, "dataproc_serverless", "Dataproc Serverless Spark (JDBC) -> BigQuery", ["dataproc_serverless"], "dataproc");
+      r.rationale.push("Team has Spark skills: serverless Spark batches with the Spark-BigQuery connector, no clusters to manage.");
+      r.alternatives.push(alt("dataflow", "Dataflow JDBC template for a no-code alternative."));
+    } else if (transform === "none" && skill === "sql") {
+      r = Rec(sid, "dataflow", "Dataflow JDBC-to-BigQuery template (ELT) + Dataform", ["dataflow"], "dataflow_batch");
+      r.rationale.push("No in-flight transformation: the Google-provided JDBC to BigQuery template copies tables as-is and Dataform applies SQL transformations in BigQuery (ELT).");
+      r.alternatives.push(alt("datafusion", "Data Fusion if the team wants visual pipelines."));
+    } else {
+      r = Rec(sid, "dataflow", "Dataflow batch pipeline (JDBC source) -> BigQuery", ["dataflow"], "dataflow_batch");
+      r.rationale.push("Dataflow autoscaling batch jobs handle extraction and transformation with per-second billing.");
+      r.alternatives.push(alt("dataproc_serverless", "Dataproc Serverless if the logic already exists in Spark."));
+      r.alternatives.push(alt("datafusion", "Data Fusion for low-code development."));
+    }
+    return r;
+  }
+
+  function platformComponents(sources, recs, prefs) {
+    const orchPref = prefs.orchestration || "auto";
+    const selfRunning = new Set(["datastream", "dts_free", "dts_migration", "pubsub_bqsub", "pubsub", "log_sink", "sap_connector", "datafusion", "dataflow_stream", "app_integration"]);
+    const orchestrated = sources.map((s, i) => [s, recs[i]]).filter(([s, r]) => s.frequency !== "one_time" && !r.engine.split("+").every((e) => selfRunning.has(e)));
+    const n = orchestrated.length;
+    const heavyCount = orchestrated.filter(([s]) => s.transform === "heavy").length;
+    let orchestration, why;
+    if (orchPref === "auto") {
+      if (n >= 3 || heavyCount >= 2) { orchestration = "composer"; why = `${n} scheduled pipelines with cross-source dependencies: Airflow gives one place for scheduling, retries, SLAs and lineage.`; }
+      else if (n >= 1) { orchestration = "workflows"; why = `${n} scheduled pipeline(s): Workflows + Cloud Scheduler orchestrate them at near-zero cost; Dataform schedules the ELT.`; }
+      else { orchestration = "none"; why = "All sources are continuous (CDC/streaming) or self-scheduling (DTS, Data Fusion) - Dataform workflow schedules cover the ELT, no orchestrator required."; }
+    } else { orchestration = orchPref; why = "Selected by the architect."; }
+    let connectivity = null;
+    const onPremGbDay = sources.reduce((a, s, i) => a + (recs[i].needs_connectivity ? num(s.daily_change_gb) : 0), 0);
+    if (recs.some((r) => r.needs_connectivity)) connectivity = onPremGbDay >= TB ? "interconnect" : "ha_vpn";
+    let dfEdition = null;
+    if (recs.some((r) => r.needs_datafusion)) {
+      const sap = sources.some((s) => (SOURCE_BY_ID[s.type] || {}).category === "sap");
+      dfEdition = sap || prefs.environment === "production_ha" ? "enterprise" : "basic";
+    }
+    return {
+      transformation: { tool: "dataform", why: "ELT inside BigQuery with SQL, version control, tests (assertions) and scheduling - no extra licence cost." },
+      orchestration: { tool: orchestration, why },
+      connectivity,
+      connectivity_gb_day: onPremGbDay,
+      datafusion_edition: dfEdition,
+      governance: ["Knowledge Catalog (Dataplex) for lineage, data quality and discovery", "Cloud KMS CMEK", "VPC Service Controls", "BigQuery column-level security & data masking"],
+    };
+  }
+
+  function platformStory(L, sources) {
+    const blocks = [];
+    const cdc = sources.filter((s) => (SOURCE_BY_ID[s.type] || {}).cdc && STREAMING.has(s.frequency)).map((s) => s.name || s.type);
+    blocks.push({
+      key: "lakehouse", title: "BigQuery lakehouse foundation", tools: ["dataform", "bqml", "reverse_etl"],
+      points: [
+        "Raw, curated and mart datasets in BigQuery; open Apache Iceberg tables through BigLake keep data portable across engines.",
+        cdc.length ? "Continuous CDC from " + cdc.slice(0, 4).join(", ") + " keeps operational data fresh for analytics and agents." : "Add CDC sources (Datastream) when agents and dashboards need minute-level freshness.",
+        "Dataform builds tested, version-controlled SQL models; BigQuery ML and AI functions bring Gemini and vector search into SQL.",
+        "Reverse ETL syncs curated results back to AlloyDB or Spanner for applications and agent tools.",
+      ],
+    });
+    const bi = L.bi;
+    if (bi.enabled) {
+      let pts;
+      if (bi.tool === "looker") pts = ["Looker connects live to BigQuery (no extracts); LookML and BigQuery measures form one governed semantic layer.", "The same semantic model feeds Looker dashboards, Looker Studio, Sheets, and Conversational Analytics, so numbers match everywhere.", "Licensing is quote-based - enter the customer's annual quote in the settings to include it."];
+      else if (bi.tool === "looker_studio_pro") pts = ["Looker Studio Pro dashboards on BigQuery with team workspaces and governance.", "Upgrade path to Looker when a governed semantic layer is needed."];
+      else pts = ["Looker Studio dashboards on BigQuery at no licence cost.", "Upgrade to Looker for a governed semantic layer."];
+      blocks.push({ key: "bi", title: "Business intelligence", tools: [bi.tool === "looker" ? "looker" : "looker_studio"], points: pts });
+    }
+    const aiTools = [], aiPts = [];
+    if (L.agents.enabled) {
+      aiTools.push("agent_platform", "conversational_analytics");
+      aiPts.push("Agents built with the Agent Development Kit run on Agent Engine (managed sessions and Memory Bank) and call Gemini models.",
+        "BigQuery is exposed to agents through MCP / BigQuery tools, with every query running under the end-user's IAM, policy tags and masking.",
+        "Conversational Analytics and BigQuery data agents answer business questions in natural language with traceable SQL.");
+    }
+    if (L.gemini_enterprise.enabled) {
+      aiTools.push("gemini_enterprise");
+      aiPts.push(`Gemini Enterprise (${titleCase(L.gemini_enterprise.edition)}) puts these agents, Deep Research and grounded search in front of ${Math.trunc(num(L.gemini_enterprise.users))} employees.`);
+    }
+    if (L.gpu.enabled) {
+      aiTools.push("gpu_endpoints");
+      aiPts.push(`Custom or open models (Model Garden, vLLM) are served on Vertex AI endpoints with ${Math.trunc(num(L.gpu.replicas))} x ${L.gpu.gpu.toUpperCase()} replica(s); BigQuery calls them as remote models for batch scoring.`);
+    }
+    if (aiTools.length) blocks.push({ key: "ai", title: "Agentic AI on BigQuery", tools: aiTools, points: aiPts });
+    if (L.governance.enabled) {
+      blocks.push({
+        key: "governance", title: "Governance with Knowledge Catalog (Dataplex)", tools: ["knowledge_catalog"],
+        points: [
+          "Automatic discovery and technical metadata for every BigQuery, Cloud Storage and AlloyDB / Spanner / Cloud SQL asset.",
+          "End-to-end lineage from Datastream / Dataflow / Dataform jobs to Looker dashboards and agent answers.",
+          `Data profiling and quality scans on about ${Math.trunc(num(L.governance.dq_share_pct))}% of tables, published as quality scores in the catalog.`,
+          "Business glossary and semantic search give agents the business context they need to answer correctly.",
+        ],
+      });
+    }
+    if (L.security.enabled) {
+      const tools = ["fine_grained", "vpc_sc", "scc"];
+      const pts = ["Column-level policy tags, row access policies and dynamic data masking apply equally to SQL, Looker and agents.",
+        "VPC Service Controls perimeter around ingestion, BigQuery and Vertex AI projects; Private Service Connect for endpoints.",
+        "Security Command Center for posture management and threat detection, including AI workloads."];
+      if (L.security.cmek) {
+        tools.unshift("cmek");
+        pts.unshift("Customer-managed encryption keys (Cloud KMS, optionally Cloud EKM) across BigQuery, Cloud Storage, Pub/Sub, Datastream and Vertex AI - relevant for data-residency regulations such as KSA PDPL / NCA ECC.");
+      }
+      if (L.security.sdp_discovery) {
+        tools.unshift("sdp");
+        pts.unshift("Sensitive Data Protection profiles every BigQuery table, classifies PII and can auto-apply policy tags.");
+      }
+      blocks.push({ key: "security", title: "Security & compliance", tools, points: pts });
+    }
+    return blocks;
+  }
+
+  // ------------------------------------------------------------------ estimator
+  function tiered(gib, tiers) {
+    let cost = 0, prev = 0;
+    for (const [limit, price] of tiers) {
+      const top = limit === null ? gib : Math.min(gib, limit);
+      if (top > prev) { cost += (top - prev) * price; prev = top; }
+      if (limit !== null && gib <= limit) break;
+    }
+    return cost;
+  }
+  const growthFactor = (m, g) => Math.pow(1 + g, (m - 1) / 12);
+  function batchVcpuHours(gb, runs, transform) {
+    if (runs <= 0) return 0;
+    return runs * Math.max(A.batch_min_vcpu_hr_per_run, gb / runs / A.batch_gb_per_vcpu_hr[transform]);
+  }
+  const streamVcpus = (daily, transform) => Math.max(A.stream_min_vcpu, Math.ceil(daily / A.stream_gb_per_vcpu_day[transform]));
+  const round2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
+
+  function mergedLayer(scenario) {
+    const raw = scenario.platform || {};
+    const out = {};
+    for (const [k, v] of Object.entries(D.default_layer)) {
+      const given = raw[k] || {};
+      out[k] = { ...v };
+      for (const [kk, vv] of Object.entries(given)) if (vv !== null && vv !== undefined) out[k][kk] = vv;
+    }
+    return out;
+  }
+
+  function estimate(scenario) {
+    const pricing = D.pricing;
+    const regions = Object.fromEntries(D.regions.map((r) => [r.id, r]));
+    const region = regions[scenario.region || "us-central1"] || regions["us-central1"];
+    const uplift = region.uplift;
+    const growth = num(scenario.annual_growth_pct ?? 20) / 100;
+    const prefs = { skill: scenario.skill || "sql", orchestration: scenario.orchestration || "auto", environment: scenario.environment || "production" };
+    const bqModel = scenario.bq_model || "ondemand";
+    const sources = (scenario.sources || []).filter((s) => s.type);
+    const up = (k) => (pricing[k].regional ? uplift : 1);
+
+    const recs = sources.map((s) => recommend(s, prefs));
+    const platform = platformComponents(sources, recs, prefs);
+
+    const payg = new Map(), cud1 = new Map(), cud3 = new Map();
+    const key = (m, svc, sid) => `${m}\u0001${svc}\u0001${sid}`;
+    const inc = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
+    function add(m, svc, sid, usd, c1, c3) {
+      if (!usd) return;
+      const k = key(m, svc, sid);
+      inc(payg, k, usd);
+      inc(cud1, k, c1 === undefined ? usd : c1);
+      inc(cud3, k, c3 === undefined ? usd : c3);
+    }
+
+    const df = pricing.dataflow, ds = pricing.datastream, ps = pricing.pubsub, bq = pricing.bigquery;
+    const z = () => new Array(37).fill(0);
+    const dsCdc = z(), writeApi = z(), streamIns = z(), netGib = z(), ingGib = z(), landing = z();
+    let dsBackfill = 0, initialTotal = 0;
+    const meta = [];
+
+    sources.forEach((src, i) => {
+      const rec = recs[i];
+      const sid = src.id || src.type;
+      const name = src.name || (SOURCE_BY_ID[src.type] || {}).name || src.type;
+      const cat = (SOURCE_BY_ID[src.type] || {}).category || "api";
+      const freq = src.frequency || "daily";
+      const transform = src.transform || "none";
+      const daily0 = num(src.daily_change_gb), initial = num(src.initial_volume_gb);
+      const oneTime = freq === "one_time";
+      const runs = RUNS[freq] || 0;
+      const netRatio = A.net_new_ratio[CDC_CATEGORIES.has(cat) ? "cdc" : "append"];
+      const engines = rec.engine.split("+");
+      const onPrem = (src.location || "on_prem") === "on_prem";
+      initialTotal += initial;
+      meta.push({ id: sid, name });
+
+      for (let m = 1; m <= 36; m++) {
+        const daily = oneTime ? 0 : daily0 * growthFactor(m, growth);
+        const monthly = daily * 30;
+        ingGib[m] += monthly;
+        netGib[m] += monthly * netRatio;
+        for (const eng of engines) {
+          if (eng === "datastream") dsCdc[m] += monthly;
+          else if (eng === "dataflow_batch") {
+            const vh = batchVcpuHours(monthly, runs, transform);
+            let usd = (vh * df.batch_vcpu_hr + vh * A.memory_gib_per_vcpu * df.memory_gib_hr) * up("dataflow");
+            if (transform === "heavy") usd += monthly * df.shuffle_gib * up("dataflow");
+            add(m, "Dataflow (batch)", sid, usd);
+          } else if (eng === "dataflow_stream") {
+            if (oneTime) continue;
+            const v = streamVcpus(daily, transform);
+            const c = (v * HOURS * df.streaming_vcpu_hr + v * HOURS * A.memory_gib_per_vcpu * df.memory_gib_hr + v * HOURS * A.streaming_engine_cu_per_vcpu_hr * df.streaming_engine_cu_hr) * up("dataflow");
+            add(m, "Dataflow (streaming)", sid, c, c * (1 - df.cud1_discount), c * (1 - df.cud3_discount));
+          } else if (eng === "pubsub_bqsub") add(m, "Pub/Sub", sid, (monthly / GIB_PER_TIB) * (ps.throughput_tib + ps.bq_subscription_tib));
+          else if (eng === "pubsub") add(m, "Pub/Sub", sid, (monthly / GIB_PER_TIB) * ps.throughput_tib * 2);
+          else if (eng === "datafusion") {
+            let vh = 0;
+            if (runs > 0 && monthly > 0) vh = runs * Math.max(A.datafusion_min_vcpu_hr_per_run, monthly / runs / A.datafusion_gb_per_vcpu_hr);
+            else if (!oneTime && monthly > 0) vh = HOURS * 4;
+            add(m, "Data Fusion pipelines (Dataproc)", sid, vh * pricing.datafusion.pipeline_vcpu_hr_all_in * up("datafusion"));
+          } else if (eng === "dataproc") {
+            if (runs > 0 && monthly > 0) {
+              const dcu = runs * Math.max(A.spark_min_dcu_hr_per_run, monthly / runs / A.spark_gb_per_dcu_hr[transform]);
+              add(m, "Dataproc Serverless", sid, dcu * pricing.dataproc_serverless.dcu_hr * up("dataproc_serverless"));
+            }
+          } else if (eng === "files_transfer") {
+            if (onPrem || cat === "mainframe") add(m, "Storage Transfer Service", sid, monthly * pricing.storage_transfer.agent_gib);
+            landing[m] += daily * A.landing_retention_days;
+          } else if (eng === "dts_migration") {
+            if (src.type === "teradata" && !oneTime) add(m, "Compute Engine (migration agent)", sid, HOURS * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"));
+          } else if (eng === "sap_connector") writeApi[m] += monthly;
+          else if (eng === "log_sink") streamIns[m] += monthly;
+          else if (eng === "app_integration") {
+            const ic = pricing.integration_connectors;
+            add(m, "Integration Connectors", sid, HOURS * ic.third_party_node_hr + Math.max(0, monthly - ic.free_gib) * ic.data_processed_gib);
+          } else if (eng === "cloud_run") {
+            const cr = pricing.cloud_run;
+            const secs = (runs || 30) * A.cloud_run_minutes_per_run * 60;
+            add(m, "Cloud Run jobs", sid, secs * (cr.vcpu_second + 2 * cr.gib_second) * up("cloud_run"));
+            writeApi[m] += monthly;
+          }
+        }
+        if (m === 1 && initial > 0) {
+          const pe = engines[0];
+          if (pe === "datastream") dsBackfill += initial;
+          else if (pe === "dataflow_batch" || pe === "dataflow_stream") {
+            const vh = batchVcpuHours(initial, Math.max(1, Math.ceil(initial / 2000)), "light");
+            add(1, "One-time initial load", sid, (vh * df.batch_vcpu_hr + vh * A.memory_gib_per_vcpu * df.memory_gib_hr) * up("dataflow"));
+          } else if (pe === "datafusion") {
+            const vh = Math.max(A.datafusion_min_vcpu_hr_per_run, initial / A.datafusion_gb_per_vcpu_hr);
+            add(1, "One-time initial load", sid, vh * pricing.datafusion.pipeline_vcpu_hr_all_in * up("datafusion"));
+          } else if (pe === "dataproc") {
+            const dcu = Math.max(A.spark_min_dcu_hr_per_run, initial / A.spark_gb_per_dcu_hr.light);
+            add(1, "One-time initial load", sid, dcu * pricing.dataproc_serverless.dcu_hr * up("dataproc_serverless"));
+          } else if (pe === "files_transfer") {
+            if (onPrem || cat === "mainframe") add(1, "One-time initial load", sid, initial * pricing.storage_transfer.agent_gib);
+            add(1, "One-time initial load", sid, initial * pricing.gcs.standard_gib_month * up("gcs"));
+          } else if (pe === "dts_migration" && src.type === "teradata") {
+            add(1, "One-time initial load", sid, (initial / A.teradata_agent_gb_per_hr) * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"));
+          } else if (pe === "sap_connector") writeApi[1] += initial;
+        }
+      }
+    });
+
+    // Datastream tiers, shared across the billing account
+    const dsVols = {};
+    sources.forEach((s, i) => { if (recs[i].engine.split("+").includes("datastream") && s.frequency !== "one_time") dsVols[s.id || s.type] = num(s.daily_change_gb); });
+    const dsTot = Object.values(dsVols).reduce((a, b) => a + b, 0) || 1;
+    for (let m = 1; m <= 36; m++) {
+      if (dsCdc[m]) {
+        const total = tiered(dsCdc[m], ds.cdc_tiers_gib);
+        for (const [sid, v] of Object.entries(dsVols)) add(m, "Datastream (CDC)", sid, total * (v / dsTot));
+      }
+    }
+    if (dsBackfill) add(1, "One-time initial load", "_datastream_backfill", Math.max(0, dsBackfill - ds.backfill_free_gib) * ds.backfill_gib);
+
+    // BigQuery
+    const bqUp = up("bigquery");
+    let stored = initialTotal;
+    const history = [], storedBy = z();
+    const analyticsIn = scenario.analytics_tib_month;
+    const slots = num(scenario.bq_slots) || 100;
+    const mult = 1 + A.curated_layers_overhead;
+    for (let m = 1; m <= 36; m++) {
+      history.push(netGib[m]);
+      stored += netGib[m];
+      storedBy[m] = stored;
+      const recent = history.slice(-3).reduce((a, b) => a + b, 0) + (m <= 3 ? initialTotal : 0);
+      const older = Math.max(0, stored - recent);
+      const lt = older * A.longterm_share_after_90d;
+      const active = stored - lt;
+      const activeB = Math.max(0, active * mult - bq.storage_free_gib);
+      add(m, "BigQuery storage", "_platform", (activeB * bq.storage_active_gib_month + lt * mult * bq.storage_longterm_gib_month) * bqUp);
+      const wa = Math.max(0, writeApi[m] - bq.storage_write_api_free_tib * GIB_PER_TIB);
+      add(m, "BigQuery ingestion (Write API / streaming)", "_platform", (wa * bq.storage_write_api_gib + streamIns[m] * bq.streaming_inserts_gib) * bqUp);
+      const storedTib = (stored * mult) / GIB_PER_TIB;
+      const eltTib = (ingGib[m] * A.elt_scan_multiplier) / GIB_PER_TIB;
+      const analyticsTib = analyticsIn ? num(analyticsIn) * growthFactor(m, growth) : storedTib * A.auto_analytics_scan_multiplier;
+      if (bqModel === "ondemand") add(m, "BigQuery compute", "_platform", Math.max(0, eltTib + analyticsTib - bq.ondemand_free_tib) * bq.ondemand_tib * bqUp);
+      else {
+        const ed = bq.editions[bqModel], sh = slots * HOURS;
+        add(m, "BigQuery compute", "_platform", sh * ed.payg * bqUp, sh * ed.cud1 * bqUp, sh * ed.cud3 * bqUp);
+      }
+    }
+
+    const orch = platform.orchestration.tool;
+    if (orch === "composer") {
+      const cp = pricing.composer;
+      const dcuH = cp[sources.length <= 10 ? "small_env_avg_dcu" : "medium_env_avg_dcu"] * HOURS;
+      for (let m = 1; m <= 36; m++) add(m, "Composer (Airflow)", "_platform", dcuH * cp.dcu_hr * up("composer"), dcuH * cp.cud1_dcu_hr * up("composer"), dcuH * cp.cud3_dcu_hr * up("composer"));
+    } else if (orch === "workflows") {
+      for (let m = 1; m <= 36; m++) add(m, "Workflows + Scheduler", "_platform", sources.length * pricing.workflows.scheduler_job_month);
+    }
+    if (platform.datafusion_edition) {
+      const dfp = pricing.datafusion;
+      const inst = platform.datafusion_edition === "enterprise" ? HOURS * dfp.enterprise_hr : Math.max(0, HOURS - dfp.basic_free_hours) * dfp.basic_hr;
+      const label = `Data Fusion instance (${titleCase(platform.datafusion_edition)})`;
+      for (let m = 1; m <= 36; m++) add(m, label, "_platform", inst * up("datafusion"));
+    }
+    if (platform.connectivity === "ha_vpn") {
+      const n = pricing.network;
+      for (let m = 1; m <= 36; m++) add(m, "Network (HA VPN)", "_platform", n.ha_vpn_tunnel_hr * n.ha_vpn_tunnels * HOURS);
+    } else if (platform.connectivity === "interconnect") {
+      const ic = pricing.interconnect;
+      for (let m = 1; m <= 36; m++) add(m, "Network (Interconnect)", "_platform", ic.dedicated_10g_port_month + ic.vlan_attachment_hr * ic.vlan_attachments * HOURS);
+    }
+    for (let m = 1; m <= 36; m++) if (landing[m]) add(m, "Cloud Storage (landing zone)", "_platform", landing[m] * pricing.gcs.standard_gib_month * up("gcs"));
+
+    // analytics, AI, governance, security
+    const L = mergedLayer(scenario);
+    const tables = sources.reduce((a, s) => a + Math.trunc(num(s.tables) || 50), 0) * (1 + A.curated_layers_overhead * 3);
+    for (let m = 1; m <= 36; m++) {
+      if (L.bi.enabled) {
+        if (L.bi.tool === "looker") add(m, "Looker licence (customer quote)", "_ai", num(L.bi.looker_annual_usd) / 12);
+        else if (L.bi.tool === "looker_studio_pro") add(m, "Looker Studio Pro", "_ai", num(L.bi.users) * pricing.looker.studio_pro_user_month);
+      }
+      if (L.gemini_enterprise.enabled) add(m, "Gemini Enterprise", "_ai", num(L.gemini_enterprise.users) * pricing.gemini_enterprise[`${L.gemini_enterprise.edition}_user_month`]);
+      if (L.agents.enabled) {
+        const ag = L.agents, req = num(ag.requests_month), ae = pricing.agent_engine;
+        const vcpuH = Math.max(0, (req * num(ag.agent_seconds)) / 3600 - ae.free_vcpu_hr);
+        const gibH = Math.max(0, (req * num(ag.agent_seconds) * 2) / 3600 - ae.free_gib_hr);
+        const u = up("agent_engine");
+        add(m, "Agent Engine runtime", "_ai", (vcpuH * ae.vcpu_hr + gibH * ae.gib_hr) * u, (vcpuH * ae.cud1_vcpu_hr + gibH * ae.cud1_gib_hr) * u, (vcpuH * ae.cud3_vcpu_hr + gibH * ae.cud3_gib_hr) * u);
+        const gm = pricing.gemini_models[ag.model];
+        add(m, `${gm.name} tokens (agents)`, "_ai", (req * (num(ag.input_tokens) * gm.input_mtok + num(ag.output_tokens) * gm.output_mtok)) / 1e6);
+        if (bqModel === "ondemand") add(m, "BigQuery queries from agents", "_ai", ((req * num(ag.bq_gb_per_request)) / GIB_PER_TIB) * pricing.bigquery.ondemand_tib * up("bigquery"));
+      }
+      if (L.gpu.enabled) {
+        const node = pricing.vertex_prediction.nodes[L.gpu.gpu];
+        add(m, `Vertex AI endpoint (${node.name})`, "_ai", num(L.gpu.replicas) * num(L.gpu.hours_per_day) * 30.4 * node.hr * up("vertex_prediction"));
+      }
+      if (L.governance.enabled) {
+        const dp = pricing.dataplex;
+        const dqTables = (tables * num(L.governance.dq_share_pct)) / 100;
+        const dcu = dqTables * num(L.governance.dq_scans_per_month) * dp.dq_dcu_hr_per_table_scan + tables * dp.lineage_dcu_hr_per_table_month;
+        const u = up("dataplex"), metaGib = Math.max(1, tables / 1000);
+        add(m, "Knowledge Catalog (Dataplex) - quality, profiling, lineage", "_governance",
+          (dcu * dp.premium_dcu_hr + metaGib * dp.metadata_gib_month) * u,
+          (dcu * dp.premium_cud1_dcu_hr + metaGib * dp.metadata_gib_month) * u,
+          (dcu * dp.premium_cud3_dcu_hr + metaGib * dp.metadata_gib_month) * u);
+      }
+      if (L.security.enabled) {
+        if (L.security.sdp_discovery) add(m, "Sensitive Data Protection (discovery)", "_governance", (m === 1 ? storedBy[m] : netGib[m]) * pricing.sensitive_data_protection.discovery_gb);
+        if (L.security.cmek) add(m, "Cloud KMS (CMEK)", "_governance", 20 * pricing.kms.key_version_month + 300 * pricing.kms.ops_per_10k);
+      }
+    }
+    platform.layer = { settings: L, tables_estimated: Math.trunc(tables), story: platformStory(L, sources) };
+
+    const cont = num(scenario.contingency_pct ?? A.contingency * 100) / 100;
+    for (const view of [payg, cud1, cud3]) {
+      const mt = z();
+      for (const [k, v] of view) mt[+k.split("\u0001")[0]] += v;
+      for (let m = 1; m <= 36; m++) if (mt[m]) inc(view, key(m, "Contingency & operations", "_platform"), mt[m] * cont);
+    }
+    return summarise(payg, cud1, cud3, recs, platform, meta, region);
+  }
+
+  const GROUP_ORDER = ["Data ingestion & CDC", "BigQuery", "Analytics & AI", "Governance & security", "Platform & network", "Contingency"];
+  function serviceGroup(name) {
+    const n = name.toLowerCase();
+    if (n.startsWith("bigquery") && !n.includes("agents")) return "BigQuery";
+    if (["looker", "gemini", "agent", "vertex ai"].some((k) => n.includes(k))) return "Analytics & AI";
+    if (["knowledge catalog", "sensitive data", "kms"].some((k) => n.includes(k))) return "Governance & security";
+    if (["composer", "workflows", "network", "landing", "data fusion instance"].some((k) => n.includes(k))) return "Platform & network";
+    if (n.includes("contingency")) return "Contingency";
+    return "Data ingestion & CDC";
+  }
+
+  function summarise(payg, cud1, cud3, recs, platform, meta, region) {
+    const parse = (k) => { const [m, svc, sid] = k.split("\u0001"); return { m: +m, svc, sid }; };
+    const inYears = (m, y) => y === 0 ? true : m > (y - 1) * 12 && m <= y * 12;
+    const sumBy = (view, y, field) => {
+      const out = new Map();
+      for (const [k, v] of view) { const p = parse(k); if (inYears(p.m, y)) out.set(p[field], (out.get(p[field]) || 0) + v); }
+      return out;
+    };
+    const tot = (view, y) => { let t = 0; for (const [k, v] of view) if (inYears(parse(k).m, y)) t += v; return round2(t); };
+
+    const monthly = [];
+    for (let m = 1; m <= 36; m++) {
+      let a = 0, b = 0;
+      for (const [k, v] of payg) if (parse(k).m === m) a += v;
+      for (const [k, v] of cud3) if (parse(k).m === m) b += v;
+      monthly.push({ month: m, payg: round2(a), cud3: round2(b) });
+    }
+    const s1 = sumBy(payg, 1, "svc"), s3 = sumBy(payg, 0, "svc"), s1c = sumBy(cud1, 1, "svc"), s3c = sumBy(cud3, 0, "svc");
+    const services = [...s3.keys()].sort((a, b) => s3.get(b) - s3.get(a));
+    const serviceRows = services.map((s) => ({ service: s, group: serviceGroup(s), year1: round2(s1.get(s) || 0), year1_cud: round2(s1c.get(s) || 0), three_year: round2(s3.get(s) || 0), three_year_cud: round2(s3c.get(s) || 0) }));
+    const groups = {};
+    for (const r of serviceRows) {
+      const g = groups[r.group] || (groups[r.group] = { group: r.group, year1: 0, three_year: 0 });
+      g.year1 = round2(g.year1 + r.year1); g.three_year = round2(g.three_year + r.three_year);
+    }
+    const groupRows = Object.values(groups).sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
+    const src1 = sumBy(payg, 1, "sid"), src3 = sumBy(payg, 0, "sid");
+    const nameOf = Object.fromEntries(meta.map((m) => [m.id, m.name]));
+    Object.assign(nameOf, {
+      _platform: "Shared platform (BigQuery, orchestration, network, contingency)",
+      _datastream_backfill: "Datastream backfill (all CDC sources)",
+      _ai: "Analytics & AI layer (BI, Gemini Enterprise, agents, GPU serving)",
+      _governance: "Governance & security (Knowledge Catalog, SDP, KMS)",
+    });
+    const sourceRows = [...src3.keys()].sort((a, b) => (a.startsWith("_") - b.startsWith("_")) || (src3.get(b) - src3.get(a)))
+      .map((k) => ({ id: k, name: nameOf[k] || k, year1: round2(src1.get(k) || 0), three_year: round2(src3.get(k) || 0) }));
+    const t = {
+      year1_payg: tot(payg, 1), year1_cud1: tot(cud1, 1), year2_payg: tot(payg, 2), year3_payg: tot(payg, 3),
+      three_year_payg: tot(payg, 0), three_year_cud3: tot(cud3, 0),
+    };
+    t.avg_monthly_year1 = round2(t.year1_payg / 12);
+    t.range_low_3y = round2(t.three_year_cud3 * 0.75);
+    t.range_high_3y = round2(t.three_year_payg * 1.3);
+    t.range_low_1y = round2(t.year1_cud1 * 0.75);
+    t.range_high_1y = round2(t.year1_payg * 1.3);
+    const pm = D.pricing._meta;
+    return {
+      region, currency: "USD", fx: D.pricing.fx, totals: t, by_service: serviceRows, by_group: groupRows, by_source: sourceRows,
+      monthly, recommendations: recs, platform, assumptions: A, pricing_meta: pm,
+      disclaimer: `Ballpark estimate for discovery discussions only. Based on public list prices (reviewed ${pm.last_reviewed}) with an approximate regional uplift of x${region.uplift.toFixed(2)} for ${region.name}. Excludes taxes, support, egress from other clouds, partner licences and negotiated discounts. Validate with the Google Cloud Pricing Calculator.`,
+    };
+  }
+
+  const api = {
+    catalog: () => Promise.resolve(D.catalog),
+    samples: () => Promise.resolve(D.samples),
+    estimate: (scenario) => Promise.resolve(estimate(JSON.parse(JSON.stringify(scenario)))),
+  };
+  root.ADVISOR_ENGINE = { recommend, estimate };
+  root.ADVISOR_API = api;
+  root.ADVISOR_DEMO = true;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+<script>/* GCP Ingestion Advisor - front end (no build step, no framework).
+ *
+ * The page talks to the backend through `api`. In the hosted demo build the
+ * same page runs the Python engine in the browser and sets window.ADVISOR_API,
+ * so this file works unchanged in both modes.
+ */
+(() => {
+  "use strict";
+
+  const api = window.ADVISOR_API || {
+    catalog: () => fetch("/api/catalog").then(okJson),
+    samples: () => fetch("/api/samples").then(okJson),
+    estimate: (scenario) => fetch("/api/estimate", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(scenario),
+    }).then(okJson),
+  };
+
+  async function okJson(r) {
+    if (!r.ok) {
+      let msg = `${r.status} ${r.statusText}`;
+      try { const j = await r.json(); msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch (_) {}
+      throw new Error(msg);
+    }
+    return r.json();
+  }
+
+  const STORE_KEY = "ingestion-advisor:scenario:v1";
+  const STREAMING = new Set(["realtime", "near_realtime"]);
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const DEFAULT_SCENARIO = {
+    customer: "", region: "me-central2", skill: "sql", orchestration: "auto", environment: "production",
+    bq_model: "ondemand", bq_slots: 100, analytics_tib_month: null, annual_growth_pct: 20, contingency_pct: 10,
+    sources: [],
+    platform: {
+      bi: { enabled: true, tool: "looker", users: 50, looker_annual_usd: 0 },
+      gemini_enterprise: { enabled: true, edition: "standard", users: 100 },
+      agents: { enabled: true, model: "flash", requests_month: 50000, input_tokens: 4000, output_tokens: 800, agent_seconds: 6, bq_gb_per_request: 0.2 },
+      gpu: { enabled: false, gpu: "l4", replicas: 1, hours_per_day: 24 },
+      governance: { enabled: true, dq_share_pct: 20, dq_scans_per_month: 30 },
+      security: { enabled: true, sdp_discovery: true, cmek: true, vpc_sc: true },
+    },
+  };
+
+  function withDefaults(sc) {
+    const d = structuredClone(DEFAULT_SCENARIO);
+    const out = { ...d, ...sc };
+    out.platform = {};
+    Object.keys(d.platform).forEach((k) => (out.platform[k] = { ...d.platform[k], ...((sc.platform || {})[k] || {}) }));
+    return out;
+  }
+
+  let catalog = null;
+  let scenario = structuredClone(DEFAULT_SCENARIO);
+  let result = null;
+  let currency = "USD";
+  let editingId = null;
+  let estimateTimer = null;
+  let seq = 0;
+
+  // ------------------------------------------------------------------ boot
+  async function boot() {
+    try {
+      catalog = await api.catalog();
+    } catch (e) {
+      toast(`Could not load the catalog: ${e.message}`, 8000);
+      return;
+    }
+    fillSelects();
+    if (window.ADVISOR_NO_DOWNLOAD) {
+      $$('[data-export="print"]').forEach((b) => (b.hidden = true));
+      $$("#exportMenu [data-export]").forEach((b) => { if (["md", "csv", "json", "svg"].includes(b.dataset.export)) b.textContent = "Copy " + b.textContent.charAt(0).toLowerCase() + b.textContent.slice(1); });
+    }
+    if (window.ADVISOR_DEMO) document.body.classList.add("demo");
+    restore();
+    bindEvents();
+    loadSamples();
+    syncForm();
+    renderAll();
+    scheduleEstimate(0);
+  }
+
+  function opt(list, sel) {
+    return list.map((o) => `<option value="${esc(o.id)}"${o.id === sel ? " selected" : ""}>${esc(o.name)}</option>`).join("");
+  }
+
+  function fillSelects() {
+    const regionsByGeo = {};
+    catalog.regions.forEach((r) => (regionsByGeo[r.geo] = regionsByGeo[r.geo] || []).push(r));
+    $("#region").innerHTML = Object.entries(regionsByGeo).map(([g, rs]) =>
+      `<optgroup label="${esc(g)}">${rs.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</optgroup>`).join("");
+    $("#skill").innerHTML = opt(catalog.skills);
+    $("#orchestration").innerHTML = opt(catalog.orchestration);
+    $("#bq_model").innerHTML = opt(catalog.bq_models);
+    const cats = {
+      rdbms: "Relational databases", rdbms_gcp: "Relational databases", rdbms_nocdc: "Relational databases",
+      dwh: "Warehouses & big data", hadoop: "Warehouses & big data", sap: "Enterprise applications", mainframe: "Enterprise applications",
+      nosql: "NoSQL", nosql_gcp: "NoSQL", files_onprem: "Files & object storage", object_aws: "Files & object storage",
+      object_azure: "Files & object storage", object_gcp: "Files & object storage", kafka: "Streaming & events",
+      stream_aws: "Streaming & events", stream_azure: "Streaming & events", events: "Streaming & events", logs: "Streaming & events",
+      saas_google: "SaaS & APIs", saas_salesforce: "SaaS & APIs", saas_other: "SaaS & APIs", api: "SaaS & APIs", unstructured: "Unstructured",
+    };
+    const groups = {};
+    catalog.source_types.forEach((s) => (groups[cats[s.category] || "Other"] = groups[cats[s.category] || "Other"] || []).push(s));
+    $("#f_type").innerHTML = Object.entries(groups).map(([g, ss]) =>
+      `<optgroup label="${esc(g)}">${ss.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
+    $("#f_data_type").innerHTML = opt(catalog.data_types);
+    $("#f_location").innerHTML = opt(catalog.locations);
+    $("#f_frequency").innerHTML = opt(catalog.frequencies);
+    $("#f_transform").innerHTML = opt(catalog.transforms);
+    const lay = $(".layer");
+    $("[data-group=bi] [data-k=tool]", lay).innerHTML = opt(catalog.bi_options);
+    $("[data-group=gemini_enterprise] [data-k=edition]", lay).innerHTML = opt(catalog.gemini_enterprise_editions);
+    $("[data-group=agents] [data-k=model]", lay).innerHTML = opt(catalog.gemini_models);
+    $("[data-group=gpu] [data-k=gpu]", lay).innerHTML = opt(catalog.gpu_types);
+    const fx = ["USD", "SAR", "AED", "EUR", "GBP", "INR"];
+    $("#currency").innerHTML = fx.map((c) => `<option>${c}</option>`).join("");
+  }
+
+  // ------------------------------------------------------------------ persistence
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ scenario, currency })); } catch (_) { /* storage unavailable */ }
+  }
+  let restored = false;
+  function restore() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        scenario = withDefaults(d.scenario || {});
+        currency = d.currency || "USD";
+        restored = true;
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  function syncForm() {
+    $("#customer").value = scenario.customer || "";
+    $("#region").value = scenario.region;
+    $("#currency").value = currency;
+    ["skill", "orchestration", "bq_model", "environment"].forEach((k) => ($("#" + k).value = scenario[k]));
+    ["bq_slots", "annual_growth_pct", "contingency_pct"].forEach((k) => ($("#" + k).value = scenario[k] ?? ""));
+    $("#analytics_tib_month").value = scenario.analytics_tib_month ?? "";
+    $("#slotsField").hidden = scenario.bq_model === "ondemand";
+    syncLayer();
+  }
+
+  function syncLayer() {
+    $$(".layer fieldset").forEach((fs) => {
+      const g = scenario.platform[fs.dataset.group];
+      $$("[data-k]", fs).forEach((el) => {
+        const v = g[el.dataset.k];
+        if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+      });
+      fs.classList.toggle("off", !g.enabled);
+      $$("[data-show]", fs).forEach((el) => (el.hidden = g.tool !== el.dataset.show));
+    });
+  }
+
+  // ------------------------------------------------------------------ events
+  function bindEvents() {
+    $("#customer").addEventListener("input", (e) => { scenario.customer = e.target.value; save(); renderSummary(); });
+    $("#region").addEventListener("change", (e) => { scenario.region = e.target.value; changed(); });
+    $("#currency").addEventListener("change", (e) => { currency = e.target.value; save(); renderCost(); renderSummary(); });
+    ["skill", "orchestration", "bq_model", "environment"].forEach((k) =>
+      $("#" + k).addEventListener("change", (e) => { scenario[k] = e.target.value; $("#slotsField").hidden = scenario.bq_model === "ondemand"; changed(); }));
+    ["bq_slots", "annual_growth_pct", "contingency_pct", "analytics_tib_month"].forEach((k) =>
+      $("#" + k).addEventListener("input", (e) => {
+        const v = e.target.value === "" ? null : Number(e.target.value);
+        scenario[k] = k === "analytics_tib_month" ? v : (v ?? 0);
+        changed();
+      }));
+
+    $(".layer").addEventListener("change", onLayer);
+    $(".layer").addEventListener("input", (e) => { if (e.target.type === "number") onLayer(e); });
+
+    $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+    $("#addSourceBtn").addEventListener("click", () => openDialog(null));
+    $("#sourceList").addEventListener("click", (e) => {
+      const li = e.target.closest("[data-id]");
+      if (li) openDialog(li.dataset.id);
+    });
+    $("#diagram").addEventListener("click", (e) => {
+      const n = e.target.closest("[data-src]");
+      if (n) openDialog(n.dataset.src);
+    });
+
+    $("#f_cancel").addEventListener("click", () => $("#sourceDialog").close());
+    $("#f_delete").addEventListener("click", () => {
+      scenario.sources = scenario.sources.filter((s) => s.id !== editingId);
+      $("#sourceDialog").close();
+      toast("Source removed");
+      changed();
+    });
+    $("#sourceForm").addEventListener("submit", (e) => { e.preventDefault(); saveSource(); });
+    $("#f_type").addEventListener("change", applyTypeDefaults);
+    ["f_frequency", "f_location", "f_transform", "f_type"].forEach((id) => $("#" + id).addEventListener("change", updateHint));
+
+    menu("#samplesBtn", "#samplesMenu");
+    menu("#exportBtn", "#exportMenu");
+    $("#exportMenu").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-export]");
+      if (!b) return;
+      $("#exportMenu").hidden = true;
+      doExport(b.dataset.export);
+    });
+    $("#importFile").addEventListener("change", importScenario);
+  }
+
+  function onLayer(e) {
+    const el = e.target.closest("[data-k]");
+    const fs = e.target.closest("fieldset");
+    if (!el || !fs) return;
+    const g = scenario.platform[fs.dataset.group];
+    if (el.type === "checkbox") g[el.dataset.k] = el.checked;
+    else if (el.type === "number") g[el.dataset.k] = el.value === "" ? 0 : Number(el.value);
+    else g[el.dataset.k] = el.value;
+    fs.classList.toggle("off", !g.enabled);
+    $$("[data-show]", fs).forEach((x) => (x.hidden = g.tool !== x.dataset.show));
+    changed();
+  }
+
+  function menu(btnSel, popSel) {
+    const btn = $(btnSel), pop = $(popSel);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = pop.hidden;
+      $$(".menu-pop").forEach((p) => (p.hidden = true));
+      pop.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+    });
+    document.addEventListener("click", (e) => { if (!pop.contains(e.target)) { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); } });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") pop.hidden = true; });
+  }
+
+  function showTab(id) {
+    $(".layer").addEventListener("change", onLayer);
+    $(".layer").addEventListener("input", (e) => { if (e.target.type === "number") onLayer(e); });
+
+    $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
+    $$(".tabpanel").forEach((p) => (p.hidden = p.id !== "tab-" + id));
+  }
+
+  function changed() {
+    save();
+    renderSources();
+    scheduleEstimate(250);
+  }
+
+  function scheduleEstimate(delay) {
+    clearTimeout(estimateTimer);
+    estimateTimer = setTimeout(runEstimate, delay);
+  }
+
+  async function runEstimate() {
+    const my = ++seq;
+    try {
+      const payload = { ...scenario, analytics_tib_month: scenario.analytics_tib_month || null };
+      const r = await api.estimate(payload);
+      if (my !== seq) return;
+      result = r;
+      renderAll();
+    } catch (e) {
+      toast(`Estimate failed: ${e.message}`, 6000);
+    }
+  }
+
+  // ------------------------------------------------------------------ source dialog
+  const TYPE_DEFAULTS = {
+    rdbms: { data_type: "structured", frequency: "near_realtime", location: "on_prem" },
+    rdbms_gcp: { data_type: "structured", frequency: "near_realtime", location: "gcp" },
+    rdbms_nocdc: { data_type: "structured", frequency: "daily", location: "on_prem" },
+    dwh: { data_type: "structured", frequency: "daily", location: "on_prem" },
+    hadoop: { data_type: "semi_structured", frequency: "daily", location: "on_prem" },
+    sap: { data_type: "structured", frequency: "near_realtime", location: "on_prem" },
+    mainframe: { data_type: "structured", frequency: "daily", location: "on_prem" },
+    nosql: { data_type: "semi_structured", frequency: "near_realtime", location: "on_prem" },
+    nosql_gcp: { data_type: "semi_structured", frequency: "near_realtime", location: "gcp" },
+    files_onprem: { data_type: "semi_structured", frequency: "daily", location: "on_prem" },
+    object_aws: { data_type: "semi_structured", frequency: "daily", location: "aws" },
+    object_azure: { data_type: "semi_structured", frequency: "daily", location: "azure" },
+    object_gcp: { data_type: "semi_structured", frequency: "daily", location: "gcp" },
+    kafka: { data_type: "events", frequency: "realtime", location: "on_prem" },
+    stream_aws: { data_type: "events", frequency: "realtime", location: "aws" },
+    stream_azure: { data_type: "events", frequency: "realtime", location: "azure" },
+    events: { data_type: "events", frequency: "realtime", location: "on_prem" },
+    logs: { data_type: "semi_structured", frequency: "realtime", location: "gcp" },
+    saas_google: { data_type: "structured", frequency: "daily", location: "saas" },
+    saas_salesforce: { data_type: "structured", frequency: "daily", location: "saas" },
+    saas_other: { data_type: "structured", frequency: "daily", location: "saas" },
+    api: { data_type: "semi_structured", frequency: "hourly", location: "saas" },
+    unstructured: { data_type: "unstructured", frequency: "daily", location: "on_prem" },
+  };
+
+  function applyTypeDefaults() {
+    if (editingId) return updateHint();
+    const t = catalog.source_types.find((s) => s.id === $("#f_type").value);
+    const d = TYPE_DEFAULTS[t?.category] || {};
+    Object.entries(d).forEach(([k, v]) => ($("#f_" + k).value = v));
+    updateHint();
+  }
+
+  function updateHint() {
+    const freq = $("#f_frequency").value, type = $("#f_type").value;
+    const t = catalog.source_types.find((s) => s.id === type);
+    let h = "";
+    if (t?.cdc && STREAMING.has(freq)) h = "Log-based CDC will be recommended - confirm the DBA can enable it on the source.";
+    else if (freq === "one_time") h = "Only the initial load is costed; ongoing ingestion is excluded.";
+    else if (STREAMING.has(freq)) h = "Streaming pipelines run 24x7 and are costed as always-on.";
+    else h = "Scheduled batch: cost scales with runs per month and volume per run.";
+    $("#f_hint").textContent = h;
+  }
+
+  function openDialog(id) {
+    editingId = id;
+    const s = id ? scenario.sources.find((x) => x.id === id) : null;
+    $("#dlgTitle").textContent = s ? "Edit source system" : "Add source system";
+    $("#f_save").textContent = s ? "Save changes" : "Add source";
+    $("#f_delete").hidden = !s;
+    if (s) {
+      ["type", "name", "data_type", "location", "frequency", "transform", "initial_volume_gb", "daily_change_gb", "notes"]
+        .forEach((k) => ($("#f_" + k).value = s[k] ?? ""));
+    } else {
+      $("#f_type").value = "oracle"; $("#f_name").value = ""; $("#f_notes").value = "";
+      $("#f_transform").value = "none"; $("#f_initial_volume_gb").value = 500; $("#f_daily_change_gb").value = 5;
+      applyTypeDefaults();
+    }
+    updateHint();
+    $("#sourceDialog").showModal();
+    $("#f_type").focus();
+  }
+
+  function saveSource() {
+    const v = (k) => $("#f_" + k).value;
+    const typeName = catalog.source_types.find((s) => s.id === v("type"))?.name || v("type");
+    const src = {
+      id: editingId || "s" + Date.now().toString(36),
+      name: v("name").trim() || typeName,
+      type: v("type"), data_type: v("data_type"), location: v("location"),
+      frequency: v("frequency"), transform: v("transform"),
+      initial_volume_gb: Math.max(0, Number(v("initial_volume_gb")) || 0),
+      daily_change_gb: Math.max(0, Number(v("daily_change_gb")) || 0),
+      notes: v("notes"),
+    };
+    if (editingId) scenario.sources = scenario.sources.map((s) => (s.id === editingId ? src : s));
+    else scenario.sources.push(src);
+    $("#sourceDialog").close();
+    toast(editingId ? "Source updated" : "Source added");
+    changed();
+  }
+
+  // ------------------------------------------------------------------ samples / import
+  async function loadSamples() {
+    try {
+      const samples = await api.samples();
+      $("#samplesMenu").innerHTML = samples.map((s, i) =>
+        `<button role="menuitem" data-i="${i}">${esc(s.title.replace(/^Sample - /, ""))}<small>${s.scenario.sources.length} sources, ${esc(s.scenario.region)}</small></button>`).join("");
+      $("#samplesMenu").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-i]");
+        if (!b) return;
+        scenario = withDefaults(structuredClone(samples[+b.dataset.i].scenario));
+        $("#samplesMenu").hidden = true;
+        syncForm();
+        changed();
+        toast("Sample scenario loaded");
+      });
+      if (!restored && !scenario.sources.length && samples.length) {
+        // First visit: open on a realistic example instead of an empty canvas.
+        const first = samples.find((s) => s.file === "retail-bank-ksa.json") || samples[0];
+        scenario = withDefaults(structuredClone(first.scenario));
+        syncForm();
+        changed();
+      }
+    } catch (_) {
+      $("#samplesBtn").hidden = true;
+    }
+  }
+
+  function importScenario(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    f.text().then((t) => {
+      const d = JSON.parse(t);
+      const sc = d.scenario || d;
+      if (!Array.isArray(sc.sources)) throw new Error("File has no sources list");
+      scenario = withDefaults(sc);
+      syncForm();
+      changed();
+      toast("Scenario opened");
+    }).catch((err) => toast(`Could not open file: ${err.message}`, 6000));
+    e.target.value = "";
+    $("#exportMenu").hidden = true;
+  }
+
+  // ------------------------------------------------------------------ rendering
+  function renderAll() {
+    renderSources();
+    renderSummary();
+    renderDiagram();
+    renderRecs();
+    renderPlatform();
+    renderCost();
+    renderAssumptions();
+  }
+
+  function flowClass(freq) { return freq === "one_time" ? "once" : STREAMING.has(freq) ? "stream" : "batch"; }
+  function recFor(id) { return result?.recommendations.find((r) => r.source_id === id); }
+  function tool(id) { return catalog.tools[id] || { name: id, doc: "#" }; }
+  function freqName(id) { return catalog.frequencies.find((f) => f.id === id)?.name || id; }
+
+  function renderSources() {
+    const list = $("#sourceList");
+    $("#sourceEmpty").hidden = scenario.sources.length > 0;
+    list.innerHTML = scenario.sources.map((s) => {
+      const r = recFor(s.id);
+      return `<li><button class="source-item" data-id="${esc(s.id)}" type="button">
+        <i class="bar ${flowClass(s.frequency)}"></i>
+        <div><b>${esc(s.name)}</b><span>${esc(freqName(s.frequency))} · ${fmtGB(s.daily_change_gb)}/day</span></div>
+        <div class="tool">${r ? esc(tool(r.primary).name) : ""}</div>
+      </button></li>`;
+    }).join("");
+  }
+
+  function renderSummary() {
+    const el = $("#summaryStrip");
+    if (!result || !scenario.sources.length) { el.innerHTML = ""; return; }
+    const t = result.totals;
+    el.innerHTML = `
+      <div class="fig"><b>${money(t.avg_monthly_year1)}</b><span>Average per month, year 1</span></div>
+      <div class="fig"><b>${money(t.year1_payg)}</b><span>1-year, pay-as-you-go</span></div>
+      <div class="fig"><b>${money(t.three_year_payg)}</b><span>3-year, pay-as-you-go</span></div>
+      <div class="note">${esc(result.region.name)} · ${scenario.sources.length} source${scenario.sources.length > 1 ? "s" : ""}</div>`;
+  }
+
+  // ---------------- architecture diagram
+  function renderDiagram() {
+    const host = $("#diagram");
+    const srcs = scenario.sources;
+    const W = 1440;
+    if (!srcs.length || !result) {
+      host.innerHTML = `<svg viewBox="0 0 ${W} 220" role="img" aria-label="Empty architecture"><text class="dg-empty" x="${W / 2}" y="110" text-anchor="middle">Add a source system to start drawing the target architecture.</text></svg>`;
+      return;
+    }
+    const plat = result.platform;
+    const L = scenario.platform;
+    const rowH = 66, top = 46, nodeH = 48;
+    const col = { src: 16, conn: 252, ing: 392, proc: 608, bq: 826, out: 1012, ai: 1236 };
+    const cw = { src: 212, conn: 118, ing: 192, proc: 192, bq: 156, out: 196, ai: 188 };
+
+    // consume / AI column content
+    const orch = plat.orchestration.tool;
+    const outs = [["dataform", "Dataform", "SQL ELT, tests, schedules"]];
+    if (orch !== "none") outs.push(["orch", orch === "composer" ? "Cloud Composer" : "Workflows", "Orchestration"]);
+    if (L.bi.enabled) outs.push(["bi", L.bi.tool === "looker" ? "Looker" : "Looker Studio", L.bi.tool === "looker" ? "Semantic layer & BI" : "Dashboards"]);
+    outs.push(["bqml", "BigQuery ML & AI", "Gemini, embeddings, vector"]);
+    if (L.agents.enabled) outs.push(["mcp", "BigQuery data agents", "MCP tools, Conversational Analytics"]);
+    outs.push(["retl", "Reverse ETL", "AlloyDB / Spanner"]);
+    const ais = [];
+    if (L.agents.enabled) ais.push(["agents", "Agent Platform", "ADK + Agent Engine + Gemini"]);
+    if (L.gemini_enterprise.enabled) ais.push(["ge", "Gemini Enterprise", `${L.gemini_enterprise.users} users, ${L.gemini_enterprise.edition}`]);
+    if (L.gpu.enabled) ais.push(["gpu", "Vertex AI GPU endpoint", `${L.gpu.replicas} x ${L.gpu.gpu.toUpperCase()}`]);
+
+    const flowH = Math.max(380, top + srcs.length * rowH + 30, top + outs.length * 60 + 30);
+    const showBand = L.governance.enabled || L.security.enabled;
+    const H = flowH + (showBand ? 96 : 0);
+
+    const srcNodes = srcs.map((s, i) => ({ s, x: col.src, y: top + i * rowH, r: recFor(s.id) }));
+    const ingKeys = [], procKeys = [];
+    srcNodes.forEach((n) => {
+      if (!n.r) return;
+      n.ing = n.r.chain[0];
+      n.proc = n.r.chain.length > 1 ? n.r.chain.slice(1).join(">") : null;
+      if (!ingKeys.includes(n.ing)) ingKeys.push(n.ing);
+      if (n.proc && !procKeys.includes(n.proc)) procKeys.push(n.proc);
+    });
+    const spread = (keys, x, w) => {
+      const span = flowH - top - 20;
+      const gap = span / Math.max(keys.length, 1);
+      return Object.fromEntries(keys.map((k, i) => [k, { x, w, y: top + gap * i + (gap - nodeH) / 2 }]));
+    };
+    const ingPos = spread(ingKeys, col.ing, cw.ing);
+    const procPos = spread(procKeys, col.proc, cw.proc);
+    const outPos = spread(outs.map((o) => o[0]), col.out, cw.out);
+    const aiPos = spread(ais.map((o) => o[0]), col.ai, cw.ai);
+    const bqY = top, bqH = flowH - top - 20;
+    const needConn = srcNodes.some((n) => n.r?.needs_connectivity);
+    const connSrc = srcNodes.filter((n) => n.r?.needs_connectivity);
+    const connPos = { x: col.conn, y: connSrc.length ? connSrc.reduce((a, n) => a + n.y, 0) / connSrc.length : top };
+
+    const midY = (p) => p.y + nodeH / 2;
+    const curve = (x1, y1, x2, y2) => { const dx = (x2 - x1) / 2; return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`; };
+
+    let edges = "", nodes = "";
+    const node = (x, y, w, title, sub, cls = "", attrs = "") =>
+      `<g class="dg-node ${cls}" ${attrs}><rect x="${x}" y="${y}" width="${w}" height="${nodeH}" rx="8"/>
+        <text x="${x + 12}" y="${y + (sub ? 20 : 29)}">${esc(clip(title, w / 7.2))}</text>
+        ${sub ? `<text class="sub" x="${x + 12}" y="${y + 37}">${esc(clip(sub, w / 6.2))}</text>` : ""}</g>`;
+
+    srcNodes.forEach((n) => {
+      const fc = flowClass(n.s.frequency);
+      nodes += node(n.x, n.y, cw.src, n.s.name, `${freqName(n.s.frequency)} · ${fmtGB(n.s.daily_change_gb)}/day`, "src clickable", `data-src="${esc(n.s.id)}" tabindex="0" role="button" aria-label="Edit ${esc(n.s.name)}"`);
+      if (!n.r) return;
+      const ip = ingPos[n.ing];
+      const sy = n.y + nodeH / 2;
+      if (n.r.needs_connectivity) {
+        edges += `<path class="dg-edge ${fc}" d="${curve(n.x + cw.src, sy, connPos.x, midY(connPos))}"/>`;
+        edges += `<path class="dg-edge ${fc}" d="${curve(connPos.x + cw.conn, midY(connPos), ip.x, midY(ip))}"/>`;
+      } else {
+        edges += `<path class="dg-edge ${fc}" d="${curve(n.x + cw.src, sy, ip.x, midY(ip))}"/>`;
+      }
+      if (n.proc) {
+        const pp = procPos[n.proc];
+        edges += `<path class="dg-edge ${fc}" d="${curve(ip.x + ip.w, midY(ip), pp.x, midY(pp))}"/>`;
+        edges += `<path class="dg-edge ${fc}" d="${curve(pp.x + pp.w, midY(pp), col.bq, midY(pp))}"/>`;
+      } else {
+        edges += `<path class="dg-edge ${fc}" d="${curve(ip.x + ip.w, midY(ip), col.bq, midY(ip))}"/>`;
+      }
+    });
+
+    if (needConn) {
+      const c = tool(plat.connectivity);
+      nodes += node(connPos.x, connPos.y, cw.conn, c.name.replace("Cloud ", ""), "Private link", "");
+    }
+    ingKeys.forEach((k) => { const p = ingPos[k]; nodes += node(p.x, p.y, p.w, tool(k).name, k === "datastream" ? "Change data capture" : "Ingest", ""); });
+    procKeys.forEach((k) => {
+      const p = procPos[k];
+      const names = k.split(">").map((t) => tool(t).name);
+      nodes += node(p.x, p.y, p.w, names[names.length - 1], names.length > 1 ? "via " + names.slice(0, -1).join(", ") : "Process / land", "");
+    });
+
+    nodes += `<g class="dg-node bq"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
+      <text x="${col.bq + 14}" y="${bqY + 26}" style="font-weight:700">BigQuery</text>
+      <text class="sub" x="${col.bq + 14}" y="${bqY + 44}">${esc(result.region.id)}</text>
+      <text class="sub" x="${col.bq + 14}" y="${bqY + 62}">Iceberg lakehouse</text>
+      <text class="sub" x="${col.bq + 14}" y="${bqY + bqH - 46}">Raw → curated → marts</text>
+      <text class="sub" x="${col.bq + 14}" y="${bqY + bqH - 28}">${esc(clip(bqModelName(), 24))}</text></g>`;
+
+    outs.forEach(([k, t, s]) => {
+      const p = outPos[k];
+      edges += `<path class="dg-edge plain" d="${curve(col.bq + cw.bq, midY(p), p.x, midY(p))}"/>`;
+      nodes += node(p.x, p.y, p.w, t, s, k === "mcp" || k === "bqml" ? "ai" : "platform");
+    });
+    ais.forEach(([k, t, s]) => {
+      const p = aiPos[k];
+      const from = k === "gpu" ? outPos.bqml : (outPos.mcp || outPos.bi || outPos.bqml);
+      if (k !== "ge" || !aiPos.agents) edges += `<path class="dg-edge ai" d="${curve(from.x + from.w, midY(from), p.x, midY(p))}"/>`;
+      nodes += node(p.x, p.y, p.w, t, s, "ai");
+    });
+    if (aiPos.ge && aiPos.agents) {
+      const a = aiPos.agents, g = aiPos.ge;
+      const x = a.x + a.w / 2;
+      edges += `<path class="dg-edge ai" d="M${x},${a.y + (g.y > a.y ? nodeH : 0)} L${x},${g.y + (g.y > a.y ? 0 : nodeH)}"/>`;
+    }
+    if (L.bi.enabled && L.gemini_enterprise.enabled && aiPos.ge && !L.agents.enabled) {
+      const b = outPos.bi; edges += `<path class="dg-edge ai" d="${curve(b.x + b.w, midY(b), aiPos.ge.x, midY(aiPos.ge))}"/>`;
+    }
+
+    // governance & security band
+    let band = "";
+    if (showBand) {
+      const by = flowH + 6, bh = 80;
+      const chips = [];
+      if (L.governance.enabled) chips.push(["Knowledge Catalog (Dataplex)", "Lineage, quality, glossary"]);
+      if (L.security.enabled) {
+        if (L.security.sdp_discovery) chips.push(["Sensitive Data Protection", "PII discovery"]);
+        chips.push(["Policy tags & masking", "Column / row security"]);
+        if (L.security.cmek) chips.push(["Cloud KMS (CMEK)", "Customer-managed keys"]);
+        if (L.security.vpc_sc) chips.push(["VPC Service Controls", "Exfiltration perimeter"]);
+        chips.push(["IAM & Security Command Center", "Access, posture, threats"]);
+      }
+      const cw2 = Math.min(210, (W - 48 - (chips.length - 1) * 12) / chips.length);
+      band = `<g class="dg-band"><rect x="16" y="${by}" width="${W - 32}" height="${bh}" rx="12"/>
+        <text class="band-title" x="30" y="${by + 20}">Governance & security across every layer</text></g>`;
+      chips.forEach(([t, s2], i) => { band += node(30 + i * (cw2 + 12), by + 26, cw2, t, s2, "gov"); });
+      edges += `<path class="dg-edge plain" stroke-dasharray="3 4" d="M${col.bq + cw.bq / 2},${bqY + bqH} L${col.bq + cw.bq / 2},${by}"/>`;
+    }
+
+    const heads = [["Source systems", col.src], needConn ? ["Connectivity", col.conn] : null, ["Ingestion & CDC", col.ing], ["Processing / landing", col.proc], ["Analytics store", col.bq], ["Transform, BI & data AI", col.out], ais.length ? ["Agents & AI", col.ai] : null].filter(Boolean);
+    const headSvg = heads.map(([t, x]) => `<text class="dg-col-title" x="${x}" y="22">${esc(t)}</text>`).join("");
+
+    host.innerHTML = `<svg id="archSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Target ingestion and agentic data architecture on BigQuery" xmlns="http://www.w3.org/2000/svg">${headSvg}${edges}${band}${nodes}</svg>`;
+    $$("#archSvg [data-src]").forEach((g) => g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDialog(g.dataset.src); } }));
+  }
+
+  function bqModelName() { return catalog.bq_models.find((m) => m.id === scenario.bq_model)?.name || ""; }
+  function clip(s, n) { s = String(s); n = Math.floor(n); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+  // ---------------- recommendations
+  function renderRecs() {
+    const host = $("#recsBody");
+    if (!result || !scenario.sources.length) { host.innerHTML = `<p class="empty-note">Add source systems to see recommended GCP-native ingestion patterns.</p>`; return; }
+    const p = result.platform;
+    const orchTool = p.orchestration.tool === "none" ? "None required" : tool(p.orchestration.tool).name;
+    let html = `<div class="platform-block"><h3>Platform blueprint</h3><dl>
+      <dt>Transformation</dt><dd><a href="${tool("dataform").doc}" target="_blank" rel="noopener">Dataform</a>: ${esc(p.transformation.why)}</dd>
+      <dt>Orchestration</dt><dd>${esc(orchTool)}: ${esc(p.orchestration.why)}</dd>
+      <dt>Connectivity</dt><dd>${p.connectivity ? `${esc(tool(p.connectivity).name)} for ~${fmtGB(p.connectivity_gb_day)}/day from private networks.` : "Public / Google-managed endpoints only."}</dd>
+      ${p.datafusion_edition ? `<dt>Data Fusion</dt><dd>One shared ${esc(p.datafusion_edition)} edition instance for all low-code pipelines.</dd>` : ""}
+      <dt>Governance</dt><dd>${p.governance.map(esc).join("; ")}.</dd>
+    </dl></div>`;
+    html += scenario.sources.map((s) => {
+      const r = recFor(s.id);
+      if (!r) return "";
+      const fc = flowClass(s.frequency);
+      const chain = r.chain.map((t) => `<a href="${esc(tool(t).doc)}" target="_blank" rel="noopener" title="${esc(tool(t).summary)}">${esc(tool(t).name)}</a>`).join(`<span class="arrow">→</span>`)
+        + `<span class="arrow">→</span><a href="https://cloud.google.com/bigquery/docs/introduction" target="_blank" rel="noopener">BigQuery</a>`;
+      return `<article class="rec">
+        <div class="rec-src"><b>${esc(s.name)}</b><span>${esc(catalog.source_types.find((t) => t.id === s.type)?.name || s.type)}</span>
+          <span>${fmtGB(s.initial_volume_gb)} initial, ${fmtGB(s.daily_change_gb)}/day</span>
+          <span class="chip ${fc}">${esc(freqName(s.frequency))}</span></div>
+        <div class="rec-main">
+          <h3>${esc(r.pattern)}</h3>
+          <div class="chain">${chain}</div>
+          <ul>${r.rationale.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+          ${r.alternatives.length ? `<p class="sub">Alternatives</p><ul class="alt">${r.alternatives.map((a) => `<li><b>${esc(tool(a.tool).name)}</b>: ${esc(a.why)}</li>`).join("")}</ul>` : ""}
+          ${r.caveats.length ? `<p class="sub">Check during discovery</p><ul class="caveat">${r.caveats.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : ""}
+          ${s.notes ? `<p class="sub">Notes</p><p>${esc(s.notes)}</p>` : ""}
+        </div></article>`;
+    }).join("");
+    host.innerHTML = html;
+  }
+
+  // ---------------- agentic data cloud layer
+  const STORY_COST = {
+    lakehouse: (svc) => svc.startsWith("BigQuery") && !svc.includes("agents"),
+    bi: (svc) => svc.includes("Looker"),
+    ai: (svc) => /Gemini|Agent|Vertex AI|BigQuery queries from agents/.test(svc),
+    governance: (svc) => svc.includes("Knowledge Catalog"),
+    security: (svc) => /Sensitive Data|KMS/.test(svc),
+  };
+
+  function storyCost(key) {
+    const f = STORY_COST[key];
+    if (!f || !result) return null;
+    const rows = result.by_service.filter((r) => f(r.service));
+    return { y1: rows.reduce((a, r) => a + r.year1, 0), y3: rows.reduce((a, r) => a + r.three_year, 0) };
+  }
+
+  function renderPlatform() {
+    const host = $("#platformBody");
+    if (!result) { host.innerHTML = ""; return; }
+    const story = result.platform.layer.story;
+    const chips = (ids) => ids.map((t) => `<a href="${esc(tool(t).doc)}" target="_blank" rel="noopener" title="${esc(tool(t).summary)}">${esc(tool(t).name)}</a>`).join("");
+    let html = `<p class="lede">How the ingested data becomes an agentic data cloud: BigQuery as the governed foundation, Looker as the semantic layer, agents and Gemini Enterprise on top, and Knowledge Catalog plus security controls across every layer. Toggle components in <b>Analytics, AI &amp; governance</b>.</p><div class="story">`;
+    html += story.map((b) => {
+      const c = storyCost(b.key);
+      const note = b.key === "bi" && scenario.platform.bi.tool === "looker" && !scenario.platform.bi.looker_annual_usd
+        ? "Looker licence not included - add the customer's quote to price it."
+        : c && c.y3 > 0 ? `Estimated ${money(c.y1)} in year 1, ${money(c.y3)} over 3 years.` : "";
+      return `<section class="story-block ${esc(b.key)}"><h3>${esc(b.title)}</h3><div class="tool-chips">${chips(b.tools)}</div>
+        <ul>${b.points.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>${note ? `<p class="story-cost">${esc(note)}</p>` : ""}</section>`;
+    }).join("");
+    html += `</div>`;
+    const demo = [
+      "Load a sample customer and walk the architecture from source systems to BigQuery, pointing out CDC (dashed) versus batch flows.",
+      "Open a source and change freshness or volume; the pattern, diagram and estimate update live.",
+      "Switch the region (for example to Dammam me-central2) to discuss data residency and the regional price uplift.",
+    ];
+    if (scenario.platform.bi.enabled) demo.push("Show how Looker's semantic layer gives one set of governed metrics to dashboards, Sheets and Conversational Analytics.");
+    if (scenario.platform.agents.enabled) demo.push("Explain how agents on Agent Platform query BigQuery through MCP tools under the user's own permissions, policy tags and masking.");
+    if (scenario.platform.gemini_enterprise.enabled) demo.push("Close with Gemini Enterprise: employees ask business questions and run Deep Research grounded in BigQuery data.");
+    if (scenario.platform.governance.enabled) demo.push("Show lineage and quality scores in Knowledge Catalog as the trust layer that makes agent answers auditable.");
+    demo.push("Finish on the consumption tab: 1-year and 3-year ballpark with and without commitments, then export the proposal.");
+    html += `<h3 style="margin:22px 0 8px">Suggested demo storyline</h3><ol class="demo-steps">${demo.map((d) => `<li>${esc(d)}</li>`).join("")}</ol>`;
+    host.innerHTML = html;
+  }
+
+  // ---------------- cost
+  function fx() { return result?.fx?.[currency] || 1; }
+  function money(usd, digits) {
+    const v = usd * fx();
+    const d = digits ?? (Math.abs(v) >= 1000 ? 0 : 2);
+    try { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: d, minimumFractionDigits: d }).format(v); }
+    catch (_) { return `${currency} ${v.toFixed(d)}`; }
+  }
+  function moneyShort(usd) {
+    const v = usd * fx();
+    const a = Math.abs(v);
+    const s = a >= 1e6 ? (v / 1e6).toFixed(1) + "M" : a >= 1e3 ? (v / 1e3).toFixed(0) + "k" : v.toFixed(0);
+    return `${currency === "USD" ? "$" : currency + " "}${s}`;
+  }
+  function fmtGB(gb) {
+    gb = Number(gb) || 0;
+    if (gb >= 1024 * 1024) return (gb / 1024 / 1024).toFixed(1) + " PB";
+    if (gb >= 1024) return (gb / 1024).toFixed(gb >= 10240 ? 0 : 1) + " TB";
+    return (gb >= 10 ? gb.toFixed(0) : +gb.toFixed(2)) + " GB";
+  }
+
+  function renderCost() {
+    const host = $("#costBody");
+    if (!result || !scenario.sources.length) { host.innerHTML = `<p class="empty-note">The estimate appears once at least one source system is added.</p>`; return; }
+    const t = result.totals;
+    const cudSave1 = t.year1_payg - t.year1_cud1, cudSave3 = t.three_year_payg - t.three_year_cud3;
+    let html = `<div class="horizon">
+      <div class="card"><h3>1-year consumption</h3><div class="big">${money(t.year1_payg)}</div>
+        <div class="row"><span>With 1-year commitments</span><span>${money(t.year1_cud1)}</span></div>
+        <div class="row"><span>Commitment saving</span><span>${money(cudSave1)}</span></div>
+        <div class="range">Discussion range ${money(t.range_low_1y)} to ${money(t.range_high_1y)}</div></div>
+      <div class="card"><h3>3-year consumption</h3><div class="big">${money(t.three_year_payg)}</div>
+        <div class="row"><span>With 3-year commitments</span><span>${money(t.three_year_cud3)}</span></div>
+        <div class="row"><span>Year 1 / 2 / 3</span><span>${moneyShort(t.year1_payg)} / ${moneyShort(t.year2_payg)} / ${moneyShort(t.year3_payg)}</span></div>
+        <div class="range">Discussion range ${money(t.range_low_3y)} to ${money(t.range_high_3y)}</div></div>
+    </div>`;
+    html += `<h3>By capability</h3><div class="groups">${result.by_group.filter((g) => g.three_year > 0).map((g) =>
+      `<div><span>${esc(g.group)}</span><b>${money(g.year1)}</b><span>year 1 · ${money(g.three_year)} over 3 years</span></div>`).join("")}</div>`;
+    html += `<h3>Monthly run-rate over 36 months</h3><div class="chart-key"><span><i></i>Pay-as-you-go</span><span><i class="cud"></i>With 3-year commitments</span></div>
+      <div class="chart-wrap">${chartSvg(result.monthly)}</div>`;
+
+    const maxSvc = Math.max(...result.by_service.map((s) => s.three_year), 1);
+    html += `<h3>By service</h3><div style="overflow-x:auto"><table><thead><tr><th>Service</th><th>Year 1</th><th>Year 1 (1-yr CUD)</th><th>3 years</th><th>3 years (3-yr CUD)</th></tr></thead><tbody>`
+      + result.by_service.map((s) => `<tr><td>${esc(s.service)}<span class="share" style="width:${Math.max(2, 60 * s.three_year / maxSvc)}px"></span></td><td>${money(s.year1)}</td><td>${money(s.year1_cud)}</td><td>${money(s.three_year)}</td><td>${money(s.three_year_cud)}</td></tr>`).join("")
+      + `</tbody><tfoot><tr><td>Total</td><td>${money(t.year1_payg)}</td><td>${money(t.year1_cud1)}</td><td>${money(t.three_year_payg)}</td><td>${money(t.three_year_cud3)}</td></tr></tfoot></table></div>`;
+
+    html += `<h3>By source system</h3><div style="overflow-x:auto"><table><thead><tr><th>Source</th><th>Year 1</th><th>3 years</th></tr></thead><tbody>`
+      + result.by_source.map((s) => `<tr><td>${esc(s.name)}</td><td>${money(s.year1)}</td><td>${money(s.three_year)}</td></tr>`).join("")
+      + `</tbody></table></div>`;
+    html += `<p class="disclaimer">${esc(result.disclaimer)}${currency !== "USD" ? ` Converted from USD at ${fx()} ${currency}/USD.` : ""}</p>`;
+    host.innerHTML = html;
+  }
+
+  function chartSvg(monthly) {
+    const W = 900, H = 240, L = 64, R = 12, T = 12, B = 30;
+    const max = Math.max(...monthly.map((m) => m.payg), 1) * 1.08;
+    const x = (i) => L + (W - L - R) * (i / (monthly.length - 1));
+    const y = (v) => T + (H - T - B) * (1 - v / max);
+    const path = (k) => monthly.map((m, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(m[k]).toFixed(1)}`).join(" ");
+    let grid = "";
+    for (let g = 0; g <= 4; g++) {
+      const v = (max / 4) * g;
+      grid += `<line class="chart-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="chart-axis" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${esc(moneyShort(v))}</text>`;
+    }
+    [0, 11, 23, 35].forEach((i) => (grid += `<text class="chart-axis" x="${x(i)}" y="${H - 8}" text-anchor="middle">${i === 0 ? "Month 1" : "M" + (i + 1)}</text>`));
+    [12, 24].forEach((i) => (grid += `<line class="chart-grid" stroke-dasharray="3 3" x1="${x(i - 0.5)}" x2="${x(i - 0.5)}" y1="${T}" y2="${H - B}"/>`));
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly cost over 36 months">${grid}<path class="chart-line cud" d="${path("cud3")}"/><path class="chart-line payg" d="${path("payg")}"/></svg>`;
+  }
+
+  function renderAssumptions() {
+    const host = $("#assumeBody");
+    if (!result) { host.innerHTML = ""; return; }
+    const a = result.assumptions;
+    const pct = (v) => Math.round(v * 100) + "%";
+    const rows = [
+      ["Region price uplift vs us-central1", `x${result.region.uplift.toFixed(2)} (${esc(result.region.name)})`],
+      ["Batch throughput per vCPU-hour", `${a.batch_gb_per_vcpu_hr.none} GB (no transform), ${a.batch_gb_per_vcpu_hr.light} GB (light), ${a.batch_gb_per_vcpu_hr.heavy} GB (heavy)`],
+      ["Minimum per batch run", `${a.batch_min_vcpu_hr_per_run} vCPU-hour (Dataflow), ${a.datafusion_min_vcpu_hr_per_run} vCPU-hours (Data Fusion cluster), ${a.spark_min_dcu_hr_per_run} DCU-hours (Spark)`],
+      ["Streaming capacity per vCPU", `${a.stream_gb_per_vcpu_day.none} / ${a.stream_gb_per_vcpu_day.light} / ${a.stream_gb_per_vcpu_day.heavy} GB per day (none / light / heavy); minimum ${a.stream_min_vcpu} vCPUs per job, always on`],
+      ["Storage growth from change data", `${pct(a.net_new_ratio.cdc)} of CDC volume is net-new rows; ${pct(a.net_new_ratio.append)} for append-only sources`],
+      ["Curated layers overhead", `+${pct(a.curated_layers_overhead)} storage for curated / mart tables`],
+      ["Long-term storage", `${pct(a.longterm_share_after_90d)} of data older than 90 days is billed as long-term`],
+      ["ELT query volume", `${a.elt_scan_multiplier}x the data ingested each month`],
+      ["Analytics query volume (auto)", `${a.auto_analytics_scan_multiplier}x stored data per month when not specified`],
+      ["Landing zone retention", `${a.landing_retention_days} days in Cloud Storage`],
+      ["Contingency & operations", `${scenario.contingency_pct}% (monitoring, logging, dev/test, unknowns)`],
+      ["Commitment discounts", "Applied to BigQuery editions slots, Dataflow streaming and Composer only"],
+    ];
+    host.innerHTML = `<div class="assume"><h3>Sizing assumptions</h3><dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
+      <h3>Price sources</h3><p>${esc(result.pricing_meta.note)} Last reviewed ${esc(result.pricing_meta.last_reviewed)}.</p>
+      <ul>${result.pricing_meta.sources.map((u) => `<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace("https://cloud.google.com/", ""))}</a></li>`).join("")}</ul>
+      <p class="disclaimer">${esc(result.disclaimer)}</p></div>`;
+  }
+
+  // ------------------------------------------------------------------ exports
+  const NO_DOWNLOAD = !!window.ADVISOR_NO_DOWNLOAD;
+
+  function download(name, mime, text) {
+    if (NO_DOWNLOAD) {
+      const done = () => toast(`Copied ${name} to the clipboard`);
+      try {
+        navigator.clipboard.writeText(text).then(done, () => showCopyBox(name, text));
+      } catch (_) { showCopyBox(name, text); }
+      return;
+    }
+    const blob = new Blob([text], { type: mime });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  function slug() { return (scenario.customer || "scenario").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "scenario"; }
+
+  function doExport(kind) {
+    if (kind === "reset") {
+      const prev = scenario;
+      scenario = structuredClone(DEFAULT_SCENARIO);
+      syncForm(); changed();
+      toast("Started a new scenario", 6000, { label: "Undo", run: () => { scenario = prev; syncForm(); changed(); } });
+      return;
+    }
+    if (kind === "json") return download(`${slug()}.json`, "application/json", JSON.stringify(scenario, null, 2));
+    if (!result || !scenario.sources.length) return toast("Add at least one source first");
+    if (kind === "print") { window.print(); return; }
+    if (kind === "csv") return download(`${slug()}-costs.csv`, "text/csv", toCsv());
+    if (kind === "md") return download(`${slug()}-proposal.md`, "text/markdown", toMarkdown());
+    if (kind === "svg") return download(`${slug()}-architecture.svg`, "image/svg+xml", inlineSvg($("#archSvg")));
+  }
+
+  function toCsv() {
+    const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const c = (v) => (v * fx()).toFixed(2);
+    const lines = [[`Service`, `Year 1 (${currency})`, `Year 1 1-yr CUD`, `3 years`, `3 years 3-yr CUD`].map(q).join(",")];
+    result.by_service.forEach((s) => lines.push([q(s.service), c(s.year1), c(s.year1_cud), c(s.three_year), c(s.three_year_cud)].join(",")));
+    lines.push("", [q("Source"), q(`Year 1 (${currency})`), q("3 years")].join(","));
+    result.by_source.forEach((s) => lines.push([q(s.name), c(s.year1), c(s.three_year)].join(",")));
+    lines.push("", [q("Month"), q(`Pay-as-you-go (${currency})`), q("With 3-yr commitments")].join(","));
+    result.monthly.forEach((m) => lines.push([m.month, c(m.payg), c(m.cud3)].join(",")));
+    return lines.join("\n");
+  }
+
+  function toMarkdown() {
+    const t = result.totals, p = result.platform;
+    const L = [];
+    L.push(`# BigQuery ingestion proposal${scenario.customer ? ` - ${scenario.customer}` : ""}`, "");
+    L.push(`Region: **${result.region.name}** · BigQuery pricing: **${bqModelName()}** · Data growth: **${scenario.annual_growth_pct}%/yr** · Currency: **${currency}**`, "");
+    L.push("## Ballpark consumption", "", "| Horizon | Pay-as-you-go | With commitments | Discussion range |", "|---|---:|---:|---|");
+    L.push(`| 1 year | ${money(t.year1_payg)} | ${money(t.year1_cud1)} (1-yr) | ${money(t.range_low_1y)} - ${money(t.range_high_1y)} |`);
+    L.push(`| 3 years | ${money(t.three_year_payg)} | ${money(t.three_year_cud3)} (3-yr) | ${money(t.range_low_3y)} - ${money(t.range_high_3y)} |`, "");
+    L.push("### By service", "", "| Service | Year 1 | 3 years |", "|---|---:|---:|");
+    result.by_service.forEach((s) => L.push(`| ${s.service} | ${money(s.year1)} | ${money(s.three_year)} |`));
+    L.push("", "## Source systems and recommended patterns", "");
+    scenario.sources.forEach((s) => {
+      const r = recFor(s.id);
+      if (!r) return;
+      L.push(`### ${s.name}`, "", `*${catalog.source_types.find((x) => x.id === s.type)?.name}* · ${freqName(s.frequency)} · ${fmtGB(s.initial_volume_gb)} initial · ${fmtGB(s.daily_change_gb)}/day`, "");
+      L.push(`**Pattern:** ${r.pattern}`, "", `**Services:** ${r.chain.map((x) => tool(x).name).join(" → ")} → BigQuery`, "");
+      r.rationale.forEach((x) => L.push(`- ${x}`));
+      if (r.alternatives.length) { L.push("", "**Alternatives**", ""); r.alternatives.forEach((a) => L.push(`- ${tool(a.tool).name}: ${a.why}`)); }
+      if (r.caveats.length) { L.push("", "**Check during discovery**", ""); r.caveats.forEach((c) => L.push(`- ${c}`)); }
+      if (s.notes) L.push("", `**Notes:** ${s.notes}`);
+      L.push("");
+    });
+    L.push("## Agentic data cloud on BigQuery", "");
+    p.layer.story.forEach((b) => {
+      L.push(`### ${b.title}`, "", `**Services:** ${b.tools.map((x) => tool(x).name).join(", ")}`, "");
+      b.points.forEach((x) => L.push(`- ${x}`));
+      L.push("");
+    });
+    L.push("### Cost by capability", "", "| Capability | Year 1 | 3 years |", "|---|---:|---:|");
+    result.by_group.forEach((g) => L.push(`| ${g.group} | ${money(g.year1)} | ${money(g.three_year)} |`));
+    L.push("");
+    L.push("## Platform blueprint", "");
+    L.push(`- **Transformation:** Dataform - ${p.transformation.why}`);
+    L.push(`- **Orchestration:** ${p.orchestration.tool === "none" ? "None required" : tool(p.orchestration.tool).name} - ${p.orchestration.why}`);
+    L.push(`- **Connectivity:** ${p.connectivity ? tool(p.connectivity).name : "Google-managed / public endpoints"}`);
+    if (p.datafusion_edition) L.push(`- **Data Fusion:** shared ${p.datafusion_edition} instance`);
+    L.push(`- **Governance:** ${p.governance.join("; ")}`, "");
+    L.push("---", "", `_${result.disclaimer}_`, "");
+    return L.join("\n");
+  }
+
+  function inlineSvg(svg) {
+    const clone = svg.cloneNode(true);
+    const src = svg.querySelectorAll("*"), dst = clone.querySelectorAll("*");
+    const props = ["fill", "stroke", "stroke-width", "stroke-dasharray", "font-family", "font-size", "font-weight"];
+    src.forEach((el, i) => {
+      const cs = getComputedStyle(el);
+      props.forEach((p) => dst[i].setAttribute(p, cs.getPropertyValue(p)));
+    });
+    clone.setAttribute("style", `background:${getComputedStyle(document.body).backgroundColor}`);
+    return `<?xml version="1.0" encoding="UTF-8"?>\n` + new XMLSerializer().serializeToString(clone);
+  }
+
+  function showCopyBox(name, text) {
+    const d = $("#copyDialog");
+    $("#copyTitle").textContent = name;
+    $("#copyText").value = text;
+    d.showModal();
+    $("#copyText").select();
+  }
+
+  // ------------------------------------------------------------------ toast
+  let toastTimer;
+  function toast(msg, ms = 2400, action) {
+    const t = $("#toast");
+    t.innerHTML = "";
+    t.append(document.createTextNode(msg));
+    if (action) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "toast-action"; b.textContent = action.label;
+      b.addEventListener("click", () => { t.hidden = true; action.run(); });
+      t.append(b);
+    }
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.hidden = true), ms);
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

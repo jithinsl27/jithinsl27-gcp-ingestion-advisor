@@ -1,0 +1,120 @@
+{
+  "customer": "Sample - Retail Bank (KSA)",
+  "region": "me-central2",
+  "skill": "sql",
+  "orchestration": "auto",
+  "environment": "production",
+  "bq_model": "enterprise",
+  "bq_slots": 200,
+  "annual_growth_pct": 25,
+  "contingency_pct": 10,
+  "sources": [
+    {
+      "id": "s1",
+      "name": "Core banking (Oracle 19c)",
+      "type": "oracle",
+      "data_type": "structured",
+      "frequency": "near_realtime",
+      "location": "on_prem",
+      "transform": "light",
+      "initial_volume_gb": 8000,
+      "daily_change_gb": 60,
+      "tables": 450
+    },
+    {
+      "id": "s2",
+      "name": "Cards & payments (SQL Server)",
+      "type": "sqlserver",
+      "data_type": "structured",
+      "frequency": "hourly",
+      "location": "on_prem",
+      "transform": "none",
+      "initial_volume_gb": 2500,
+      "daily_change_gb": 25,
+      "tables": 120
+    },
+    {
+      "id": "s3",
+      "name": "Transaction events (Kafka)",
+      "type": "kafka",
+      "data_type": "events",
+      "frequency": "realtime",
+      "location": "on_prem",
+      "transform": "light",
+      "initial_volume_gb": 0,
+      "daily_change_gb": 40
+    },
+    {
+      "id": "s4",
+      "name": "Regulatory files (SFTP)",
+      "type": "files_onprem",
+      "data_type": "semi_structured",
+      "frequency": "daily",
+      "location": "on_prem",
+      "transform": "none",
+      "initial_volume_gb": 1500,
+      "daily_change_gb": 5
+    },
+    {
+      "id": "s5",
+      "name": "CRM (Salesforce)",
+      "type": "salesforce",
+      "data_type": "structured",
+      "frequency": "daily",
+      "location": "saas",
+      "transform": "none",
+      "initial_volume_gb": 300,
+      "daily_change_gb": 2
+    },
+    {
+      "id": "s6",
+      "name": "Mobile app analytics (GA4)",
+      "type": "google_marketing",
+      "data_type": "events",
+      "frequency": "daily",
+      "location": "saas",
+      "transform": "none",
+      "initial_volume_gb": 200,
+      "daily_change_gb": 3
+    }
+  ],
+  "platform": {
+    "bi": {
+      "enabled": true,
+      "tool": "looker",
+      "users": 150,
+      "looker_annual_usd": 0
+    },
+    "gemini_enterprise": {
+      "enabled": true,
+      "edition": "standard",
+      "users": 300
+    },
+    "agents": {
+      "enabled": true,
+      "model": "flash",
+      "requests_month": 120000,
+      "input_tokens": 5000,
+      "output_tokens": 800,
+      "agent_seconds": 6,
+      "bq_gb_per_request": 0.2
+    },
+    "gpu": {
+      "enabled": true,
+      "gpu": "l4",
+      "replicas": 2,
+      "hours_per_day": 24
+    },
+    "governance": {
+      "enabled": true,
+      "dq_share_pct": 25,
+      "dq_scans_per_month": 30
+    },
+    "security": {
+      "enabled": true,
+      "sdp_discovery": true,
+      "cmek": true,
+      "vpc_sc": true
+    }
+  }
+}

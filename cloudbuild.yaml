@@ -1,0 +1,51 @@
+# CI/CD: test -> build -> push -> deploy to Cloud Run.
+# Create a trigger on your GitHub repo (see docs/deployment.md) or run manually:
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=us-central1
+substitutions:
+  _REGION: us-central1
+  _SERVICE: ingestion-advisor
+  _REPO: ingestion-advisor
+  _ALLOW_UNAUTH: "--allow-unauthenticated"
+
+steps:
+  - id: test
+    name: python:3.12-slim
+    entrypoint: bash
+    args: ["-c", "pip install -q -r requirements-dev.txt && python -m pytest -q"]
+
+  - id: ensure-repo
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud artifacts repositories describe ${_REPO} --location=${_REGION} >/dev/null 2>&1 || \
+        gcloud artifacts repositories create ${_REPO} --repository-format=docker --location=${_REGION}
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$BUILD_ID", "."]
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$BUILD_ID"]
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$BUILD_ID
+      - --region=${_REGION}
+      - --platform=managed
+      - ${_ALLOW_UNAUTH}
+      - --memory=512Mi
+      - --set-env-vars=APP_VERSION=$BUILD_ID
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$BUILD_ID
+
+options:
+  logging: CLOUD_LOGGING_ONLY

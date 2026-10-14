@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GCP Ingestion Advisor</title>
+  <meta name="description" content="Discovery-phase advisor for BigQuery ingestion: GCP-native ETL/ELT recommendations and 1/3-year ballpark consumption.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314233B'/%3E%3Cpath d='M7 10h8M7 16h12M7 22h6' stroke='%2378B6FF' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='16' r='4' fill='%2338C3A8'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" class="brand-bg"/><path d="M7 10h8M7 16h12M7 22h6" class="brand-lines"/><circle cx="24" cy="16" r="4" class="brand-dot"/></svg>
+      <div>
+        <strong>Ingestion Advisor</strong>
+        <span>Sources to BigQuery, sized for discovery</span>
+      </div>
+    </div>
+    <label class="customer">
+      <span class="sr-only">Customer / engagement name</span>
+      <input id="customer" type="text" placeholder="Customer or engagement name" autocomplete="off">
+    </label>
+    <div class="top-actions">
+      <label class="inline-field">Region
+        <select id="region"></select>
+      </label>
+      <label class="inline-field">Currency
+        <select id="currency"></select>
+      </label>
+      <div class="menu">
+        <button class="btn ghost" id="samplesBtn" aria-haspopup="true" aria-expanded="false">Load sample</button>
+        <div class="menu-pop" id="samplesMenu" role="menu" hidden></div>
+      </div>
+      <div class="menu">
+        <button class="btn primary" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export</button>
+        <div class="menu-pop right" id="exportMenu" role="menu" hidden>
+          <button role="menuitem" data-export="md">Proposal (Markdown)</button>
+          <button role="menuitem" data-export="csv">Cost breakdown (CSV)</button>
+          <button role="menuitem" data-export="json">Save scenario (JSON)</button>
+          <button role="menuitem" data-export="svg">Architecture diagram (SVG)</button>
+          <button role="menuitem" data-export="print">Print / Save as PDF</button>
+          <hr>
+          <label class="menu-file">Open scenario (JSON)<input type="file" id="importFile" accept="application/json,.json"></label>
+          <button role="menuitem" data-export="reset">Start a new scenario</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="side">
+      <section class="panel" aria-labelledby="srcHead">
+        <div class="panel-head">
+          <h2 id="srcHead">Source systems</h2>
+          <button class="btn primary small" id="addSourceBtn">Add source</button>
+        </div>
+        <ol class="source-list" id="sourceList"></ol>
+        <div class="empty" id="sourceEmpty">
+          <p>Add each system the customer wants in BigQuery. You'll get a pattern per source and a running cost.</p>
+        </div>
+      </section>
+
+      <details class="panel settings" open>
+        <summary><h2>Engagement settings</h2></summary>
+        <div class="grid2">
+          <label>Team skill set
+            <select id="skill"></select>
+          </label>
+          <label>Orchestration
+            <select id="orchestration"></select>
+          </label>
+          <label>BigQuery pricing
+            <select id="bq_model"></select>
+          </label>
+          <label id="slotsField">Avg. slots (editions)
+            <input id="bq_slots" type="number" min="0" step="50" value="100">
+          </label>
+          <label>Analytics scan, TiB/month
+            <input id="analytics_tib_month" type="number" min="0" step="1" placeholder="Auto">
+          </label>
+          <label>Annual data growth %
+            <input id="annual_growth_pct" type="number" min="-50" max="500" step="5" value="20">
+          </label>
+          <label>Environment
+            <select id="environment">
+              <option value="poc">Proof of concept</option>
+              <option value="production" selected>Production</option>
+              <option value="production_ha">Production (HA)</option>
+            </select>
+          </label>
+          <label>Contingency %
+            <input id="contingency_pct" type="number" min="0" max="100" step="5" value="10">
+          </label>
+        </div>
+      </details>
+      <details class="panel settings layer" open>
+        <summary><h2>Analytics, AI &amp; governance</h2></summary>
+        <fieldset data-group="bi">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> BI &amp; semantic layer</label></legend>
+          <div class="grid2">
+            <label>Tool<select data-k="tool"></select></label>
+            <label>Users<input type="number" min="0" step="10" data-k="users"></label>
+            <label class="span2" data-show="looker">Looker annual licence quote (USD)<input type="number" min="0" step="1000" data-k="looker_annual_usd" placeholder="0 = not included"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="gemini_enterprise">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Gemini Enterprise</label></legend>
+          <div class="grid2">
+            <label>Edition<select data-k="edition"></select></label>
+            <label>Users<input type="number" min="0" step="10" data-k="users"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="agents">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Data agents (Agent Platform)</label></legend>
+          <div class="grid2">
+            <label>Model<select data-k="model"></select></label>
+            <label>Agent requests / month<input type="number" min="0" step="1000" data-k="requests_month"></label>
+            <label>Input tokens / request<input type="number" min="0" step="500" data-k="input_tokens"></label>
+            <label>Output tokens / request<input type="number" min="0" step="100" data-k="output_tokens"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="gpu">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Model serving on GPU endpoints</label></legend>
+          <div class="grid2">
+            <label>Accelerator<select data-k="gpu"></select></label>
+            <label>Replicas<input type="number" min="0" step="1" data-k="replicas"></label>
+            <label>Hours per day<input type="number" min="0" max="24" step="1" data-k="hours_per_day"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="governance">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Governance (Knowledge Catalog / Dataplex)</label></legend>
+          <div class="grid2">
+            <label>Tables with quality scans %<input type="number" min="0" max="100" step="5" data-k="dq_share_pct"></label>
+            <label>Scans per month<input type="number" min="0" step="1" data-k="dq_scans_per_month"></label>
+          </div>
+        </fieldset>
+        <fieldset data-group="security">
+          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Security &amp; compliance</label></legend>
+          <div class="checks">
+            <label class="toggle"><input type="checkbox" data-k="sdp_discovery"> Sensitive Data Protection discovery</label>
+            <label class="toggle"><input type="checkbox" data-k="cmek"> Customer-managed keys (CMEK)</label>
+            <label class="toggle"><input type="checkbox" data-k="vpc_sc"> VPC Service Controls</label>
+          </div>
+        </fieldset>
+      </details>
+    </aside>
+
+    <section class="stage">
+      <nav class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="arch">Architecture</button>
+        <button role="tab" aria-selected="false" data-tab="recs">Ingestion patterns</button>
+        <button role="tab" aria-selected="false" data-tab="platform">AI, governance &amp; security</button>
+        <button role="tab" aria-selected="false" data-tab="cost">Consumption estimate</button>
+        <button role="tab" aria-selected="false" data-tab="assume">Assumptions</button>
+      </nav>
+
+      <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
+
+      <div class="tabpanel" id="tab-arch" role="tabpanel">
+        <div class="legend">
+          <span><i class="ln stream"></i>Streaming / CDC</span>
+          <span><i class="ln batch"></i>Scheduled batch</span>
+          <span><i class="ln once"></i>One-time migration</span>
+        </div>
+        <div class="diagram-wrap" id="diagram"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-recs" role="tabpanel" hidden>
+        <div id="recsBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-platform" role="tabpanel" hidden>
+        <div id="platformBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-cost" role="tabpanel" hidden>
+        <div id="costBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-assume" role="tabpanel" hidden>
+        <div id="assumeBody"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="sourceDialog" aria-labelledby="dlgTitle">
+    <form id="sourceForm" method="dialog">
+      <h2 id="dlgTitle">Add source system</h2>
+      <div class="grid2">
+        <label class="span2">Source system type
+          <select id="f_type" required></select>
+        </label>
+        <label class="span2">Name used in the customer's estate
+          <input id="f_name" type="text" placeholder="e.g. Core banking (Oracle 19c)" maxlength="120">
+        </label>
+        <label>Data type
+          <select id="f_data_type"></select>
+        </label>
+        <label>Where it runs
+          <select id="f_location"></select>
+        </label>
+        <label>Freshness needed
+          <select id="f_frequency"></select>
+        </label>
+        <label>In-flight transformation
+          <select id="f_transform"></select>
+        </label>
+        <label>Initial / historical volume (GB)
+          <input id="f_initial_volume_gb" type="number" min="0" step="any" value="100">
+        </label>
+        <label>Daily change volume (GB/day)
+          <input id="f_daily_change_gb" type="number" min="0" step="any" value="1">
+        </label>
+        <label class="span2">Discovery notes
+          <textarea id="f_notes" rows="2" placeholder="Owners, constraints, SLAs, licensing..."></textarea>
+        </label>
+      </div>
+      <p class="hint" id="f_hint"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn ghost danger" id="f_delete" hidden>Remove source</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="f_cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="f_save">Add source</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="copyDialog" aria-labelledby="copyTitle">
+    <form method="dialog">
+      <h2 id="copyTitle">Export</h2>
+      <p class="hint">Copy the text below (Ctrl/Cmd + C).</p>
+      <textarea id="copyText" rows="14" readonly></textarea>
+      <div class="dlg-actions"><span class="spacer"></span><button class="btn primary" id="copyClose">Done</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

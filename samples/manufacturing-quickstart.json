@@ -1,0 +1,95 @@
+{
+  "customer": "Sample - Manufacturing quick start",
+  "region": "us-central1",
+  "skill": "low_code",
+  "orchestration": "auto",
+  "environment": "production",
+  "bq_model": "ondemand",
+  "annual_growth_pct": 20,
+  "contingency_pct": 10,
+  "sources": [
+    {
+      "id": "m1",
+      "name": "MES database (MySQL)",
+      "type": "mysql",
+      "data_type": "structured",
+      "frequency": "near_realtime",
+      "location": "on_prem",
+      "transform": "none",
+      "initial_volume_gb": 500,
+      "daily_change_gb": 4
+    },
+    {
+      "id": "m2",
+      "name": "Shop-floor sensors",
+      "type": "iot",
+      "data_type": "events",
+      "frequency": "realtime",
+      "location": "on_prem",
+      "transform": "none",
+      "initial_volume_gb": 0,
+      "daily_change_gb": 15
+    },
+    {
+      "id": "m3",
+      "name": "Supplier files (S3)",
+      "type": "s3",
+      "data_type": "semi_structured",
+      "frequency": "daily",
+      "location": "aws",
+      "transform": "none",
+      "initial_volume_gb": 200,
+      "daily_change_gb": 1
+    },
+    {
+      "id": "m4",
+      "name": "ServiceNow tickets",
+      "type": "saas_other",
+      "data_type": "structured",
+      "frequency": "daily",
+      "location": "saas",
+      "transform": "light",
+      "initial_volume_gb": 20,
+      "daily_change_gb": 0.2
+    }
+  ],
+  "platform": {
+    "bi": {
+      "enabled": true,
+      "tool": "looker_studio_pro",
+      "users": 25,
+      "looker_annual_usd": 0
+    },
+    "gemini_enterprise": {
+      "enabled": true,
+      "edition": "business",
+      "users": 40
+    },
+    "agents": {
+      "enabled": true,
+      "model": "flash_lite",
+      "requests_month": 10000,
+      "input_tokens": 3000,
+      "output_tokens": 500,
+      "agent_seconds": 4,
+      "bq_gb_per_request": 0.05
+    },
+    "gpu": {
+      "enabled": false,
+      "gpu": "l4",
+      "replicas": 1,
+      "hours_per_day": 12
+    },
+    "governance": {
+      "enabled": true,
+      "dq_share_pct": 20,
+      "dq_scans_per_month": 30
+    },
+    "security": {
+      "enabled": true,
+      "sdp_discovery": true,
+      "cmek": false,
+      "vpc_sc": true
+    }
+  }
+}
