@@ -90,8 +90,17 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
     """Collapse the monthly ledger into one row per (environment, service)."""
     r2 = lambda x: round(x + 1e-12, 2)  # noqa: E731
     acc = {}
-    for (m, svc, env_id), (usd, qty) in bom.items():
-        a = acc.setdefault((env_id, svc), {"m12": 0.0, "q12": 0.0, "y1": 0.0, "qy1": 0.0, "y3": 0.0, "qy3": 0.0})
+    for (m, svc, env_id), vals in bom.items():
+        usd, qty = vals[0], vals[1]
+        c1, c3 = (vals[2], vals[3]) if len(vals) > 3 else (usd, usd)
+        a = acc.setdefault((env_id, svc), {"m12": 0.0, "q12": 0.0, "y1": 0.0, "qy1": 0.0, "y3": 0.0, "qy3": 0.0,
+                                           "c1": [0.0, 0.0, 0.0], "c3": [0.0, 0.0, 0.0]})
+        for key, v in (("c1", c1), ("c3", c3)):
+            a[key][2] += v
+            if m <= 12:
+                a[key][1] += v
+            if m == 12:
+                a[key][0] += v
         a["y3"] += usd
         a["qy3"] += qty
         if m <= 12:
@@ -121,6 +130,8 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
             "qty_three_year": round(a["qy3"], 2) if unit else None,
             "unit_price_three_year": round(a["y3"] / a["qy3"], 6) if unit and a["qy3"] else None,
             "month12": r2(a["m12"]), "year1": r2(a["y1"]), "three_year": r2(a["y3"]),
+            "cud1": {"month12": r2(a["c1"][0]), "year1": r2(a["c1"][1]), "three_year": r2(a["c1"][2])},
+            "cud3": {"month12": r2(a["c3"][0]), "year1": r2(a["c3"][1]), "three_year": r2(a["c3"][2])},
             "why": why,
         })
     rows.sort(key=lambda r: (env_order.get(r["environment"], 99),

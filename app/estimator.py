@@ -175,8 +175,10 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         payg[k] += usd
         cud["cud1"][k] += usd if cud1 is None else cud1
         cud["cud3"][k] += usd if cud3 is None else cud3
-        row = bom.setdefault((m, service, primary_env), [0.0, 0.0])
+        row = bom.setdefault((m, service, primary_env), [0.0, 0.0, 0.0, 0.0])
         row[0] += usd
+        row[2] += usd if cud1 is None else cud1
+        row[3] += usd if cud3 is None else cud3
         if q:
             row[1] += q[0]
             units.setdefault(service, q[1])
@@ -484,12 +486,18 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
             if cont_on:
                 view[(m, "Contingency & operations", "_platform", region_id)] += v * cont
     if cont_on:
-        month_bom = defaultdict(float)
-        for (m, svc, env_id), (usd, _q) in list(bom.items()):
-            month_bom[(m, env_id)] += usd
-        for (m, env_id), v in month_bom.items():
+        month_bom = defaultdict(lambda: [0.0, 0.0, 0.0])
+        for (m, svc, env_id), (usd, _q, c1, c3) in list(bom.items()):
+            mb = month_bom[(m, env_id)]
+            mb[0] += usd
+            mb[1] += c1
+            mb[2] += c3
+        for (m, env_id), (v, c1, c3) in month_bom.items():
             if v:
-                bom.setdefault((m, "Contingency & operations", env_id), [0.0, 0.0])[0] += v * cont
+                row = bom.setdefault((m, "Contingency & operations", env_id), [0.0, 0.0, 0.0, 0.0])
+                row[0] += v * cont
+                row[2] += c1 * cont
+                row[3] += c3 * cont
 
     out = _summarise(payg, cud, recs, platform, sources, per_source_meta, region, scenario, pricing)
     out["excluded_services"] = sorted(excluded)
@@ -557,6 +565,38 @@ def _sum(view, months, key=None):
     return dict(out)
 
 
+def _option_view(view, y, name_of, region_names):
+    """Totals and breakdowns for one pricing option (pay-as-you-go, 1-yr or 3-yr commitments)."""
+    r2 = lambda x: round(x + 1e-12, 2)  # noqa: E731
+    yr1, all3 = set(y[1]), set(range(1, 37))
+    monthly = [0.0] * 36
+    for (m, *_), v in view.items():
+        monthly[m - 1] += v
+    t = {"year1": r2(sum(monthly[0:12])), "year2": r2(sum(monthly[12:24])), "year3": r2(sum(monthly[24:36])),
+         "three_year": r2(sum(monthly))}
+    t["avg_monthly_year1"] = round(t["year1"] / 12, 2)
+
+    def rows(key, label):
+        a, b = _sum(view, yr1, key), _sum(view, all3, key)
+        return [{"key": k, "name": label(k), "year1": r2(a.get(k, 0.0)), "three_year": r2(b[k])}
+                for k in sorted(b, key=lambda k: -b[k])]
+    svc = rows("service", lambda k: k)
+    for r in svc:
+        r["group"] = service_group(r["key"])
+    groups = {}
+    for r in svc:
+        g = groups.setdefault(r["group"], {"group": r["group"], "year1": 0.0, "three_year": 0.0})
+        g["year1"] = r2(g["year1"] + r["year1"])
+        g["three_year"] = r2(g["three_year"] + r["three_year"])
+    return {
+        "totals": t, "monthly": [r2(v) for v in monthly],
+        "by_service": svc,
+        "by_group": sorted(groups.values(), key=lambda g: GROUP_ORDER.index(g["group"])),
+        "by_source": sorted(rows("source", lambda k: name_of.get(k, k)), key=lambda r: (r["key"].startswith("_"), -r["three_year"])),
+        "by_region": rows("region", lambda k: region_names.get(k, k)),
+    }
+
+
 def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, pricing):
     y = {1: range(1, 13), 2: range(13, 25), 3: range(25, 37)}
     all3 = range(1, 37)
@@ -621,6 +661,9 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
         "three_year_cud3": tot(cud["cud3"], yr3),
     }
     totals["avg_monthly_year1"] = round(totals["year1_payg"] / 12, 2)
+    by_option = {}
+    for opt, view in (("payg", payg), ("cud1", cud["cud1"]), ("cud3", cud["cud3"])):
+        by_option[opt] = _option_view(view, y, name_of, region_names)
     totals["range_low_3y"] = round(totals["three_year_cud3"] * 0.75, 2)
     totals["range_high_3y"] = round(totals["three_year_payg"] * 1.3, 2)
     totals["range_low_1y"] = round(totals["year1_cud1"] * 0.75, 2)
@@ -631,6 +674,7 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
         "currency": "USD",
         "fx": pricing["fx"],
         "totals": totals,
+        "by_option": by_option,
         "by_service": service_rows,
         "by_group": group_rows,
         "by_source": source_rows,

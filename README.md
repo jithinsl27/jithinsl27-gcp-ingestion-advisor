@@ -18,6 +18,7 @@
 - **estimates 1-year and 3-year consumption**, pay-as-you-go and with committed-use discounts, by service, capability, region and source, in USD, SAR, AED, EUR, GBP or INR;
 - **sizes from workloads** (Workload sizing tab): pipelines, simple/complex/periodic queries, ad-hoc reports, dashboards, data by type (KB … ZB), telemetry and a ramp-up phase - and **sizes BigQuery slots** (baseline, autoscale max, edition, commitment) with recommendations;
 - **itemises the bill of materials**: product, quantity, unit, unit price, cost and why each service is needed, per environment;
+- **prices by your chosen option**: switch between pay-as-you-go, 1-year commitment and 3-year commitment pricing; every figure, breakdown, environment cost, bill of materials and export follows the choice, with the saving versus pay-as-you-go;
 - **drills into every headline figure**: click the monthly, 1-year or 3-year total to see each product's quantity, unit price, cost and share, for all or one environment. Nothing is priced until a source system or a Google Cloud product is added;
 - **builds a month-by-month roadmap** (Roadmap tab): final architecture, phased plan by delivery squads, go-live per source and component, and ramped monthly consumption;
 - **exports to Google Sheets and Google Slides** (architecture, bill of materials, sizing and native charts) - directly into the user's Google Drive, or as .xlsx / .pptx files - plus a Markdown proposal, CSV, architecture SVG, scenario JSON or a print-ready PDF.

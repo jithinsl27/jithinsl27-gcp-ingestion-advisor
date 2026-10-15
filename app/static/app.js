@@ -37,7 +37,7 @@
 
   let DEFAULT_SCENARIO = {
     customer: "", region: "me-central2", processing_region: "", skill: "sql", orchestration: "auto", environment: "production",
-    bq_model: "ondemand", bq_slots: 100, analytics_tib_month: null, annual_growth_pct: 20, contingency_pct: 10,
+    bq_model: "ondemand", bq_slots: 100, pricing_option: "payg", analytics_tib_month: null, annual_growth_pct: 20, contingency_pct: 10,
     sources: [], components: [], security: {}, workload: {},
     environments: [{ id: "prod", name: "Production", preset: "prod" }], lakehouse: {},
   };
@@ -101,6 +101,7 @@
     out.lakehouse = { ...catalog.lakehouse_defaults, ...(sc.lakehouse || {}) };
     out.environments = normEnvs(Array.isArray(sc.environments) && sc.environments.length ? sc.environments : catalog.default_environments);
     out.workload_units = { ...(sc.workload_units || {}) };
+    if (!["payg", "cud1", "cud3"].includes(out.pricing_option)) out.pricing_option = "payg";
     return out;
   }
 
@@ -138,7 +139,7 @@
     changed();
   }
 
-  const envCost = (id) => (hasEstimate() ? result.environments?.find((e) => e.id === id) : null);
+  const envCost = (id) => { const e = hasEstimate() ? result.environments?.find((x) => x.id === id) : null; return e ? envOpt(e) : null; };
   function renderEnvs() {
     if (!catalog) return;
     $("#envCount").value = String(scenario.environments.length);
@@ -232,12 +233,12 @@
       return `<tr${over ? ` class="warn"` : ""}><td><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}<small>${basis}</small></td>
         <td><input type="number" min="0" step="${SLOT_STEP}" data-slot-i="${i}" value="${i === 0 ? esc(scenario.bq_slots) : esc(e.bq_slots ?? "")}" placeholder="${autoSlots(e)}" aria-label="${esc(e.name)} average slots"></td>
         ${sug ? `<td class="num">${wlSuggest(e)}</td>` : ""}
-        <td class="num">${b ? money(b.year1 / 12) : "-"}</td></tr>`;
+        <td class="num">${b ? money(bomCost(b, "year1") / 12) : "-"}</td></tr>`;
     }).join("");
     const total = scenario.environments.reduce((a, e, i) => a + envSlotsOf(e, i), 0);
     host.innerHTML = `<div class="es-head"><b>Average slots by environment</b><span>${esc(ed)} edition</span></div>
       <table class="es-table"><thead><tr><th>Environment</th><th>Avg slots</th>${sug ? `<th title="From the Workload sizing tab">Suggested</th>` : ""}<th>BQ compute / mo</th></tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="num">${Math.round(total).toLocaleString()}</td>${sug ? "<td></td>" : ""}<td class="num">${hasEstimate() ? money(scenario.environments.reduce((a, e) => a + (bqRow(e.id)?.year1 || 0), 0) / 12) : "-"}</td></tr></tfoot></table>
+      <tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="num">${Math.round(total).toLocaleString()}</td>${sug ? "<td></td>" : ""}<td class="num">${hasEstimate() ? money(scenario.environments.reduce((a, e) => a + (bqRow(e.id) ? bomCost(bqRow(e.id), "year1") : 0), 0) / 12) : "-"}</td></tr></tfoot></table>
       <p class="hint">Blank = auto (production slots × the environment's BigQuery compute %). Each environment is priced for its average slots around the clock; BQ compute is the year-1 monthly average.${cap ? ` ${esc(ed)} edition is capped at ${cap.toLocaleString()} slots per reservation.` : ""}${scenario.sources.some((x) => x.included !== false) ? "" : " No slots are billed until a source system is added."}</p>
       <div class="es-actions"><button type="button" class="link-btn" data-slot-auto>Reset to auto</button>${sug ? `<button type="button" class="link-btn" data-slot-wl>Use workload suggestion</button>` : ""}</div>`;
   }
@@ -267,12 +268,12 @@
       return head + `<tr><td>${esc(svc.service)}</td>` + envs.map((e) => {
         const b = result.bom.find((x) => x.environment === e.id && x.service === svc.service);
         if (!b) return `<td class="num muted">${SHARED_UI.has(svc.service) && e !== envs[0] ? "shared" : "-"}</td>`;
-        return `<td class="num">${b.qty_month12 != null ? `<span class="q">${fmtSpecQty(b.qty_month12)} ${esc(b.unit || "")}</span>` : ""}<b>${money(b.month12)}</b></td>`;
+        return `<td class="num">${b.qty_month12 != null ? `<span class="q">${fmtSpecQty(b.qty_month12)} ${esc(b.unit || "")}</span>` : ""}<b>${money(bomCost(b, "month12"))}</b></td>`;
       }).join("") + `</tr>`;
     }).join("");
     const slotRow = scenario.bq_model !== "ondemand" ? `<tr class="spec-key"><td>Average BigQuery slots</td>${envs.map((e) => `<td class="num"><b>${e.effective_slots ?? "-"}</b></td>`).join("")}</tr>` : "";
     return `<div style="overflow-x:auto"><table class="spec-table"><thead><tr><th>Product (quantity / month at month 12)</th>${envs.map((e, i) => `<th class="num"><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}</th>`).join("")}</tr></thead>
-      <tbody>${slotRow}${body}</tbody><tfoot><tr><td>Month 12 run-rate</td>${envs.map((e) => `<td class="num">${money((result.bom || []).filter((b) => b.environment === e.id).reduce((a, b) => a + b.month12, 0))}</td>`).join("")}</tr></tfoot></table></div>`;
+      <tbody>${slotRow}${body}</tbody><tfoot><tr><td>Month 12 run-rate (${esc(optShort())})</td>${envs.map((e) => `<td class="num">${money((result.bom || []).filter((b) => b.environment === e.id).reduce((a, b) => a + bomCost(b, "month12"), 0))}</td>`).join("")}</tr></tfoot></table></div>`;
   }
   function envSizingSection() {
     const envs = scenario.environments;
@@ -304,11 +305,16 @@
   const GROUP_ORDER_UI = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
   const SHARED_UI = new Set(["Network (HA VPN)", "Network (Interconnect)", "Looker licence (customer quote)"]);
   const DRILL = {
-    month: { label: "Average per month, year 1", note: "Year-1 quantity and cost divided by 12.", cost: (b) => b.year1 / 12, qty: (b) => b.qty_year1 == null ? null : b.qty_year1 / 12, price: (b) => b.unit_price, total: () => result.totals.avg_monthly_year1 },
-    year1: { label: "1-year, pay-as-you-go", note: "Months 1-12, list prices with regional uplift, before commitments.", cost: (b) => b.year1, qty: (b) => b.qty_year1, price: (b) => b.unit_price, total: () => result.totals.year1_payg },
-    three: { label: "3-year, pay-as-you-go", note: "Months 1-36 including data growth, before commitments.", cost: (b) => b.three_year, qty: (b) => b.qty_three_year, price: (b) => b.unit_price_three_year, total: () => result.totals.three_year_payg },
+    month: { label: () => "Average per month, year 1", note: "Year-1 quantity and cost divided by 12.", cost: (b) => bomCost(b, "year1") / 12, qty: (b) => b.qty_year1 == null ? null : b.qty_year1 / 12, total: () => OV().totals.avg_monthly_year1 },
+    year1: { label: () => `1-year, ${optShort()}`, note: "Months 1-12.", cost: (b) => bomCost(b, "year1"), qty: (b) => b.qty_year1, total: () => OV().totals.year1 },
+    three: { label: () => `3-year, ${optShort()}`, note: "Months 1-36 including data growth.", cost: (b) => bomCost(b, "three_year"), qty: (b) => b.qty_three_year, total: () => OV().totals.three_year },
   };
   const drill = { view: "year1", env: "all" };
+  const OPT_NOTE = {
+    payg: "List prices, no commitments.",
+    cud1: "1-year committed-use discounts on eligible services: BigQuery editions, Dataflow streaming, Composer, Agent Engine, AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore, Knowledge Catalog premium. Everything else stays at list price.",
+    cud3: "3-year committed-use discounts on eligible services: BigQuery editions, Dataflow streaming, Composer, Agent Engine, AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore, Knowledge Catalog premium. Everything else stays at list price.",
+  };
   function openDrill(view) {
     drill.view = DRILL[view] ? view : "year1";
     if (drill.env !== "all" && !(result.environments || []).some((e) => e.id === drill.env)) drill.env = "all";
@@ -350,15 +356,16 @@
     const head = d.total();
     $("#drillBody").innerHTML = `
       <div class="drill-views" role="group" aria-label="Figure">${Object.entries(DRILL).map(([k, v]) =>
-        `<button type="button" class="drill-view${drill.view === k ? " on" : ""}" data-drill-view="${k}"><span>${esc(v.label)}</span><b>${money(v.total())}</b></button>`).join("")}</div>
+        `<button type="button" class="drill-view${drill.view === k ? " on" : ""}" data-drill-view="${k}"><span>${esc(v.label())}</span><b>${money(v.total())}</b></button>`).join("")}</div>
+      <div class="opt-row">${optionSwitch()}<span class="hint">${esc(OPT_NOTE[OPT()])}</span></div>
       ${envs.length > 1 ? `<div class="bom-filter" role="group" aria-label="Environment">${[{ id: "all", name: "All environments", c: null }, ...envs].map((e) =>
-        `<button type="button" class="chip-btn${drill.env === e.id ? " on" : ""}" data-drill-env="${esc(e.id)}">${esc(e.name)}${e.id === "all" ? "" : ` · ${moneyShort(drill.view === "three" ? e.three_year : drill.view === "year1" ? e.year1 : e.monthly_year1)}`}</button>`).join("")}</div>` : ""}
-      <p class="hint">${esc(d.note)} Unit price is the blended effective price (tiers, free allowances and regional uplift for ${esc(result.region.name)}).${drill.env === "all" ? "" : ` Showing ${esc(envName)} only.`}</p>
+        `<button type="button" class="chip-btn${drill.env === e.id ? " on" : ""}" data-drill-env="${esc(e.id)}">${esc(e.name)}${e.id === "all" ? "" : ` · ${moneyShort(envOpt(e)[drill.view === "three" ? "three_year" : drill.view === "year1" ? "year1" : "monthly_year1"])}`}</button>`).join("")}</div>` : ""}
+      <p class="hint">${esc(d.note)} Unit price is the blended effective price under ${esc(optShort())} (tiers, free allowances and regional uplift for ${esc(result.region.name)}).${drill.env === "all" ? "" : ` Showing ${esc(envName)} only.`}</p>
       <div class="drill-scroll"><table class="bom-table drill-table"><thead><tr><th>Product &amp; why it is needed</th><th class="num">Quantity</th><th>Unit</th><th class="num">Unit price</th><th class="num">Cost</th><th class="num">Share</th></tr></thead>
       <tbody>${body || `<tr><td colspan="6">Nothing priced in this environment.</td></tr>`}</tbody>
       <tfoot><tr><td colspan="4">Total · ${esc(envName)}</td><td class="num">${money(total)}</td><td class="num">100%</td></tr></tfoot></table></div>
       ${drill.env === "all" && Math.abs(total - head) > 1 ? `<p class="hint">Rounding difference vs headline: ${money(head - total)}.</p>` : ""}`;
-    $("#drillTitle").textContent = `${d.label} - products and pricing`;
+    $("#drillTitle").textContent = `${d.label()} - products and pricing`;
   }
 
   function legacySecurityComponents(sec) {
@@ -377,6 +384,30 @@
   const designed = () => !!catalog && (scenario.sources.some((s) => s.included !== false)
     || scenario.components.some((c) => c.included !== false && compMeta(c.type)?.costed));
   const hasEstimate = () => !!result && designed() && (result.totals?.three_year_payg || 0) > 0;
+
+  // ------------------------------------------------------------------ pricing option: pay-as-you-go / 1-yr / 3-yr commitments
+  const OPTIONS = [
+    { id: "payg", name: "Pay-as-you-go", short: "pay-as-you-go" },
+    { id: "cud1", name: "1-year commitment", short: "1-yr commitment" },
+    { id: "cud3", name: "3-year commitment", short: "3-yr commitment" },
+  ];
+  const OPT = () => scenario.pricing_option || "payg";
+  const optShort = (id = OPT()) => OPTIONS.find((o) => o.id === id).short;
+  const OV = (id = OPT()) => result.by_option[id];
+  // cost of a bill-of-materials row under the chosen option (field: month12 | year1 | three_year)
+  const bomCost = (b, field, id = OPT()) => (id === "payg" ? b[field] : b[id][field]);
+  const envOpt = (e) => ({ ...e, ...(e.by_option?.[OPT()] || {}) });
+  function optionSwitch() {
+    return `<div class="opt-switch" role="radiogroup" aria-label="Consumption pricing">${OPTIONS.map((o) =>
+      `<button type="button" role="radio" aria-checked="${OPT() === o.id}" class="${OPT() === o.id ? "on" : ""}" data-opt="${o.id}">${esc(o.name)}</button>`).join("")}</div>`;
+  }
+  function setOption(id) {
+    if (id === OPT()) return;
+    scenario.pricing_option = id;
+    save();
+    renderAll();
+    if ($("#drillDialog").open) renderDrill();
+  }
   function emptyWorkload() {
     const w = clone(catalog.default_workload);
     Object.assign(w.data, { structured_tb: 0, semi_structured_tb: 0, unstructured_tb: 0, tables: 0 });
@@ -735,6 +766,11 @@
     });
     $("#importFile").addEventListener("change", importScenario);
 
+    // pricing option switch (summary strip, consumption tab, drill-down)
+    document.addEventListener("click", (e) => {
+      const o = e.target.closest("[data-opt]");
+      if (o) setOption(o.dataset.opt);
+    });
     // cost drill-down
     document.addEventListener("click", (e) => {
       const b = e.target.closest("[data-drill]");
@@ -1170,12 +1206,14 @@
       el.innerHTML = catalog ? `<div class="note empty-sum">No consumption yet - the estimate starts as soon as you add a source system or a Google Cloud product to the architecture.</div>` : "";
       return;
     }
-    const t = result.totals;
+    const t = OV().totals, tp = OV("payg").totals;
     const nReg = result.by_region?.length || 1;
     const fig = (v, label, view) => `<button type="button" class="fig drill" data-drill="${view}" title="Show the products and pricing behind this figure"><b>${money(v)}</b><span>${label} <i aria-hidden="true">›</i></span></button>`;
-    el.innerHTML = fig(t.avg_monthly_year1, "Average per month, year 1", "month")
-      + fig(t.year1_payg, "1-year, pay-as-you-go", "year1")
-      + fig(t.three_year_payg, "3-year, pay-as-you-go", "three")
+    const saving = OPT() === "payg" ? "" : `<div class="opt-saving">Saves ${money(tp.three_year - t.three_year)} over 3 years vs pay-as-you-go (${tp.three_year ? Math.round(100 * (tp.three_year - t.three_year) / tp.three_year) : 0}%)</div>`;
+    el.innerHTML = `<div class="opt-row"><span class="opt-label">Consumption pricing</span>${optionSwitch()}${saving}</div>`
+      + fig(t.avg_monthly_year1, `Average per month, year 1`, "month")
+      + fig(t.year1, `1-year, ${optShort()}`, "year1")
+      + fig(t.three_year, `3-year, ${optShort()}`, "three")
       + `<div class="note">BigQuery in ${esc(result.region.name)}${nReg > 1 ? ` · ${nReg} regions in use` : ""} · ${result.recommendations.length} of ${scenario.sources.length} sources · ${scenario.components.filter((c) => c.included !== false).length} products · ${result.environments.length} environment${result.environments.length > 1 ? "s" : ""}</div>`;
   }
 
@@ -1605,20 +1643,22 @@
     const host = $("#costBody");
     if (bomEnv && bomEnv !== "all" && !(result?.environments || []).some((e) => e.id === bomEnv)) bomEnv = null;
     if (!hasEstimate()) { host.innerHTML = `<p class="empty-note">Nothing is priced yet. The estimate appears once you add a source system or a Google Cloud product to the architecture. For a workload-based estimate without sources, use Workload sizing.</p>`; return; }
-    const t = result.totals;
-    let html = `<div class="horizon">
-      <div class="card"><h3>1-year consumption <button type="button" class="link-btn" data-drill="year1">Products &amp; pricing ›</button></h3><div class="big">${money(t.year1_payg)}</div>
-        <div class="row"><span>With 1-year commitments</span><span>${money(t.year1_cud1)}</span></div>
-        <div class="row"><span>Commitment saving</span><span>${money(t.year1_payg - t.year1_cud1)}</span></div>
+    const t = result.totals, ov = OV();
+    const optRows = (field) => OPTIONS.map((o) => `<div class="row${o.id === OPT() ? " sel" : ""}"><span>${esc(o.name)}</span><span>${money(OV(o.id).totals[field])}</span></div>`).join("");
+    let html = `<p class="hint opt-note">${esc(OPT_NOTE[OPT()])} Switch pricing in the bar above.</p>
+      <div class="horizon">
+      <div class="card"><h3>1-year consumption <button type="button" class="link-btn" data-drill="year1">Products &amp; pricing ›</button></h3><div class="big">${money(ov.totals.year1)}</div>
+        <div class="sub-opt">${esc(optShort())} · ${money(ov.totals.avg_monthly_year1)} per month</div>
+        ${optRows("year1")}
         <div class="range">Discussion range ${money(t.range_low_1y)} to ${money(t.range_high_1y)}</div></div>
-      <div class="card"><h3>3-year consumption <button type="button" class="link-btn" data-drill="three">Products &amp; pricing ›</button></h3><div class="big">${money(t.three_year_payg)}</div>
-        <div class="row"><span>With 3-year commitments</span><span>${money(t.three_year_cud3)}</span></div>
-        <div class="row"><span>Year 1 / 2 / 3</span><span>${moneyShort(t.year1_payg)} / ${moneyShort(t.year2_payg)} / ${moneyShort(t.year3_payg)}</span></div>
+      <div class="card"><h3>3-year consumption <button type="button" class="link-btn" data-drill="three">Products &amp; pricing ›</button></h3><div class="big">${money(ov.totals.three_year)}</div>
+        <div class="sub-opt">${esc(optShort())} · year 1 / 2 / 3: ${moneyShort(ov.totals.year1)} / ${moneyShort(ov.totals.year2)} / ${moneyShort(ov.totals.year3)}</div>
+        ${optRows("three_year")}
         <div class="range">Discussion range ${money(t.range_low_3y)} to ${money(t.range_high_3y)}</div></div>
     </div>`;
-    html += `<h3>By capability</h3><div class="groups">${result.by_group.filter((g) => g.three_year > 0).map((g) =>
+    html += `<h3>By capability <small class="opt-tag">${esc(optShort())}</small></h3><div class="groups">${ov.by_group.filter((g) => g.three_year > 0).map((g) =>
       `<div><span>${esc(g.group)}</span><b>${money(g.year1)}</b><span>year 1 · ${money(g.three_year)} over 3 years</span></div>`).join("")}</div>`;
-    const envs = result.environments || [];
+    const envs = (result.environments || []).map(envOpt);
     if (envs.length > 1) {
       const maxE = Math.max(...envs.map((e) => e.three_year), 1);
       html += `<h3>By environment</h3><div style="overflow-x:auto"><table class="env-table"><thead><tr><th>Environment</th><th>Sizing vs ${esc(envs[0].name)}</th><th>Per month (yr 1)</th><th>Year 1</th><th>3 years</th></tr></thead><tbody>`
@@ -1628,18 +1668,23 @@
         + `</tbody></table></div>`;
     }
     html += envSizingSection();
-    html += `<h3>Monthly run-rate over 36 months</h3><div class="chart-key"><span><i></i>Pay-as-you-go</span><span><i class="cud"></i>With 3-year commitments</span></div>
-      <div class="chart-wrap">${chartSvg(result.monthly)}</div>`;
+    const cmpId = OPT() === "payg" ? "cud3" : OPT();
+    const series = OV("payg").monthly.map((v, i) => ({ month: i + 1, payg: v, cud3: OV(cmpId).monthly[i] }));
+    html += `<h3>Monthly run-rate over 36 months</h3><div class="chart-key"><span><i></i>Pay-as-you-go</span><span><i class="cud"></i>With ${cmpId === "cud1" ? "1-year" : "3-year"} commitments</span></div>
+      <div class="chart-wrap">${chartSvg(series)}</div>`;
     html += bomSection();
-    const maxSvc = Math.max(...result.by_service.map((s) => s.three_year), 1);
-    html += `<h3>By service</h3><p class="hint">Untick a service to leave it out of every total, the roadmap and workload sizing; tick it again to bring it back.</p>
-      <div style="overflow-x:auto"><table class="svc-table"><thead><tr><th>Service</th><th>Year 1</th><th>Year 1 (1-yr CUD)</th><th>3 years</th><th>3 years (3-yr CUD)</th></tr></thead><tbody>`
-      + result.by_service.map((s) => `<tr><td><label class="svc-toggle"><input type="checkbox" data-svc="${esc(s.service)}" checked aria-label="Include ${esc(s.service)} in pricing"> ${esc(s.service)}</label><span class="share" style="width:${Math.max(2, 60 * s.three_year / maxSvc)}px"></span></td><td>${money(s.year1)}</td><td>${money(s.year1_cud)}</td><td>${money(s.three_year)}</td><td>${money(s.three_year_cud)}</td></tr>`).join("")
-      + scenario.excluded_services.map((svc) => `<tr class="svc-off"><td><label class="svc-toggle"><input type="checkbox" data-svc="${esc(svc)}" aria-label="Include ${esc(svc)} in pricing"> ${esc(svc)}</label></td><td colspan="4">Not priced</td></tr>`).join("")
-      + `</tbody><tfoot><tr><td>Total</td><td>${money(t.year1_payg)}</td><td>${money(t.year1_cud1)}</td><td>${money(t.three_year_payg)}</td><td>${money(t.three_year_cud3)}</td></tr></tfoot></table></div>`;
-    html += regionTable(result.by_region);
+    const svcRows = ov.by_service;
+    const paygSvc = Object.fromEntries(OV("payg").by_service.map((r) => [r.key, r]));
+    const maxSvc = Math.max(...svcRows.map((s) => s.three_year), 1);
+    const isPayg = OPT() === "payg";
+    html += `<h3>By service <small class="opt-tag">${esc(optShort())}</small></h3><p class="hint">Untick a service to leave it out of every total, the roadmap and workload sizing; tick it again to bring it back.</p>
+      <div style="overflow-x:auto"><table class="svc-table"><thead><tr><th>Service</th><th>Year 1</th><th>3 years</th>${isPayg ? "" : "<th>3 years, pay-as-you-go</th><th>Saving</th>"}</tr></thead><tbody>`
+      + svcRows.map((s) => { const p = paygSvc[s.key]?.three_year || 0; return `<tr><td><label class="svc-toggle"><input type="checkbox" data-svc="${esc(s.key)}" checked aria-label="Include ${esc(s.key)} in pricing"> ${esc(s.key)}</label><span class="share" style="width:${Math.max(2, 60 * s.three_year / maxSvc)}px"></span></td><td>${money(s.year1)}</td><td>${money(s.three_year)}</td>${isPayg ? "" : `<td>${money(p)}</td><td>${p - s.three_year > 0.5 ? money(p - s.three_year) : "-"}</td>`}</tr>`; }).join("")
+      + scenario.excluded_services.map((svc) => `<tr class="svc-off"><td><label class="svc-toggle"><input type="checkbox" data-svc="${esc(svc)}" aria-label="Include ${esc(svc)} in pricing"> ${esc(svc)}</label></td><td colspan="${isPayg ? 2 : 4}">Not priced</td></tr>`).join("")
+      + `</tbody><tfoot><tr><td>Total</td><td>${money(ov.totals.year1)}</td><td>${money(ov.totals.three_year)}</td>${isPayg ? "" : `<td>${money(OV("payg").totals.three_year)}</td><td>${money(OV("payg").totals.three_year - ov.totals.three_year)}</td>`}</tr></tfoot></table></div>`;
+    html += regionTable(ov.by_region);
     html += `<h3>By source system</h3><div style="overflow-x:auto"><table><thead><tr><th>Source</th><th>Year 1</th><th>3 years</th></tr></thead><tbody>`
-      + result.by_source.map((s) => `<tr><td>${esc(s.name)}</td><td>${money(s.year1)}</td><td>${money(s.three_year)}</td></tr>`).join("")
+      + ov.by_source.map((s) => `<tr><td>${esc(s.name)}</td><td>${money(s.year1)}</td><td>${money(s.three_year)}</td></tr>`).join("")
       + `</tbody></table></div>`;
     const partners = scenario.components.filter((c) => compMeta(c.type).vendor === "partner").map((c) => compMeta(c.type).name);
     if (partners.length) html += `<p class="hint">Not costed (partner products): ${esc(partners.join(", "))}.</p>`;
@@ -1665,7 +1710,7 @@
     const envs = result.environments || [];
     const rows = bomRows();
     const multi = envs.length > 1;
-    let html = `<h3>Bill of materials</h3><p class="hint">Every priced product with its quantity, effective unit price, cost and why it is needed. Quantities are for month 12 (run-rate) and year 1; unit price is the blended year-1 price including regional uplift and tiers.</p>`;
+    let html = `<h3>Bill of materials <small class="opt-tag">${esc(optShort())}</small></h3><p class="hint">Every priced product with its quantity, effective unit price, cost and why it is needed. Quantities are for month 12 (run-rate) and year 1; unit price is the blended year-1 price including regional uplift and tiers.</p>`;
     if (multi) html += `<div class="bom-filter" role="group" aria-label="Environment">${[{ id: "all", name: "All environments" }, ...envs].map((e) =>
       `<button type="button" class="chip-btn${bomEnv === e.id ? " on" : ""}" data-bom-env="${esc(e.id)}">${esc(e.name)}</button>`).join("")}</div>`;
     let lastGroup = null, lastEnv = null;
@@ -1675,10 +1720,10 @@
       if (b.group !== lastGroup) head += `<tr class="bom-group"><th colspan="8"><i style="background:${GROUP_COLORS[b.group] || "#9AA0A6"}"></i>${esc(b.group)}</th></tr>`;
       lastGroup = b.group; lastEnv = b.environment;
       return head + `<tr><td class="bom-prod"><b>${esc(b.service)}</b><span>${esc(b.why)}</span></td>
-        <td>${fmtQty(b.qty_month12)}</td><td>${fmtQty(b.qty_year1)}</td><td class="bom-unit">${esc(b.unit || "-")}</td><td>${unitPrice(b.unit_price)}</td>
-        <td>${money(b.month12)}</td><td>${money(b.year1)}</td><td>${money(b.three_year)}</td></tr>`;
+        <td>${fmtQty(b.qty_month12)}</td><td>${fmtQty(b.qty_year1)}</td><td class="bom-unit">${esc(b.unit || "-")}</td><td>${unitPrice(b.qty_year1 ? bomCost(b, "year1") / b.qty_year1 : null)}</td>
+        <td>${money(bomCost(b, "month12"))}</td><td>${money(bomCost(b, "year1"))}</td><td>${money(bomCost(b, "three_year"))}</td></tr>`;
     }).join("");
-    const sum = (k) => rows.reduce((a, b) => a + b[k], 0);
+    const sum = (k) => rows.reduce((a, b) => a + bomCost(b, k), 0);
     html += `<div style="overflow-x:auto"><table class="bom-table"><thead><tr><th>Product &amp; why it is needed</th><th>Qty / month (M12)</th><th>Qty, year 1</th><th>Unit</th><th>Unit price</th><th>Month 12</th><th>Year 1</th><th>3 years</th></tr></thead>
       <tbody>${body}</tbody><tfoot><tr><td>Total${bomEnv !== "all" ? " - " + esc(envs.find((e) => e.id === bomEnv)?.name || "") : ""}</td><td></td><td></td><td></td><td></td><td>${money(sum("month12"))}</td><td>${money(sum("year1"))}</td><td>${money(sum("three_year"))}</td></tr></tfoot></table></div>`;
     return html;
@@ -2104,8 +2149,13 @@
     L.push("## Ballpark consumption (source-based)", "", "| Horizon | Pay-as-you-go | With commitments | Discussion range |", "|---|---:|---:|---|");
     L.push(`| 1 year | ${money(t.year1_payg)} | ${money(t.year1_cud1)} (1-yr) | ${money(t.range_low_1y)} - ${money(t.range_high_1y)} |`);
     L.push(`| 3 years | ${money(t.three_year_payg)} | ${money(t.three_year_cud3)} (3-yr) | ${money(t.range_low_3y)} - ${money(t.range_high_3y)} |`, "");
-    L.push("### By service", "", "| Service | Year 1 | 3 years |", "|---|---:|---:|");
-    result.by_service.forEach((s) => L.push(`| ${s.service} | ${money(s.year1)} | ${money(s.three_year)} |`));
+    const ovm = OV();
+    L.push(`**Selected pricing: ${OPTIONS.find((o) => o.id === OPT()).name}** - ${money(ovm.totals.avg_monthly_year1)} per month in year 1, ${money(ovm.totals.year1)} for year 1, ${money(ovm.totals.three_year)} over 3 years.`, "");
+    L.push("| Horizon | Pay-as-you-go | 1-year commitment | 3-year commitment |", "|---|---:|---:|---:|");
+    L.push(`| 1 year | ${OPTIONS.map((o) => money(OV(o.id).totals.year1)).join(" | ")} |`);
+    L.push(`| 3 years | ${OPTIONS.map((o) => money(OV(o.id).totals.three_year)).join(" | ")} |`, "");
+    L.push(`### By service (${optShort()})`, "", "| Service | Year 1 | 3 years |", "|---|---:|---:|");
+    ovm.by_service.forEach((s) => L.push(`| ${s.key} | ${money(s.year1)} | ${money(s.three_year)} |`));
     if ((result.environments || []).length > 1) {
       L.push("", "### By environment", "", "| Environment | Year 1 | 3 years |", "|---|---:|---:|");
       result.environments.forEach((e) => L.push(`| ${e.name} | ${money(e.year1)} | ${money(e.three_year)} |`));
@@ -2277,11 +2327,11 @@
     const groups = result.by_group.filter((g) => g.three_year > 0);
     const sum = [
       [{ v: `Data Cloud Compass - ${scenario.customer || "Customer"}`, s: S.title }],
-      [{ v: `BigQuery region ${result.region.name} · ${bqModelName()} · growth ${scenario.annual_growth_pct}%/yr · ${scenario.environments.length} environment(s) · currency ${ccy} · ${today}`, s: S.sub }],
+      [{ v: `BigQuery region ${result.region.name} · ${bqModelName()} · growth ${scenario.annual_growth_pct}%/yr · ${scenario.environments.length} environment(s) · selected pricing ${OPTIONS.find((o) => o.id === OPT()).name} · currency ${ccy} · ${today}`, s: S.sub }],
       [],
-      H(["Horizon", `Pay-as-you-go (${ccy})`, `With commitments (${ccy})`, "Discussion range low", "Discussion range high"]),
-      ["1 year", M(t.year1_payg), M(t.year1_cud1), M(t.range_low_1y), M(t.range_high_1y)],
-      ["3 years", M(t.three_year_payg), M(t.three_year_cud3), M(t.range_low_3y), M(t.range_high_3y)],
+      H(["Horizon", `Pay-as-you-go (${ccy})`, `1-year commitment (${ccy})`, `3-year commitment (${ccy})`, "Discussion range low", "Discussion range high"]),
+      ["1 year", M(OV("payg").totals.year1), M(OV("cud1").totals.year1), M(OV("cud3").totals.year1), M(t.range_low_1y), M(t.range_high_1y)],
+      ["3 years", M(OV("payg").totals.three_year), M(OV("cud1").totals.three_year), M(OV("cud3").totals.three_year), M(t.range_low_3y), M(t.range_high_3y)],
       [],
       H(["Capability", `Year 1 (${ccy})`, `3 years (${ccy})`]),
       ...groups.map((g) => [g.group, M(g.year1), M(g.three_year)]),
@@ -2484,9 +2534,10 @@
     // 5. Consumption summary
     {
       const s = slide("Ballpark consumption", `${bqModelName()} · ${scenario.annual_growth_pct}% annual data growth · ${scenario.contingency_pct}% contingency · ${ccy}`);
-      kpi(s, 0.4, "Average per month, year 1", money(t.avg_monthly_year1), "pay-as-you-go");
-      kpi(s, 3.5, "1 year", money(t.year1_payg), `${money(t.year1_cud1)} with 1-yr commitments`, BLUE);
-      kpi(s, 6.6, "3 years", money(t.three_year_payg), `${money(t.three_year_cud3)} with 3-yr commitments`, BLUE);
+      const ovk = OV(), oth = OPTIONS.filter((o) => o.id !== OPT());
+      kpi(s, 0.4, "Average per month, year 1", money(ovk.totals.avg_monthly_year1), optShort());
+      kpi(s, 3.5, "1 year", money(ovk.totals.year1), oth.map((o) => `${money(OV(o.id).totals.year1)} ${o.short}`).join(" · "), BLUE);
+      kpi(s, 6.6, "3 years", money(ovk.totals.three_year), oth.map((o) => `${money(OV(o.id).totals.three_year)} ${o.short}`).join(" · "), BLUE);
       kpi(s, 9.7, "Discussion range, 3 years", `${moneyShort(t.range_low_3y)} - ${moneyShort(t.range_high_3y)}`, "commitments to contingency");
       const g = result.by_group.filter((x) => x.three_year > 0);
       s.addChart(P.ChartType.bar, [{ name: `Year 1 (${ccy})`, labels: g.map((x) => x.group), values: g.map((x) => cv(x.year1)) }, { name: `3 years (${ccy})`, labels: g.map((x) => x.group), values: g.map((x) => cv(x.three_year)) }],

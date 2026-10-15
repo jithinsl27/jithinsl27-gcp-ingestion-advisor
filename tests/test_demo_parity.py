@@ -125,6 +125,19 @@ def test_js_engine_matches_python(tmp_path):
             assert a["three_year"] == pytest.approx(b["three_year"], abs=0.05)
             assert (a["qty_year1"] or 0) == pytest.approx(b["qty_year1"] or 0, abs=0.05, rel=1e-6)
             assert a["why"] == b["why"]
+            for o in ("cud1", "cud3"):
+                for f in ("month12", "year1", "three_year"):
+                    assert a[o][f] == pytest.approx(b[o][f], abs=0.05, rel=1e-6), (o, f, a["service"])
+        # every view for each pricing option (pay-as-you-go, 1-yr and 3-yr commitments)
+        for o in ("payg", "cud1", "cud3"):
+            jo, po = js["by_option"][o], py["by_option"][o]
+            for k, v in po["totals"].items():
+                assert jo["totals"][k] == pytest.approx(v, abs=0.05, rel=1e-6), (o, k)
+            assert jo["monthly"] == pytest.approx(po["monthly"], abs=0.05)
+            for view in ("by_service", "by_source", "by_region"):
+                assert {r["key"]: r["three_year"] for r in jo[view]} == pytest.approx({r["key"]: r["three_year"] for r in po[view]}, abs=0.05), (o, view)
+            assert [g["group"] for g in jo["by_group"]] == [g["group"] for g in po["by_group"]]
+            assert [e["by_option"][o]["year1"] for e in js["environments"]] == pytest.approx([e["by_option"][o]["year1"] for e in py["environments"]], abs=0.05)
         # workload sizing
         pw, jw = workload_estimate(sc), res["w"]
         for k, v in pw["totals"].items():

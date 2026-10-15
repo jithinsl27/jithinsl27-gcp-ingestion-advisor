@@ -126,12 +126,12 @@ def replicate(views: list[dict], bom: dict, envs: list[dict], group_fn, bq_model
                         env_tot[env["id"]][n][k[0]] += v * f
         base_bom = [(k, list(v)) for k, v in bom.items() if k[2] == primary]
         for env in envs[1:]:
-            for (m, svc, _), (usd, qty) in base_bom:
+            for (m, svc, _), vals in base_bom:
                 f = env_factor(env, svc, group_fn(svc), bq_model, base_slots)
                 if f:
-                    row = bom.setdefault((m, svc, env["id"]), [0.0, 0.0])
-                    row[0] += usd * f
-                    row[1] += qty * f
+                    row = bom.setdefault((m, svc, env["id"]), [0.0] * len(vals))
+                    for i, v in enumerate(vals):
+                        row[i] += v * f
     return env_tot
 
 
@@ -160,5 +160,8 @@ def env_summary(envs, env_tot, cont, contingency_on, bq_model="ondemand", base_s
             "monthly_year1": round(y1 / 12 + 1e-12, 2),
             "year1": round(y1 + 1e-12, 2), "year1_cud": round(sum(t["cud1"][1:13]) * mult + 1e-12, 2),
             "three_year": round(y3 + 1e-12, 2), "three_year_cud": round(sum(t["cud3"][1:37]) * mult + 1e-12, 2),
+            "by_option": {n: {"monthly_year1": round(sum(t[n][1:13]) * mult / 12 + 1e-12, 2),
+                              "year1": round(sum(t[n][1:13]) * mult + 1e-12, 2),
+                              "three_year": round(sum(t[n][1:37]) * mult + 1e-12, 2)} for n in ("payg", "cud1", "cud3")},
         })
     return rows

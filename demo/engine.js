@@ -110,13 +110,13 @@
       });
       const baseBom = [...bom.entries()].filter(([k]) => k.split("\u0001")[2] === primary).map(([k, v]) => [k, v.slice()]);
       for (const env of envs.slice(1)) {
-        for (const [k, [usd, qty]] of baseBom) {
+        for (const [k, vals] of baseBom) {
           const [m, svc] = k.split("\u0001");
           const f = envFactor(env, svc, serviceGroup(svc), bqModel, baseSlots);
           if (f) {
             const kk = `${m}\u0001${svc}\u0001${env.id}`;
-            const row = bom.get(kk) || [0, 0];
-            row[0] += usd * f; row[1] += qty * f;
+            const row = bom.get(kk) || new Array(vals.length).fill(0);
+            vals.forEach((v, i) => { row[i] += v * f; });
             bom.set(kk, row);
           }
         }
@@ -139,7 +139,9 @@
         effective_slots: effectiveSlots(e, bqModel, baseSlots),
         slots_basis: bqModel === "ondemand" ? null : e === envs[0] ? "primary" : (e.bq_slots !== null && e.bq_slots !== undefined) ? "manual" : "compute_pct",
         monthly_year1: round2(y1 / 12 + 1e-12), year1: round2(y1 + 1e-12), year1_cud: round2(sum(t.cud1, 1, 12) * mult + 1e-12),
-        three_year: round2(y3 + 1e-12), three_year_cud: round2(sum(t.cud3, 1, 36) * mult + 1e-12) };
+        three_year: round2(y3 + 1e-12), three_year_cud: round2(sum(t.cud3, 1, 36) * mult + 1e-12),
+        by_option: Object.fromEntries(["payg", "cud1", "cud3"].map((n) => [n, { monthly_year1: round2(sum(t[n], 1, 12) * mult / 12 + 1e-12),
+          year1: round2(sum(t[n], 1, 12) * mult + 1e-12), three_year: round2(sum(t[n], 1, 36) * mult + 1e-12) }])) };
     });
   }
 
@@ -167,11 +169,14 @@
   function pyRound(x, d) { const f = Math.pow(10, d); return Math.round((x + Number.EPSILON) * f) / f; }
   function buildBom(bom, units, envs, drivers, ctx) {
     const acc = new Map();
-    for (const [k, [usd, qty]] of bom) {
+    for (const [k, vals] of bom) {
+      const [usd, qty] = vals;
+      const c1 = vals.length > 3 ? vals[2] : usd, c3 = vals.length > 3 ? vals[3] : usd;
       const [ms, svc, envId] = k.split("\u0001");
       const m = +ms;
       const ak = `${envId}\u0001${svc}`;
-      const a = acc.get(ak) || { m12: 0, q12: 0, y1: 0, qy1: 0, y3: 0, qy3: 0 };
+      const a = acc.get(ak) || { m12: 0, q12: 0, y1: 0, qy1: 0, y3: 0, qy3: 0, c1: [0, 0, 0], c3: [0, 0, 0] };
+      for (const [arr, v] of [[a.c1, c1], [a.c3, c3]]) { arr[2] += v; if (m <= 12) arr[1] += v; if (m === 12) arr[0] += v; }
       a.y3 += usd; a.qy3 += qty;
       if (m <= 12) { a.y1 += usd; a.qy1 += qty; }
       if (m === 12) { a.m12 += usd; a.q12 += qty; }
@@ -192,7 +197,9 @@
         qty_month12: unit ? pyRound(a.q12, 2) : null, qty_year1: unit ? pyRound(a.qy1, 2) : null,
         unit_price: unit && a.qy1 ? pyRound(a.y1 / a.qy1, 6) : null,
         qty_three_year: unit ? pyRound(a.qy3, 2) : null, unit_price_three_year: unit && a.qy3 ? pyRound(a.y3 / a.qy3, 6) : null,
-        month12: round2(a.m12 + 1e-12), year1: round2(a.y1 + 1e-12), three_year: round2(a.y3 + 1e-12), why });
+        month12: round2(a.m12 + 1e-12), year1: round2(a.y1 + 1e-12), three_year: round2(a.y3 + 1e-12),
+        cud1: { month12: round2(a.c1[0] + 1e-12), year1: round2(a.c1[1] + 1e-12), three_year: round2(a.c1[2] + 1e-12) },
+        cud3: { month12: round2(a.c3[0] + 1e-12), year1: round2(a.c3[1] + 1e-12), three_year: round2(a.c3[2] + 1e-12) }, why });
     }
     const gi = (g) => (GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : 99);
     rows.sort((x, y) => ((envOrder[x.environment] ?? 99) - (envOrder[y.environment] ?? 99)) || (gi(x.group) - gi(y.group)) || (y.three_year - x.three_year));
@@ -728,8 +735,10 @@
       inc(cud1, k, c1 === undefined ? usd : c1);
       inc(cud3, k, c3 === undefined ? usd : c3);
       const bk = `${m}\u0001${svc}\u0001${primaryEnv}`;
-      const row = bom.get(bk) || [0, 0];
+      const row = bom.get(bk) || [0, 0, 0, 0];
       row[0] += usd;
+      row[2] += c1 === undefined ? usd : c1;
+      row[3] += c3 === undefined ? usd : c3;
       if (q) { row[1] += q[0]; if (!(svc in units)) units[svc] = q[1]; }
       bom.set(bk, row);
     }
@@ -957,13 +966,18 @@
     }
     if (contOn) {
       const monthBom = new Map();
-      for (const [k, [usd]] of bom) { const [m, , envId] = k.split("\u0001"); const mk = `${m}\u0001${envId}`; monthBom.set(mk, (monthBom.get(mk) || 0) + usd); }
-      for (const [mk, v] of monthBom) {
+      for (const [k, [usd, , c1, c3]] of bom) {
+        const [m, , envId] = k.split("\u0001"); const mk = `${m}\u0001${envId}`;
+        const mb = monthBom.get(mk) || [0, 0, 0];
+        mb[0] += usd; mb[1] += c1; mb[2] += c3;
+        monthBom.set(mk, mb);
+      }
+      for (const [mk, [v, c1, c3]] of monthBom) {
         if (!v) continue;
         const [m, envId] = mk.split("\u0001");
         const bk = `${m}\u0001Contingency & operations\u0001${envId}`;
-        const row = bom.get(bk) || [0, 0];
-        row[0] += v * cont;
+        const row = bom.get(bk) || [0, 0, 0, 0];
+        row[0] += v * cont; row[2] += c1 * cont; row[3] += c3 * cont;
         bom.set(bk, row);
       }
     }
@@ -1036,13 +1050,36 @@
       three_year_payg: tot(payg, 0), three_year_cud3: tot(cud3, 0),
     };
     t.avg_monthly_year1 = round2(t.year1_payg / 12);
+    const optionView = (view) => {
+      const r2 = (x) => round2(x + 1e-12);
+      const mon = new Array(36).fill(0);
+      for (const [k, v] of view) mon[parse(k).m - 1] += v;
+      const s = (a, b) => mon.slice(a, b).reduce((x, y) => x + y, 0);
+      const tt = { year1: r2(s(0, 12)), year2: r2(s(12, 24)), year3: r2(s(24, 36)), three_year: r2(s(0, 36)) };
+      tt.avg_monthly_year1 = round2(tt.year1 / 12);
+      const rows = (field, label) => {
+        const a = sumBy(view, 1, field), b = sumBy(view, 0, field);
+        return [...b.keys()].sort((x, y) => b.get(y) - b.get(x)).map((k) => ({ key: k, name: label(k), year1: r2(a.get(k) || 0), three_year: r2(b.get(k)) }));
+      };
+      const svc = rows("svc", (k) => k);
+      svc.forEach((r) => { r.group = serviceGroup(r.key); });
+      const gs = {};
+      for (const r of svc) { const g = gs[r.group] || (gs[r.group] = { group: r.group, year1: 0, three_year: 0 }); g.year1 = r2(g.year1 + r.year1); g.three_year = r2(g.three_year + r.three_year); }
+      return {
+        totals: tt, monthly: mon.map(r2), by_service: svc,
+        by_group: Object.values(gs).sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group)),
+        by_source: rows("sid", (k) => nameOf[k] || k).sort((a, b) => (a.key.startsWith("_") - b.key.startsWith("_")) || (b.three_year - a.three_year)),
+        by_region: rows("rid", (k) => regionNames[k] || k),
+      };
+    };
+    const byOption = { payg: optionView(payg), cud1: optionView(cud1), cud3: optionView(cud3) };
     t.range_low_3y = round2(t.three_year_cud3 * 0.75);
     t.range_high_3y = round2(t.three_year_payg * 1.3);
     t.range_low_1y = round2(t.year1_cud1 * 0.75);
     t.range_high_1y = round2(t.year1_payg * 1.3);
     const pm = D.pricing._meta;
     return {
-      region, currency: "USD", fx: D.pricing.fx, totals: t, by_service: serviceRows, by_group: groupRows, by_source: sourceRows, by_region: regionRows,
+      region, currency: "USD", fx: D.pricing.fx, totals: t, by_option: byOption, by_service: serviceRows, by_group: groupRows, by_source: sourceRows, by_region: regionRows,
       monthly, recommendations: recs, platform, assumptions: A, pricing_meta: pm,
       disclaimer: `Ballpark estimate for discovery discussions only. Based on public list prices (reviewed ${pm.last_reviewed}) with an approximate regional uplift of x${region.uplift.toFixed(2)} for ${region.name}. Excludes taxes, support, egress from other clouds, partner licences (Power BI, Tableau, SageMaker and other non-Google tools are not costed) and negotiated discounts. Validate with the Google Cloud Pricing Calculator.`,
     };
