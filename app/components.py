@@ -22,6 +22,7 @@ CATEGORIES = [
     {"id": "integration", "name": "APIs & integration"},
     {"id": "database", "name": "Operational databases"},
     {"id": "governance", "name": "Governance & catalog"},
+    {"id": "security", "name": "Security & compliance"},
 ]
 
 # --------------------------------------------------------------------------- #
@@ -395,6 +396,66 @@ COMPONENTS = [
         "notes": ["Partner licence - not included in the GCP estimate."],
         "doc": "https://onlinehelp.informatica.com/IICS/prod/MCC/en/metadata-command-center-catalog-source-configuration/Google_BigQuery.html",
     },
+    # ------------------------------------------------------------------ Security & compliance
+    {
+        "id": "sdp", "name": "Sensitive Data Protection", "category": "security", "vendor": "google", "costed": True,
+        "method": "Automatic discovery and classification of PII in BigQuery and Cloud Storage",
+        "settings": [],
+        "steps": ["Turn on discovery for the organisation or project: every BigQuery table is profiled and PII infoTypes are classified.",
+                  "Publish findings to Security Command Center and auto-apply policy tags to sensitive columns.",
+                  "De-identify (mask, tokenise) data in pipelines with the DLP API where raw values are not needed."],
+        "notes": ["Costed: $0.03 per GB profiled - all data at first load, then new data each month."],
+        "doc": "https://cloud.google.com/sensitive-data-protection/docs/data-profiles",
+    },
+    {
+        "id": "cmek", "name": "Cloud KMS (CMEK)", "category": "security", "vendor": "google", "costed": True,
+        "method": "Customer-managed encryption keys for BigQuery, Cloud Storage, Pub/Sub, Datastream, Dataflow and Vertex AI",
+        "settings": [num("key_versions", "Active key versions", 20, 5), num("operations_million", "Key operations per month (millions)", 3, 1)],
+        "steps": ["Create key rings in the data region; set default CMEK on BigQuery datasets and Cloud Storage buckets.",
+                  "Enforce CMEK with the organisation policy constraint gcp.restrictNonCmekServices.",
+                  "Use Cloud EKM or Cloud HSM where keys must stay outside Google or in hardware (common for KSA PDPL / NCA ECC)."],
+        "notes": ["Costed: key versions and cryptographic operations (Cloud HSM / EKM priced higher)."],
+        "doc": "https://cloud.google.com/kms/docs/cmek",
+    },
+    {
+        "id": "vpc_sc", "name": "VPC Service Controls", "category": "security", "vendor": "google", "costed": False,
+        "method": "Service perimeter around BigQuery, Cloud Storage, Vertex AI and ingestion projects",
+        "settings": [],
+        "steps": ["Put data and AI projects in a service perimeter; start in dry-run mode to see what would be blocked.",
+                  "Allow partner tools and on-prem networks with ingress rules and access levels.",
+                  "Use Private Service Connect for Google APIs and partner endpoints."],
+        "notes": ["No additional charge."],
+        "doc": "https://cloud.google.com/vpc-service-controls/docs/overview",
+    },
+    {
+        "id": "policy_tags", "name": "Policy tags, row access & data masking", "category": "security", "vendor": "google", "costed": False,
+        "method": "Column- and row-level security enforced inside BigQuery",
+        "settings": [],
+        "steps": ["Define a taxonomy of policy tags (e.g. PII, Confidential) and attach them to columns.",
+                  "Add dynamic data masking rules and row access policies per group.",
+                  "Controls apply to every consumer - SQL, Looker, Power BI, partner platforms and agents."],
+        "notes": ["No additional charge."],
+        "doc": "https://cloud.google.com/bigquery/docs/column-level-security-intro",
+    },
+    {
+        "id": "scc", "name": "Security Command Center", "category": "security", "vendor": "google", "costed": False,
+        "method": "Posture management, threat detection and data security posture for the platform",
+        "settings": [],
+        "steps": ["Enable at organisation level; Standard tier is included.",
+                  "Premium / Enterprise add threat detection for BigQuery and AI workloads, posture and compliance reporting (quote-based)."],
+        "notes": ["Standard tier free; Premium and Enterprise are subscription / quote-based and not costed here."],
+        "doc": "https://cloud.google.com/security-command-center/docs/security-command-center-overview",
+    },
+    {
+        "id": "assured_workloads", "name": "Assured Workloads / Sovereign controls", "category": "security", "vendor": "google", "costed": False,
+        "method": "Data residency, personnel access and key-control guardrails for regulated workloads",
+        "settings": [],
+        "steps": ["Create an Assured Workloads folder with the control package for the jurisdiction (e.g. KSA sovereign controls).",
+                  "Resource-location and service-usage constraints keep BigQuery and AI services in approved regions.",
+                  "Pair with CMEK / EKM and Access Transparency for auditability."],
+        "notes": ["Pricing depends on the control package - quote-based, not costed here."],
+        "doc": "https://cloud.google.com/assured-workloads/docs/overview",
+    },
 ]
 COMPONENT_BY_ID = {c["id"]: c for c in COMPONENTS}
 
@@ -403,7 +464,13 @@ DEFAULT_COMPONENTS = [
     {"id": "c2", "type": "agent_platform", "settings": {}},
     {"id": "c3", "type": "gemini_enterprise", "settings": {}},
     {"id": "c4", "type": "knowledge_catalog", "settings": {}},
+    {"id": "c5", "type": "sdp", "settings": {}},
+    {"id": "c6", "type": "cmek", "settings": {}},
+    {"id": "c7", "type": "vpc_sc", "settings": {}},
+    {"id": "c8", "type": "policy_tags", "settings": {}},
+    {"id": "c9", "type": "scc", "settings": {}},
 ]
+SECURITY_TYPES = [c["id"] for c in COMPONENTS if c["category"] == "security"]
 DEFAULT_SECURITY = {"enabled": True, "sdp_discovery": True, "cmek": True, "vpc_sc": True}
 
 
@@ -444,15 +511,37 @@ def legacy_to_components(platform):
     return comps, sec
 
 
+def security_components(sec, start_index=100):
+    """Legacy security toggles -> security components."""
+    if not sec.get("enabled", True):
+        return []
+    out, i = [], start_index
+    for flag, ctype in (("sdp_discovery", "sdp"), ("cmek", "cmek"), ("vpc_sc", "vpc_sc")):
+        if sec.get(flag, True):
+            i += 1
+            out.append({"id": f"c{i}", "type": ctype, "settings": {}})
+    for ctype in ("policy_tags", "scc"):
+        i += 1
+        out.append({"id": f"c{i}", "type": ctype, "settings": {}})
+    return out
+
+
 def normalized(scenario):
-    """Return (components, security) with defaults filled in."""
+    """Return (components, security_summary) with defaults filled in.
+
+    Security controls are components (category "security"). Older scenarios that carry a
+    `security` dict of toggles - or the even older fixed `platform` block - are converted.
+    """
     if scenario.get("components") is not None:
-        comps = scenario["components"]
-        sec = {**DEFAULT_SECURITY, **(scenario.get("security") or {})}
+        comps = list(scenario["components"])
+        has_sec = any(COMPONENT_BY_ID.get(c.get("type"), {}).get("category") == "security" for c in comps)
+        if scenario.get("security") is not None and not has_sec:
+            comps += security_components({**DEFAULT_SECURITY, **scenario["security"]})
     elif scenario.get("platform"):
-        comps, sec = legacy_to_components(scenario["platform"])
+        comps, legacy_sec = legacy_to_components(scenario["platform"])
+        comps += security_components(legacy_sec)
     else:
-        comps, sec = [dict(c) for c in DEFAULT_COMPONENTS], dict(DEFAULT_SECURITY)
+        comps = [dict(c) for c in DEFAULT_COMPONENTS]
     out = []
     for c in comps:
         if c.get("type") not in COMPONENT_BY_ID:
@@ -460,7 +549,10 @@ def normalized(scenario):
         settings = component_defaults(c["type"])
         settings.update({k: v for k, v in (c.get("settings") or {}).items() if v is not None})
         out.append({"id": c.get("id") or c["type"], "type": c["type"], "settings": settings,
-                    "start_month": int(c.get("start_month") or 1)})
+                    "start_month": int(c.get("start_month") or 1), "included": c.get("included") is not False})
+    types = {c["type"] for c in out}
+    sec = {"enabled": any(t in SECURITY_TYPES for t in types), "sdp_discovery": "sdp" in types,
+           "cmek": "cmek" in types, "vpc_sc": "vpc_sc" in types}
     return out, sec
 
 
@@ -477,7 +569,7 @@ def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, ad
     for m in range(1, 37):
         for c in comps:
             t, s = c["type"], c["settings"]
-            if m < int(c.get("start_month") or 1):
+            if m < int(c.get("start_month") or 1) or c.get("included") is False:
                 continue
             set_region(s.get("region") or home_region)
             if t == "looker":
@@ -554,6 +646,12 @@ def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, ad
                 rate = next(p for lim, p in ms["standard_tier_gib_hr"] if lim is None or cap <= lim)
                 c = cap * rate * HOURS * up("memorystore")
                 add(m, "Memorystore", "_db", c, cud1=c * ms["cud1_factor"], cud3=c * ms["cud3_factor"])
+            elif t == "sdp":
+                add(m, "Sensitive Data Protection (discovery)", "_governance", new_by_month[m] * pricing["sensitive_data_protection"]["discovery_gb"])
+            elif t == "cmek":
+                k = pricing["kms"]
+                add(m, "Cloud KMS (CMEK)", "_governance",
+                    float(s["key_versions"]) * k["key_version_month"] + float(s["operations_million"]) * 100 * k["ops_per_10k"])
             elif t == "knowledge_catalog":
                 dp = pricing["dataplex"]
                 dq_tables = tables * float(s["dq_share_pct"]) / 100
@@ -565,13 +663,6 @@ def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, ad
                     cud1=(dcu * dp["premium_cud1_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u,
                     cud3=(dcu * dp["premium_cud3_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u)
         set_region(home_region)
-        if sec.get("enabled") and m >= sec_start:
-            if sec.get("sdp_discovery"):
-                gb = new_by_month[m]
-                add(m, "Sensitive Data Protection (discovery)", "_governance", gb * pricing["sensitive_data_protection"]["discovery_gb"])
-            if sec.get("cmek"):
-                k = pricing["kms"]
-                add(m, "Cloud KMS (CMEK)", "_governance", 20 * k["key_version_month"] + 300 * k["ops_per_10k"])
     return int(tables)
 
 
@@ -593,7 +684,7 @@ def tiered_m(qty, tiers):
 
 def component_view(c):
     meta = COMPONENT_BY_ID[c["type"]]
-    return {"id": c["id"], "type": c["type"], "start_month": int(c.get("start_month") or 1), "name": meta["name"], "category": meta["category"],
+    return {"id": c["id"], "type": c["type"], "start_month": int(c.get("start_month") or 1), "included": c.get("included") is not False, "name": meta["name"], "category": meta["category"],
             "vendor": meta["vendor"], "costed": meta["costed"], "method": meta["method"],
             "steps": meta["steps"], "notes": meta["notes"], "doc": meta["doc"], "settings": c["settings"]}
 
@@ -613,17 +704,11 @@ def platform_story(comps, sec, sources):
             "Every connected BI, AI and governance tool reads the same governed tables, so metrics and permissions stay consistent.",
         ],
     })
-    if sec.get("enabled"):
-        tools = ["fine_grained", "vpc_sc", "scc"]
-        pts = ["Column-level policy tags, row access policies and dynamic data masking apply to every consumer - SQL, BI tools, partner platforms and agents.",
-               "VPC Service Controls perimeter around ingestion, BigQuery and Vertex AI projects; Private Service Connect for endpoints.",
-               "Security Command Center for posture management and threat detection, including AI workloads."]
-        if sec.get("cmek"):
-            tools.insert(0, "cmek")
-            pts.insert(0, "Customer-managed encryption keys (Cloud KMS, optionally Cloud EKM) across BigQuery, Cloud Storage, Pub/Sub, Datastream and Vertex AI - relevant for data-residency regulations such as KSA PDPL / NCA ECC.")
-        if sec.get("sdp_discovery"):
-            tools.insert(0, "sdp")
-            pts.insert(0, "Sensitive Data Protection profiles every BigQuery table, classifies PII and can auto-apply policy tags.")
+    sec_comps = [c for c in comps if COMPONENT_BY_ID[c["type"]]["category"] == "security"]
+    if sec_comps:
+        tool_for = {"sdp": "sdp", "cmek": "cmek", "vpc_sc": "vpc_sc", "policy_tags": "fine_grained", "scc": "scc"}
+        tools = [tool_for[c["type"]] for c in sec_comps if c["type"] in tool_for]
+        pts = [COMPONENT_BY_ID[c["type"]]["name"] + ": " + COMPONENT_BY_ID[c["type"]]["method"] + "." for c in sec_comps]
         if any(COMPONENT_BY_ID[c["type"]]["vendor"] == "partner" for c in comps):
             pts.append("Partner tools connect with service accounts or workload identity federation (no long-lived keys); keep them inside the perimeter with VPC-SC ingress rules.")
         blocks.append({"key": "security", "title": "Security & compliance", "tools": tools, "points": pts})

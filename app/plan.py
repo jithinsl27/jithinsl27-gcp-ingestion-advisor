@@ -51,7 +51,7 @@ def build_plan(scenario: dict) -> dict:
     teams = max(1, int((scenario.get("plan") or {}).get("teams") or 2))
     prefs = {"skill": scenario.get("skill", "sql"), "orchestration": scenario.get("orchestration", "auto"),
              "environment": scenario.get("environment", "production")}
-    sources = [s for s in scenario.get("sources", []) if s.get("type")]
+    sources = [s for s in scenario.get("sources", []) if s.get("type") and s.get("included", True) is not False]
     recs = [recommend(s, prefs) for s in sources]
 
     # ---------------- schedule source builds (quick wins first, stable order)
@@ -82,7 +82,7 @@ def build_plan(scenario: dict) -> dict:
     for c in comps:
         meta = COMPONENT_BY_ID[c["type"]]
         cat, t = meta["category"], c["type"]
-        if cat == "governance":
+        if cat in ("governance", "security"):
             start = 1
         elif cat == "bi":
             start = first_live
@@ -104,7 +104,7 @@ def build_plan(scenario: dict) -> dict:
     # ---------------- phases (for the Gantt)
     phases = [{"key": "foundation", "name": "Foundation & landing zone", "start": 1, "end": 1,
                "items": ["Projects, IAM and org policies", "Networking" + (" and private connectivity" if any(r.needs_connectivity for r in recs) else ""),
-                         "VPC Service Controls and CMEK" if sec.get("enabled") else "Security baseline",
+                         "Security controls: " + ", ".join(c["name"] for c in comp_rows if c["category"] == "security") if any(c["category"] == "security" for c in comp_rows) else "Security baseline",
                          "BigQuery datasets (raw / curated / marts)", "Dataform repo and CI/CD", "Monitoring and cost controls (budgets, quotas)"]}]
     for w in waves:
         phases.append({"key": "source", "id": w["id"], "name": w["name"], "start": w["build_start_month"], "end": w["go_live_month"],
@@ -114,7 +114,7 @@ def build_plan(scenario: dict) -> dict:
                        "items": ["Curated and mart layers per source as it lands", "Assertions and quality scans"]})
     for c in comp_rows:
         phases.append({"key": "component", "id": c["id"], "category": c["category"], "vendor": c["vendor"], "name": c["name"],
-                       "start": c["start_month"], "end": min(horizon, c["start_month"] + (0 if c["category"] == "governance" else 1)),
+                       "start": c["start_month"], "end": min(horizon, c["start_month"] + (0 if c["category"] in ("governance", "security") else 1)),
                        "items": ["Rollout and enablement" if c["vendor"] == "google" else "Connect partner tool to BigQuery (not costed)"]})
     phases.append({"key": "hypercare", "name": "Optimisation & hypercare", "start": min(horizon, all_live + 1), "end": horizon,
                    "items": ["Partitioning, clustering, BI Engine", "Slot / commitment right-sizing", "FinOps review"]})
@@ -136,7 +136,6 @@ def build_plan(scenario: dict) -> dict:
         s["start_month"] = start_by_id.get(s.get("id") or s.get("type"), 1)
     comp_start = {c["id"]: c["start_month"] for c in comp_rows}
     ramped["components"] = [{**c, "start_month": comp_start.get(c["id"], 1)} for c in comps]
-    ramped["security"] = sec
     ramped.pop("platform", None)
     est = estimate(ramped, keep_items=True)
     steady = estimate({**scenario})

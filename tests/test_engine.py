@@ -108,7 +108,17 @@ def test_legacy_platform_block_still_supported():
     legacy["platform"] = {"bi": {"enabled": True, "tool": "looker_studio_pro", "users": 10}, "agents": {"enabled": False},
                           "gemini_enterprise": {"enabled": False}, "governance": {"enabled": False}}
     r = estimate(legacy)
-    assert [c["type"] for c in r["platform"]["layer"]["components"]] == ["looker_studio_pro"]
+    types = [c["type"] for c in r["platform"]["layer"]["components"]]
+    assert types[0] == "looker_studio_pro" and "agent_platform" not in types
+    assert {"sdp", "cmek", "vpc_sc"} <= set(types)  # legacy security toggles become components
+
+
+def test_security_is_dynamic():
+    sc = json.loads(SAMPLES[0].read_text())
+    no_sec = [c for c in sc["components"] if c["type"] not in ("sdp", "cmek", "vpc_sc", "policy_tags", "scc", "assured_workloads")]
+    r = estimate({**sc, "components": no_sec})
+    assert not any(s["service"].startswith(("Sensitive Data", "Cloud KMS")) for s in r["by_service"])
+    assert not any(b["key"] == "security" for b in r["platform"]["layer"]["story"])
 
 
 def test_per_service_regions_and_cross_region_transfer():
@@ -173,3 +183,25 @@ def test_api_rejects_bad_input():
     assert client.post("/api/estimate", json=bad).status_code == 422
     assert client.post("/api/estimate", json={"components": [{"id": "a", "type": "nope"}]}).status_code == 422
     assert client.post("/api/workload", json={"region": "us-central1", "workload": {"data_region": "mars-1"}}).status_code == 422
+
+
+def test_excluded_sources_drop_out_of_estimate_and_plan():
+    from app.plan import build_plan
+    sc = json.loads(SAMPLES[0].read_text())
+    part = {**sc, "sources": [{**s, "included": i < 2} for i, s in enumerate(sc["sources"])]}
+    full, phase1 = estimate(sc), estimate(part)
+    assert len(phase1["recommendations"]) == 2
+    assert phase1["totals"]["year1_payg"] < full["totals"]["year1_payg"]
+    assert len(build_plan(part)["waves"]) == 2
+
+
+def test_services_and_components_can_be_left_out_of_pricing():
+    sc = json.loads(SAMPLES[0].read_text())
+    full = estimate(sc)
+    no_composer = estimate({**sc, "excluded_services": ["Datastream (CDC)", "Contingency & operations"]})
+    assert not any(s["service"] in ("Datastream (CDC)", "Contingency & operations") for s in no_composer["by_service"])
+    assert no_composer["totals"]["year1_payg"] < full["totals"]["year1_payg"]
+    comps = [{**c, "included": c["type"] != "gemini_enterprise"} for c in sc["components"]]
+    r = estimate({**sc, "components": comps})
+    assert not any(s["service"] == "Gemini Enterprise" for s in r["by_service"])
+    assert any(c["type"] == "gemini_enterprise" and not c["included"] for c in r["platform"]["layer"]["components"])

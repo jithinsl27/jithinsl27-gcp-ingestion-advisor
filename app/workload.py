@@ -87,8 +87,10 @@ def workload_estimate(scenario: dict) -> dict:
 
     payg, cud1_v, cud3_v = defaultdict(float), defaultdict(float), defaultdict(float)
 
+    excluded = set(scenario.get("excluded_services") or [])
+
     def add(m, svc, item, usd, cud1_usd=None, cud3_usd=None, *, cud1=None, cud3=None):
-        if not usd:
+        if not usd or svc in excluded:
             return
         c1 = cud1 if cud1 is not None else cud1_usd
         c3 = cud3 if cud3 is not None else cud3_usd
@@ -240,7 +242,8 @@ def workload_estimate(scenario: dict) -> dict:
         for (m, *_), v in list(view.items()):
             mt[m] += v
         for m, v in mt.items():
-            view[(m, "Contingency & operations", "Contingency", data_rid)] += v * cont
+            if "Contingency & operations" not in excluded:
+                view[(m, "Contingency & operations", "Contingency", data_rid)] += v * cont
 
     return _summary(payg, cud1_v, cud3_v, W, regions, data_rid, pipe_rid, strm_rid, ramp_months, scan_lines_steady, free_left, pricing, A)
 

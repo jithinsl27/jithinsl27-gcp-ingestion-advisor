@@ -88,12 +88,24 @@
     delete sc.platform;
     const out = { ...clone(DEFAULT_SCENARIO), ...sc };
     out.components = (sc.components || clone(DEFAULT_SCENARIO.components)).filter((c) => compMeta(c.type))
-      .map((c) => ({ id: c.id || uid("c"), type: c.type, settings: { ...compDefaults(c.type), ...(c.settings || {}) } }));
-    out.security = { ...catalog.default_security, ...(sc.security || {}) };
+      .map((c) => ({ id: c.id || uid("c"), type: c.type, included: c.included !== false, settings: { ...compDefaults(c.type), ...(c.settings || {}) } }));
+    out.excluded_services = Array.isArray(sc.excluded_services) ? sc.excluded_services : [];
+    const hasSec = out.components.some((c) => compMeta(c.type).category === "security");
+    if (sc.security && !hasSec) out.components.push(...legacySecurityComponents({ ...catalog.default_security, ...sc.security }));
+    delete out.security;
+    out.sources = (out.sources || []).map((s) => ({ ...s, included: s.included !== false }));
     out.workload = deepMerge(catalog.default_workload, sc.workload || {});
     out.processing_region = sc.processing_region || "";
     out.plan = { teams: 2, ...(sc.plan || {}) };
     return out;
+  }
+
+  function legacySecurityComponents(sec) {
+    if (sec.enabled === false) return [];
+    const out = [];
+    [["sdp_discovery", "sdp"], ["cmek", "cmek"], ["vpc_sc", "vpc_sc"]].forEach(([flag, type]) => { if (sec[flag] !== false) out.push(type); });
+    out.push("policy_tags", "scc");
+    return out.map((type) => ({ id: uid("c"), type, settings: compDefaults(type) }));
   }
 
   const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -123,7 +135,6 @@
     if (window.ADVISOR_DEMO) document.body.classList.add("demo");
     restore();
     bindEvents();
-    renderLibrary();
     loadSamples();
     syncForm();
     renderAll();
@@ -194,7 +205,6 @@
     ["bq_slots", "annual_growth_pct", "contingency_pct"].forEach((k) => ($("#" + k).value = scenario[k] ?? ""));
     $("#analytics_tib_month").value = scenario.analytics_tib_month ?? "";
     $("#slotsField").hidden = scenario.bq_model === "ondemand";
-    $$("#securityChecks [data-k]").forEach((el) => (el.checked = !!scenario.security[el.dataset.k]));
     renderWorkloadForm();
   }
 
@@ -212,16 +222,10 @@
         scenario[k] = k === "analytics_tib_month" ? v : (v ?? 0);
         changed();
       }));
-    $("#securityChecks").addEventListener("change", (e) => {
-      const el = e.target.closest("[data-k]");
-      if (!el) return;
-      scenario.security[el.dataset.k] = el.checked;
-      changed();
-    });
-
     $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
     $("#addSourceBtn").addEventListener("click", () => openDialog(null));
     $("#sourceList").addEventListener("click", (e) => {
+      if (e.target.closest("[data-include]")) return;
       const li = e.target.closest("[data-id]");
       if (li) openDialog(li.dataset.id);
     });
@@ -249,25 +253,73 @@
       diagram.classList.remove("drop-active", "drop-ready");
       if (type) { e.preventDefault(); addComponent(type); }
     });
-    $("#library").addEventListener("click", (e) => {
-      const b = e.target.closest("[data-type]");
-      if (b) addComponent(b.dataset.type);
+    // product search picker
+    const search = $("#compSearch"), results = $("#compResults");
+    search.addEventListener("input", () => renderResults(search.value));
+    search.addEventListener("focus", () => renderResults(search.value));
+    search.addEventListener("keydown", (e) => {
+      const rows = $$(".res", results);
+      let i = rows.findIndex((r) => r.classList.contains("active"));
+      if (e.key === "ArrowDown") { e.preventDefault(); i = Math.min(rows.length - 1, i + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); i = Math.max(0, i - 1); }
+      else if (e.key === "Enter") {
+        e.preventDefault();
+        if (rows[Math.max(0, i)]) toggleComponent(rows[Math.max(0, i)].dataset.type);
+        search.value = "";
+        closeResults();
+        return;
+      }
+      else if (e.key === "Escape") { closeResults(); return; }
+      else return;
+      rows.forEach((r, k) => r.classList.toggle("active", k === i));
+      rows[i]?.scrollIntoView({ block: "nearest" });
     });
-    $("#library").addEventListener("dragstart", (e) => {
-      const b = e.target.closest("[data-type]");
-      if (!b) return;
-      dragging = b.dataset.type;
-      e.dataTransfer.setData("text/plain", b.dataset.type);
+    results.addEventListener("mousedown", (e) => e.preventDefault()); // keep focus in the search box
+    results.addEventListener("click", (e) => {
+      const r = e.target.closest(".res");
+      if (r) toggleComponent(r.dataset.type);
+    });
+    results.addEventListener("dragstart", (e) => {
+      const r = e.target.closest(".res");
+      if (!r) return;
+      dragging = r.dataset.type;
+      e.dataTransfer.setData("text/plain", r.dataset.type);
       e.dataTransfer.effectAllowed = "copy";
       diagram.classList.add("drop-ready");
     });
-    $("#library").addEventListener("dragend", () => { dragging = null; diagram.classList.remove("drop-ready", "drop-active"); });
-    $("#compList").addEventListener("click", (e) => {
+    results.addEventListener("dragend", () => { dragging = null; diagram.classList.remove("drop-ready", "drop-active"); });
+    document.addEventListener("click", (e) => { if (!e.target.closest(".search-box")) closeResults(); });
+    $("#selectedPills").addEventListener("change", (e) => {
+      const cb = e.target.closest("[data-price]");
+      if (!cb) return;
+      const c = scenario.components.find((x) => x.id === cb.dataset.price);
+      if (c) { c.included = cb.checked; toast(`${compMeta(c.type).name} ${cb.checked ? "included in" : "left out of"} pricing`); changed(); }
+    });
+    $("#costBody").addEventListener("change", (e) => {
+      const cb = e.target.closest("[data-svc]");
+      if (!cb) return;
+      const svc = cb.dataset.svc;
+      const set = new Set(scenario.excluded_services);
+      if (cb.checked) set.delete(svc); else set.add(svc);
+      scenario.excluded_services = [...set];
+      changed();
+    });
+    $("#selectedPills").addEventListener("click", (e) => {
+      if (e.target.closest("[data-price]")) return;
       const rm = e.target.closest("[data-remove]");
       if (rm) return removeComponent(rm.dataset.remove);
       const b = e.target.closest("[data-comp]");
       if (b) openComp(b.dataset.comp);
     });
+    // source include / exclude for phased estimates
+    $("#sourceList").addEventListener("change", (e) => {
+      const cb = e.target.closest("[data-include]");
+      if (!cb) return;
+      const s = scenario.sources.find((x) => x.id === cb.dataset.include);
+      if (s) { s.included = cb.checked; changed(); }
+    });
+    $("#srcAll").addEventListener("click", () => { scenario.sources.forEach((s) => (s.included = true)); changed(); });
+    $("#srcNone").addEventListener("click", () => { scenario.sources.forEach((s) => (s.included = false)); changed(); });
     $("#platformBody").addEventListener("click", (e) => {
       const b = e.target.closest("[data-comp]");
       if (b) openComp(b.dataset.comp);
@@ -335,8 +387,8 @@
   function changed() {
     save();
     renderSources();
-    renderCompList();
-    renderLibraryState();
+    renderPills();
+    if (!$("#compResults").hidden) renderResults($("#compSearch").value);
     scheduleEstimate(250);
   }
 
@@ -486,7 +538,6 @@
     const existing = scenario.components.find((c) => c.type === type);
     if (existing && !MULTI_INSTANCE.has(type)) {
       toast(`${meta.name} is already in the architecture`);
-      openComp(existing.id);
       return;
     }
     scenario.components.push({ id: uid("c"), type, settings: compDefaults(type) });
@@ -520,6 +571,7 @@
       return `<label>${esc(f.label)}${input}</label>`;
     }).join("");
     if (meta.costed) {
+      fields += `<label class="toggle span2"><input type="checkbox" data-ck="included" ${c.included !== false ? "checked" : ""}> Include in pricing</label>`;
       fields += `<label class="span2">Region for this service<select data-ck="region">${regionOptions("Same as BigQuery region")}</select></label>`;
     }
     $("#compFields").innerHTML = fields || `<p class="hint span2">No settings - this component is shown for the integration design only.</p>`;
@@ -535,6 +587,7 @@
     const c = scenario.components.find((x) => x.id === editingComp);
     if (!c) return;
     $$("#compFields [data-ck]").forEach((el) => {
+      if (el.dataset.ck === "included") { c.included = el.checked; return; }
       c.settings[el.dataset.ck] = el.type === "number" ? Math.max(0, Number(el.value) || 0) : el.value;
     });
     $("#compDialog").close();
@@ -542,40 +595,71 @@
     changed();
   }
 
-  function renderLibrary() {
-    const host = $("#library");
-    host.innerHTML = catalog.component_categories.map((cat) => {
-      const items = catalog.components.filter((c) => c.category === cat.id);
-      return `<div class="lib-group"><span class="lib-cat">${esc(cat.name)}</span><div class="lib-items">${items.map((c) =>
-        `<button type="button" class="lib-chip ${c.vendor}" draggable="true" data-type="${esc(c.id)}" title="${esc(c.method)}">
-          <span class="lib-name">${esc(c.name)}</span><span class="lib-tag">${c.vendor === "google" ? "Google" : "Partner"}</span></button>`).join("")}</div></div>`;
-    }).join("");
-    renderLibraryState();
+  function closeResults() {
+    $("#compResults").hidden = true;
+    $("#compSearch").setAttribute("aria-expanded", "false");
   }
 
-  function renderLibraryState() {
+  function toggleComponent(type) {
+    const existing = scenario.components.find((c) => c.type === type);
+    if (existing) removeComponent(existing.id);
+    else addComponent(type);
+  }
+
+  function renderResults(q) {
+    const list = $("#compResults");
+    const terms = String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+    const catName = (id) => catalog.component_categories.find((c) => c.id === id).name;
+    const hay = (c) => `${c.name} ${c.id} ${catName(c.category)} ${c.vendor === "partner" ? "partner" : "google"} ${c.method}`.toLowerCase();
+    const score = (c) => {
+      const name = c.name.toLowerCase();
+      const words = name.split(/[^a-z0-9]+/);
+      let sc = 0;
+      for (const t of terms) {
+        if (words.some((w) => w.startsWith(t))) sc += 100;
+        else if (name.includes(t)) sc += 60;
+        else if (`${c.id} ${catName(c.category)}`.toLowerCase().includes(t)) sc += 25;
+        else if (hay(c).includes(t)) sc += 5;
+        else return -1;
+      }
+      return sc;
+    };
     const used = new Set(scenario.components.map((c) => c.type));
-    $$("#library [data-type]").forEach((b) => {
-      b.classList.toggle("added", used.has(b.dataset.type));
-      b.setAttribute("aria-pressed", String(used.has(b.dataset.type)));
-    });
+    const row = (c) => `<li class="res" role="option" draggable="true" data-type="${esc(c.id)}" aria-selected="${used.has(c.id)}">
+        <span class="res-name">${esc(c.name)}<small>${esc(catName(c.category))} · ${esc(c.method)}</small></span>
+        <span class="vendor-badge ${c.vendor}">${c.vendor === "google" ? (c.costed ? "Google Cloud" : "Google · no charge") : "Partner · not costed"}</span>
+        <span class="res-btn ${used.has(c.id) ? "remove" : ""}">${used.has(c.id) ? "Remove" : "Add"}</span></li>`;
+    let html = "";
+    if (terms.length) {
+      const ranked = catalog.components.map((c) => [c, score(c)]).filter(([, sc]) => sc >= 0).sort((x, y) => y[1] - x[1]).map(([c]) => c);
+      html = ranked.length ? ranked.map(row).join("")
+        : `<li class="res-empty">No product matches "${esc(q)}". Try a product name such as Looker, Power BI, Spanner or Collibra.</li>`;
+    } else {
+      for (const cat of catalog.component_categories) {
+        const items = catalog.components.filter((c) => c.category === cat.id);
+        html += `<li class="res-cat" role="presentation">${esc(cat.name)}</li>` + items.map(row).join("");
+      }
+    }
+    list.innerHTML = html;
+    list.hidden = false;
+    $("#compSearch").setAttribute("aria-expanded", "true");
   }
 
-  function renderCompList() {
-    const list = $("#compList");
+  function renderPills() {
+    const host = $("#selectedPills");
     if (!scenario.components.length) {
-      list.innerHTML = `<li class="hint">No components yet. Add BI, AI or governance tools from the library on the Architecture tab.</li>`;
+      host.innerHTML = `<span class="pills-hint">No products selected yet - search above to add BI, AI, API, database, governance or security products.</span>`;
       return;
     }
     const order = catalog.component_categories.map((c) => c.id);
     const comps = [...scenario.components].sort((a, b) => order.indexOf(compMeta(a.type).category) - order.indexOf(compMeta(b.type).category));
-    list.innerHTML = comps.map((c) => {
+    host.innerHTML = comps.map((c) => {
       const m = compMeta(c.type);
-      const reg = m.costed && c.settings.region ? ` · ${esc(c.settings.region)}` : "";
-      return `<li class="comp-item ${m.vendor}"><button type="button" data-comp="${esc(c.id)}"><b>${esc(m.name)}</b>
-        <span>${esc(catalog.component_categories.find((x) => x.id === m.category).name)}${reg}</span></button>
-        <span class="lib-tag">${m.vendor === "google" ? "Google" : "Partner"}</span>
-        <button type="button" class="rm" data-remove="${esc(c.id)}" aria-label="Remove ${esc(m.name)}">×</button></li>`;
+      const priced = c.included !== false;
+      return `<span class="pill ${m.vendor} cat-${m.category}${priced ? "" : " unpriced"}">
+        ${m.costed ? `<input type="checkbox" class="pill-price" data-price="${esc(c.id)}" ${priced ? "checked" : ""} title="${priced ? "Priced - untick to leave out of the estimate" : "Not priced - tick to include in the estimate"}" aria-label="Include ${esc(m.name)} in pricing">` : `<span class="dot"></span>`}
+        <button type="button" data-comp="${esc(c.id)}" title="Configure ${esc(m.name)}">${esc(m.name)}${m.costed && c.settings.region ? ` · ${esc(c.settings.region)}` : ""}${priced ? "" : " · not priced"}</button>
+        <button type="button" class="pill-x" data-remove="${esc(c.id)}" aria-label="Remove ${esc(m.name)}">×</button></span>`;
     }).join("");
   }
 
@@ -624,8 +708,7 @@
   // ------------------------------------------------------------------ rendering
   function renderAll() {
     renderSources();
-    renderCompList();
-    renderLibraryState();
+    renderPills();
     renderSummary();
     renderDiagram();
     renderRecs();
@@ -642,14 +725,20 @@
 
   function renderSources() {
     const list = $("#sourceList");
-    $("#sourceEmpty").hidden = scenario.sources.length > 0;
+    const n = scenario.sources.length, inc = scenario.sources.filter((s) => s.included !== false).length;
+    $("#sourceEmpty").hidden = n > 0;
+    $("#srcBulk").hidden = n === 0;
+    $("#srcCount").textContent = `${inc} of ${n} in this estimate`;
     list.innerHTML = scenario.sources.map((s) => {
       const r = recFor(s.id);
+      const on = s.included !== false;
       const reg = s.region && s.region !== scenario.region ? ` · ${esc(s.region)}` : "";
-      return `<li><button class="source-item" data-id="${esc(s.id)}" type="button">
+      return `<li class="${on ? "" : "excluded"}"><label class="src-check" title="${on ? "Included" : "Excluded"} - untick to leave out of this phase">
+          <input type="checkbox" data-include="${esc(s.id)}" ${on ? "checked" : ""} aria-label="Include ${esc(s.name)} in the estimate"></label>
+        <button class="source-item" data-id="${esc(s.id)}" type="button">
         <i class="bar ${flowClass(s.frequency)}"></i>
-        <div><b>${esc(s.name)}</b><span>${esc(freqName(s.frequency))} · ${fmtGB(s.daily_change_gb)}/day${reg}</span></div>
-        <div class="tool">${r ? esc(tool(r.primary).name) : ""}</div>
+        <div><b>${esc(s.name)}</b><span>${esc(freqName(s.frequency))} · ${fmtGB(s.daily_change_gb)}/day${reg}${on ? "" : " · not in this phase"}</span></div>
+        <div class="tool">${r ? esc(tool(r.primary).name) : on ? "" : "Later phase"}</div>
       </button></li>`;
     }).join("");
   }
@@ -663,7 +752,7 @@
       <div class="fig"><b>${money(t.avg_monthly_year1)}</b><span>Average per month, year 1</span></div>
       <div class="fig"><b>${money(t.year1_payg)}</b><span>1-year, pay-as-you-go</span></div>
       <div class="fig"><b>${money(t.three_year_payg)}</b><span>3-year, pay-as-you-go</span></div>
-      <div class="note">BigQuery in ${esc(result.region.name)}${nReg > 1 ? ` · ${nReg} regions in use` : ""} · ${scenario.sources.length} source${scenario.sources.length > 1 ? "s" : ""}</div>`;
+      <div class="note">BigQuery in ${esc(result.region.name)}${nReg > 1 ? ` · ${nReg} regions in use` : ""} · ${result.recommendations.length} of ${scenario.sources.length} sources in this estimate</div>`;
   }
 
   // ---------------- architecture diagram
@@ -676,7 +765,6 @@
       return;
     }
     const plat = result.platform;
-    const sec = scenario.security;
     const rowH = 66, top = 46, nodeH = 48;
     const col = { src: 16, conn: 240, ing: 370, proc: 572, bq: 776, out: 1030 };
     const cw = { src: 206, conn: 112, ing: 186, proc: 186, bq: 200, out: 274 };
@@ -684,13 +772,12 @@
     const comps = scenario.components.map((c) => ({ c, m: compMeta(c.type) }));
     const CONSUME_CATS = ["bi", "ai", "integration", "database"];
     const consume = CONSUME_CATS.flatMap((cat) => comps.filter((x) => x.m.category === cat));
-    const govComps = comps.filter((x) => x.m.category === "governance");
+    const govComps = [...comps.filter((x) => x.m.category === "governance"), ...comps.filter((x) => x.m.category === "security")];
     const groupGap = 22;
     const nGroups = CONSUME_CATS.filter((cat) => comps.some((x) => x.m.category === cat)).length;
 
     const flowH = Math.max(380, top + srcs.length * rowH + 30, top + consume.length * 58 + groupGap * Math.max(0, nGroups - 1) + 40);
-    const showBand = sec.enabled || govComps.length;
-    const H = flowH + (showBand ? 100 : 0);
+    const H = flowH + 100;
 
     const srcNodes = srcs.map((s, i) => ({ s, x: col.src, y: top + i * rowH, r: recFor(s.id) }));
     const ingKeys = [], procKeys = [];
@@ -723,7 +810,8 @@
     srcNodes.forEach((n) => {
       const fc = flowClass(n.s.frequency);
       const reg = n.s.region && n.s.region !== scenario.region ? ` · ${n.s.region}` : "";
-      nodes += node(n.x, n.y, cw.src, n.s.name, `${freqName(n.s.frequency)} · ${fmtGB(n.s.daily_change_gb)}/day${reg}`, "src clickable", `data-src="${esc(n.s.id)}" tabindex="0" role="button" aria-label="Edit ${esc(n.s.name)}"`);
+      const off = n.s.included === false;
+      nodes += node(n.x, n.y, cw.src, n.s.name, off ? "Later phase - not in this estimate" : `${freqName(n.s.frequency)} · ${fmtGB(n.s.daily_change_gb)}/day${reg}`, `src clickable${off ? " excluded" : ""}`, `data-src="${esc(n.s.id)}" tabindex="0" role="button" aria-label="Edit ${esc(n.s.name)}"`);
       if (!n.r) return;
       const ip = ingPos[n.ing];
       const sy = n.y + nodeH / 2;
@@ -773,8 +861,9 @@
         }
         prevCat = m.category;
         const reg = m.costed && c.settings.region ? ` · ${c.settings.region}` : "";
-        const cls = `comp clickable ${m.vendor} ${m.category}`;
-        const sub = "via " + m.method + reg;
+        const off = c.included === false;
+        const cls = `comp clickable ${m.vendor} ${m.category}${off ? " excluded" : ""}`;
+        const sub = (off ? "Not priced · " : "") + "via " + m.method + reg;
         edges += `<path class="dg-edge ${m.vendor === "partner" ? "partner" : m.category === "ai" || m.category === "integration" ? "ai" : "plain"}" d="${curve(col.bq + cw.bq, y + nodeH / 2, col.out, y + nodeH / 2)}"/>`;
         nodes += node(col.out, y, cw.out, m.name, sub, cls, `data-comp="${esc(c.id)}" tabindex="0" role="button" aria-label="Configure ${esc(m.name)}"`, m.vendor === "partner" ? "Partner" : "");
         if (c.type === "agent_platform" && agentY === null) agentY = y;
@@ -798,20 +887,18 @@
     }
 
     let band = "";
-    if (showBand) {
+    {
       const by = flowH + 6, bh = 84;
-      const chips = govComps.map(({ c, m }) => ({ t: m.name, s: m.vendor === "partner" ? "Partner catalog" : "Lineage, quality, glossary", cls: `gov clickable ${m.vendor}`, attrs: `data-comp="${esc(c.id)}" tabindex="0" role="button" aria-label="Configure ${esc(m.name)}"`, tag: m.vendor === "partner" ? "Partner" : "" }));
-      if (sec.enabled) {
-        if (sec.sdp_discovery) chips.push({ t: "Sensitive Data Protection", s: "PII discovery" });
-        chips.push({ t: "Policy tags & masking", s: "Column / row security" });
-        if (sec.cmek) chips.push({ t: "Cloud KMS (CMEK)", s: "Customer-managed keys" });
-        if (sec.vpc_sc) chips.push({ t: "VPC Service Controls", s: "Exfiltration perimeter" });
-        chips.push({ t: "IAM & Security Command Center", s: "Access, posture, threats" });
-      }
-      const cw2 = Math.min(220, (W - 48 - (chips.length - 1) * 10) / Math.max(chips.length, 1));
+      const chips = govComps.map(({ c, m }) => ({ t: m.name, s: c.included === false ? "Not priced" : m.category === "security" ? "Security & compliance" : m.vendor === "partner" ? "Partner catalog" : "Lineage, quality, glossary",
+        cls: `gov clickable ${m.vendor} ${m.category}${c.included === false ? " excluded" : ""}`, attrs: `data-comp="${esc(c.id)}" tabindex="0" role="button" aria-label="Configure ${esc(m.name)}"`, tag: m.vendor === "partner" ? "Partner" : "" }));
       band = `<g class="dg-band"><rect x="16" y="${by}" width="${W - 32}" height="${bh}" rx="12"/>
         <text class="band-title" x="30" y="${by + 20}">Governance & security across every layer</text></g>`;
-      chips.forEach((ch, i) => { band += node(30 + i * (cw2 + 10), by + 28, cw2, ch.t, ch.s, ch.cls || "gov", ch.attrs || "", ch.tag || ""); });
+      if (chips.length) {
+        const cw2 = Math.min(220, (W - 48 - (chips.length - 1) * 8) / chips.length);
+        chips.forEach((ch, i) => { band += node(30 + i * (cw2 + 8), by + 28, cw2, ch.t, ch.s, ch.cls, ch.attrs, ch.tag); });
+      } else {
+        band += `<text class="dg-band-hint" x="${W / 2}" y="${by + 54}" text-anchor="middle">Search for governance or security products (Knowledge Catalog, CMEK, VPC Service Controls, Collibra …) to add them here</text>`;
+      }
       edges += `<path class="dg-edge plain" stroke-dasharray="3 4" d="M${col.bq + cw.bq / 2},${bqY + bqH} L${col.bq + cw.bq / 2},${by}"/>`;
     }
 
@@ -911,8 +998,6 @@
       }).join("");
       html += `</div>`;
     }
-    const secB = story.find((b) => b.key === "security");
-    if (secB) html += `<h3 class="cat-head">Security & compliance</h3><div class="story">${block(secB)}</div>`;
     const has = (t) => scenario.components.some((c) => c.type === t);
     const partners = scenario.components.filter((c) => compMeta(c.type).vendor === "partner").map((c) => compMeta(c.type).name);
     const demo = [
@@ -980,8 +1065,10 @@
     html += `<h3>Monthly run-rate over 36 months</h3><div class="chart-key"><span><i></i>Pay-as-you-go</span><span><i class="cud"></i>With 3-year commitments</span></div>
       <div class="chart-wrap">${chartSvg(result.monthly)}</div>`;
     const maxSvc = Math.max(...result.by_service.map((s) => s.three_year), 1);
-    html += `<h3>By service</h3><div style="overflow-x:auto"><table><thead><tr><th>Service</th><th>Year 1</th><th>Year 1 (1-yr CUD)</th><th>3 years</th><th>3 years (3-yr CUD)</th></tr></thead><tbody>`
-      + result.by_service.map((s) => `<tr><td>${esc(s.service)}<span class="share" style="width:${Math.max(2, 60 * s.three_year / maxSvc)}px"></span></td><td>${money(s.year1)}</td><td>${money(s.year1_cud)}</td><td>${money(s.three_year)}</td><td>${money(s.three_year_cud)}</td></tr>`).join("")
+    html += `<h3>By service</h3><p class="hint">Untick a service to leave it out of every total, the roadmap and workload sizing; tick it again to bring it back.</p>
+      <div style="overflow-x:auto"><table class="svc-table"><thead><tr><th>Service</th><th>Year 1</th><th>Year 1 (1-yr CUD)</th><th>3 years</th><th>3 years (3-yr CUD)</th></tr></thead><tbody>`
+      + result.by_service.map((s) => `<tr><td><label class="svc-toggle"><input type="checkbox" data-svc="${esc(s.service)}" checked aria-label="Include ${esc(s.service)} in pricing"> ${esc(s.service)}</label><span class="share" style="width:${Math.max(2, 60 * s.three_year / maxSvc)}px"></span></td><td>${money(s.year1)}</td><td>${money(s.year1_cud)}</td><td>${money(s.three_year)}</td><td>${money(s.three_year_cud)}</td></tr>`).join("")
+      + scenario.excluded_services.map((svc) => `<tr class="svc-off"><td><label class="svc-toggle"><input type="checkbox" data-svc="${esc(svc)}" aria-label="Include ${esc(svc)} in pricing"> ${esc(svc)}</label></td><td colspan="4">Not priced</td></tr>`).join("")
       + `</tbody><tfoot><tr><td>Total</td><td>${money(t.year1_payg)}</td><td>${money(t.year1_cud1)}</td><td>${money(t.three_year_payg)}</td><td>${money(t.three_year_cud3)}</td></tr></tfoot></table></div>`;
     html += regionTable(result.by_region);
     html += `<h3>By source system</h3><div style="overflow-x:auto"><table><thead><tr><th>Source</th><th>Year 1</th><th>3 years</th></tr></thead><tbody>`
@@ -989,6 +1076,8 @@
       + `</tbody></table></div>`;
     const partners = scenario.components.filter((c) => compMeta(c.type).vendor === "partner").map((c) => compMeta(c.type).name);
     if (partners.length) html += `<p class="hint">Not costed (partner products): ${esc(partners.join(", "))}.</p>`;
+    const unpriced = scenario.components.filter((c) => c.included === false).map((c) => compMeta(c.type).name);
+    if (unpriced.length) html += `<p class="hint">Left out of pricing by choice: ${esc(unpriced.join(", "))}.</p>`;
     html += `<p class="disclaimer">${esc(result.disclaimer)}${currency !== "USD" ? ` Converted from USD at ${fx()} ${currency}/USD.` : ""}</p>`;
     host.innerHTML = html;
   }
@@ -1152,12 +1241,11 @@
     const ingTools = [...new Set(result.recommendations.flatMap((r) => r.chain.map((x) => tool(x).name)))];
     const byCat = (cat) => scenario.components.filter((c) => compMeta(c.type).category === cat).map((c) => compMeta(c.type).name + (compMeta(c.type).vendor === "partner" ? " (partner)" : ""));
     const consumers = [...byCat("bi"), ...byCat("ai"), ...byCat("integration"), ...byCat("database")];
-    const sec = scenario.security;
-    const govList = [...byCat("governance"), ...(sec.enabled ? [sec.sdp_discovery ? "Sensitive Data Protection" : null, "Policy tags & masking", sec.cmek ? "CMEK (Cloud KMS)" : null, sec.vpc_sc ? "VPC Service Controls" : null, "IAM & Security Command Center"].filter(Boolean) : [])];
+    const govList = [...byCat("governance"), ...byCat("security")];
     const orch = result.platform.orchestration.tool;
     const layer = (cls, title, items) => `<div class="rm-layer ${cls}"><h4>${esc(title)}</h4><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("") || "<li>None selected</li>"}</ul></div>`;
     html += `<div class="rm-layers">
-      ${layer("l-src", `Sources (${scenario.sources.length})`, scenario.sources.map((s) => s.name))}
+      ${layer("l-src", `Sources in this phase (${result.recommendations.length})`, scenario.sources.filter((s) => s.included !== false).map((s) => s.name))}
       ${layer("l-ing", "Ingestion & CDC", ingTools)}
       ${layer("l-bq", "BigQuery platform", [`BigQuery in ${regionName(scenario.region)}`, bqModelName(), "Dataform ELT", orch !== "none" ? tool(orch).name : null, "BigQuery ML & AI functions"].filter(Boolean))}
       ${layer("l-use", "BI, AI, APIs & databases", consumers)}
@@ -1334,6 +1422,8 @@
       result.by_region.forEach((r) => L.push(`| ${r.name} | ${money(r.year1)} | ${money(r.three_year)} |`));
     }
     L.push("", "## Source systems and recommended patterns", "");
+    const later = scenario.sources.filter((s) => s.included === false).map((s) => s.name);
+    if (later.length) L.push(`_Not in this phase (excluded from the estimate): ${later.join(", ")}._`, "");
     scenario.sources.forEach((s) => {
       const r = recFor(s.id);
       if (!r) return;

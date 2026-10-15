@@ -104,12 +104,31 @@
         "dq_share_pct": 15,
         "dq_scans_per_month": 30
       }
+    },
+    {
+      "id": "c101",
+      "type": "sdp",
+      "settings": {}
+    },
+    {
+      "id": "c102",
+      "type": "cmek",
+      "settings": {}
+    },
+    {
+      "id": "c103",
+      "type": "vpc_sc",
+      "settings": {}
+    },
+    {
+      "id": "c104",
+      "type": "policy_tags",
+      "settings": {}
+    },
+    {
+      "id": "c105",
+      "type": "scc",
+      "settings": {}
     }
-  ],
-  "security": {
-    "enabled": true,
-    "sdp_discovery": true,
-    "cmek": true,
-    "vpc_sc": true
-  }
+  ]
 }

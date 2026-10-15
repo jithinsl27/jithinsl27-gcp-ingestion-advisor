@@ -152,14 +152,38 @@
         "read_pool_nodes": 1,
         "storage_gib": 500
       }
+    },
+    {
+      "id": "c101",
+      "type": "sdp",
+      "settings": {}
+    },
+    {
+      "id": "c102",
+      "type": "cmek",
+      "settings": {}
+    },
+    {
+      "id": "c103",
+      "type": "vpc_sc",
+      "settings": {}
+    },
+    {
+      "id": "c104",
+      "type": "policy_tags",
+      "settings": {}
+    },
+    {
+      "id": "c105",
+      "type": "scc",
+      "settings": {}
+    },
+    {
+      "id": "c120",
+      "type": "assured_workloads",
+      "settings": {}
     }
   ],
-  "security": {
-    "enabled": true,
-    "sdp_discovery": true,
-    "cmek": true,
-    "vpc_sc": true
-  },
   "workload": {
     "data_region": null,
     "pipelines_region": null,

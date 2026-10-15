@@ -30,22 +30,26 @@ The colour bar shows the flow: green dashed = streaming/CDC, orange = scheduled 
 
 Team skill set (drives batch tool choice), orchestration, BigQuery pricing model and slots, analytics scan volume, growth, contingency, environment, and the **processing region** for shared services (orchestration, Data Fusion, network).
 
-## 4. BI, AI, APIs, databases & governance (component library)
+## 4. Products: BI, AI, APIs, databases, governance and security
 
-On the **Architecture** tab, the component library lists every supported tool, grouped as BI & analytics, AI/ML & agents, APIs & integration, Operational databases, and Governance & catalog.
+At the top of the **Architecture** tab, type a product name in the search box (e.g. *power*, *spanner*, *sage*, *kms*). Results are ranked by name and show the category, how it connects, and whether it is costed.
 
-- **Drag** a component onto the diagram, or **click** it, to add it. A tick shows what is already in the architecture.
-- **Click** a component on the diagram, in the sidebar list, or on the Integrations tab to configure it (users, models, nodes, API calls …) and, for Google services, choose its **region**.
-- **Google Cloud components are costed. Partner components** (Power BI, Tableau, SageMaker, Databricks, Collibra …) are drawn with a dashed border and a *Partner* tag and are **never costed**.
-- **Security & compliance** toggles (Sensitive Data Protection, CMEK, VPC Service Controls) are in the sidebar.
+- **Enter** or **Add** puts the product into the architecture; **Remove** takes it out. Clicking results keeps the list open so you can add several; you can also drag a result onto the diagram.
+- Selected products appear as **pills** under the search box. **×** removes a product; clicking its name opens its settings (users, models, nodes, API calls …, and the **region** for Google services).
+- **Governance and security are products too** - Knowledge Catalog, Collibra, Alation, Atlan, Informatica, Sensitive Data Protection, Cloud KMS (CMEK), VPC Service Controls, policy tags & masking, Security Command Center, Assured Workloads. The band at the bottom of the diagram shows only what you add.
+- **Google Cloud products are costed; partner products** (Power BI, Tableau, SageMaker, Databricks, Collibra …) are drawn with a dashed border and a *Partner* tag and never costed.
 
-Examples: customer uses Power BI → drag *Microsoft Power BI*; the diagram shows it connected to BigQuery through the Power BI BigQuery connector (Import or DirectQuery) and the Integrations tab lists the setup steps. Customer wants agents with governed API access → add *Agent Platform* and *Apigee*; agents call tools and models through Apigee (quotas, token limits, Model Armor).
+### Choosing what is priced
+
+- **Sources**: tick or untick each source in the sidebar (or use **Select all** / **Clear all**). Unticked sources stay in the scenario, appear dimmed as *Later phase* on the diagram, and are left out of recommendations, the estimate and the roadmap - useful for pricing phase 1 first.
+- **Products**: the checkbox on each costed pill (or *Include in pricing* in its settings) keeps the product in the architecture but takes it out of the numbers; it shows as *Not priced*.
+- **Service lines**: on the Consumption estimate tab, untick any service (e.g. Datastream, Composer, contingency) to leave it out of every total, the roadmap and workload sizing; unticked lines stay listed so you can tick them back.
 
 ## 5. Tabs
 
 | Tab | Use it to |
 |---|---|
-| **Architecture** | Walk the end-to-end flow; add components from the library |
+| **Architecture** | Search and add products; walk the end-to-end flow on the white, presentation-ready canvas |
 | **Ingestion patterns** | Explain per-source choices: pattern, service chain, rationale, alternatives, discovery checks |
 | **Integrations** | Show how each selected tool connects to BigQuery, with cost for Google services |
 | **Consumption estimate** | 1-year and 3-year totals with commitments, by capability, service, region and source |

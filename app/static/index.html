@@ -64,6 +64,12 @@
           <h2 id="srcHead">Source systems</h2>
           <button class="btn primary small" id="addSourceBtn">Add source</button>
         </div>
+        <div class="src-bulk" id="srcBulk" hidden>
+          <span id="srcCount"></span>
+          <span class="spacer"></span>
+          <button type="button" class="link-btn" id="srcAll">Select all</button>
+          <button type="button" class="link-btn" id="srcNone">Clear all</button>
+        </div>
         <ol class="source-list" id="sourceList"></ol>
         <div class="empty" id="sourceEmpty">
           <p>Add each system the customer wants in BigQuery. You'll get a pattern per source and a running cost.</p>
@@ -106,18 +112,6 @@
           </label>
         </div>
       </details>
-      <details class="panel settings" open id="componentsPanel">
-        <summary><h2>BI, AI, APIs, databases &amp; governance</h2></summary>
-        <p class="hint">Drag components from the library onto the architecture, or click them to add. Click a component to configure it.</p>
-        <ul class="comp-list" id="compList"></ul>
-        <h3 class="mini">Security &amp; compliance</h3>
-        <div class="checks" id="securityChecks">
-          <label class="toggle"><input type="checkbox" data-k="enabled"> Include security controls</label>
-          <label class="toggle"><input type="checkbox" data-k="sdp_discovery"> Sensitive Data Protection discovery</label>
-          <label class="toggle"><input type="checkbox" data-k="cmek"> Customer-managed keys (CMEK)</label>
-          <label class="toggle"><input type="checkbox" data-k="vpc_sc"> VPC Service Controls</label>
-        </div>
-      </details>
     </aside>
 
     <section class="stage">
@@ -134,16 +128,25 @@
       <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
 
       <div class="tabpanel" id="tab-arch" role="tabpanel">
-        <section class="library" aria-labelledby="libHead">
-          <div class="lib-head"><h3 id="libHead">Component library</h3><span class="hint">Drag onto the diagram or click to add. Google Cloud components are costed; partner products are drawn with their BigQuery integration but not costed.</span></div>
-          <div id="library"></div>
+        <section class="picker" aria-labelledby="pickHead">
+          <label class="picker-label" id="pickHead" for="compSearch">Add products to the architecture</label>
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <input id="compSearch" type="search" autocomplete="off" spellcheck="false"
+              placeholder="Search BI, AI, API, database, governance or security products - e.g. Power BI, Spanner, SageMaker, Apigee"
+              role="combobox" aria-expanded="false" aria-controls="compResults" aria-autocomplete="list">
+            <ul id="compResults" class="search-results" role="listbox" hidden></ul>
+          </div>
+          <div class="selected-pills" id="selectedPills" aria-label="Selected products"></div>
         </section>
-        <div class="legend">
+
+        <div class="canvas"><div class="canvas-title">Target architecture</div>
+<div class="legend">
           <span><i class="ln stream"></i>Streaming / CDC</span>
           <span><i class="ln batch"></i>Scheduled batch</span>
           <span><i class="ln once"></i>One-time migration</span>
         </div>
-        <div class="diagram-wrap" id="diagram"></div>
+<div class="diagram-wrap" id="diagram"></div></div>
       </div>
 
       <div class="tabpanel" id="tab-recs" role="tabpanel" hidden>

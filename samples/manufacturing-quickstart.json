@@ -87,12 +87,26 @@
       "id": "c5",
       "type": "knowledge_catalog",
       "settings": {}
+    },
+    {
+      "id": "c101",
+      "type": "sdp",
+      "settings": {}
+    },
+    {
+      "id": "c102",
+      "type": "vpc_sc",
+      "settings": {}
+    },
+    {
+      "id": "c103",
+      "type": "policy_tags",
+      "settings": {}
+    },
+    {
+      "id": "c104",
+      "type": "scc",
+      "settings": {}
     }
-  ],
-  "security": {
-    "enabled": true,
-    "sdp_discovery": true,
-    "cmek": false,
-    "vpc_sc": true
-  }
+  ]
 }

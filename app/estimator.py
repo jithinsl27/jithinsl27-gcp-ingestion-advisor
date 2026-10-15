@@ -116,7 +116,7 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         "environment": scenario.get("environment", "production"),
     }
     bq_model = scenario.get("bq_model", "ondemand")
-    sources = [s for s in scenario.get("sources", []) if s.get("type")]
+    sources = [s for s in scenario.get("sources", []) if s.get("type") and s.get("included", True) is not False]
 
     processing_region = scenario.get("processing_region") or region_id
     if processing_region not in regions:
@@ -136,8 +136,10 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
     payg = defaultdict(float)          # (m, service, source, region) -> usd
     cud = {"cud1": defaultdict(float), "cud3": defaultdict(float)}  # same keys, under that CUD
 
+    excluded = set(scenario.get("excluded_services") or [])
+
     def add(m, service, source, usd, cud1=None, cud3=None):
-        if not usd:
+        if not usd or service in excluded:
             return
         k = (m, service, source, ctx["rid"])
         payg[k] += usd
@@ -402,9 +404,11 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         for (m, svc, sid, rid), v in list(view.items()):
             monthly_tot[m] += v
         for m, v in monthly_tot.items():
-            view[(m, "Contingency & operations", "_platform", region_id)] += v * cont
+            if "Contingency & operations" not in excluded:
+                view[(m, "Contingency & operations", "_platform", region_id)] += v * cont
 
     out = _summarise(payg, cud, recs, platform, sources, per_source_meta, region, scenario, pricing)
+    out["excluded_services"] = sorted(excluded)
     if keep_items:
         out["_items"] = payg
     return out

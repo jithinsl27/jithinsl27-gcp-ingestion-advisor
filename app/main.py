@@ -49,6 +49,7 @@ class Source(BaseModel):
     tables: Optional[int] = Field(None, ge=0)
     notes: str = Field("", max_length=2000)
     region: Optional[str] = None             # processing region for this source (defaults to scenario region)
+    included: bool = True                    # False = kept in the scenario but left out of this phase's estimate
     start_month: Optional[int] = Field(None, ge=1, le=36)
 
 
@@ -63,6 +64,7 @@ class Component(BaseModel):
     id: str = Field(..., max_length=64)
     type: str
     start_month: Optional[int] = Field(None, ge=1, le=36)
+    included: bool = True                    # False = drawn in the architecture but not priced
     settings: dict[str, float | int | str | bool | None] = Field(default_factory=dict, max_length=20)
 
 
@@ -144,6 +146,7 @@ class Scenario(BaseModel):
     platform: Optional[dict] = None          # legacy fixed layer, converted to components
     workload: Optional[Workload] = None
     plan: Optional[dict[str, int]] = None    # {"teams": 2}
+    excluded_services: list[str] = Field(default_factory=list, max_length=100)  # service lines left out of pricing
 
 
 @app.get("/healthz")

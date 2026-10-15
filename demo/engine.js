@@ -319,24 +319,37 @@
     return { comps, sec: { ...D.catalog.default_security, ...(p.security || {}) } };
   }
 
+  const SECURITY_TYPES = D.catalog.components.filter((c) => c.category === "security").map((c) => c.id);
+  function securityComponents(sec, startIndex = 100) {
+    if (sec.enabled === false) return [];
+    const out = [];
+    let i = startIndex;
+    for (const [flag, type] of [["sdp_discovery", "sdp"], ["cmek", "cmek"], ["vpc_sc", "vpc_sc"]]) if (sec[flag] !== false) out.push({ id: `c${++i}`, type, settings: {} });
+    for (const type of ["policy_tags", "scc"]) out.push({ id: `c${++i}`, type, settings: {} });
+    return out;
+  }
+
   function normalizedComponents(scenario) {
-    let comps, sec;
+    let comps;
     if (scenario.components !== undefined && scenario.components !== null) {
-      comps = scenario.components;
-      sec = { ...D.catalog.default_security, ...(scenario.security || {}) };
+      comps = [...scenario.components];
+      const hasSec = comps.some((c) => (COMPONENT_BY_ID[c.type] || {}).category === "security");
+      if (scenario.security !== undefined && scenario.security !== null && !hasSec) comps = comps.concat(securityComponents({ ...D.catalog.default_security, ...scenario.security }));
     } else if (scenario.platform) {
-      ({ comps, sec } = legacyToComponents(scenario.platform));
+      const lg = legacyToComponents(scenario.platform);
+      comps = lg.comps.concat(securityComponents(lg.sec));
     } else {
       comps = D.catalog.default_components.map((c) => ({ ...c }));
-      sec = { ...D.catalog.default_security };
     }
     const out = [];
     for (const c of comps) {
       if (!COMPONENT_BY_ID[c.type]) continue;
       const settings = componentDefaults(c.type);
       for (const [k, v] of Object.entries(c.settings || {})) if (v !== null && v !== undefined) settings[k] = v;
-      out.push({ id: c.id || c.type, type: c.type, settings, start_month: Math.trunc(num(c.start_month) || 1) });
+      out.push({ id: c.id || c.type, type: c.type, settings, start_month: Math.trunc(num(c.start_month) || 1), included: c.included !== false });
     }
+    const types = new Set(out.map((c) => c.type));
+    const sec = { enabled: [...types].some((t) => SECURITY_TYPES.includes(t)), sdp_discovery: types.has("sdp"), cmek: types.has("cmek"), vpc_sc: types.has("vpc_sc") };
     return { comps: out, sec };
   }
 
@@ -355,7 +368,7 @@
     for (let m = 1; m <= 36; m++) {
       for (const c of comps) {
         const t = c.type, s = c.settings;
-        if (m < Math.trunc(num(c.start_month) || 1)) continue;
+        if (m < Math.trunc(num(c.start_month) || 1) || c.included === false) continue;
         setRegion(s.region || home);
         if (t === "looker") add(m, "Looker licence (customer quote)", "_ai", num(s.annual_quote_usd) / 12);
         else if (t === "looker_studio_pro") add(m, "Looker Studio Pro", "_ai", num(s.users) * pricing.looker.studio_pro_user_month);
@@ -409,6 +422,10 @@
           const rate = ms.standard_tier_gib_hr.find(([lim]) => lim === null || cap <= lim)[1];
           const c2 = cap * rate * HOURS * up("memorystore");
           add(m, "Memorystore", "_db", c2, c2 * ms.cud1_factor, c2 * ms.cud3_factor);
+        } else if (t === "sdp") {
+          add(m, "Sensitive Data Protection (discovery)", "_governance", newBy[m] * pricing.sensitive_data_protection.discovery_gb);
+        } else if (t === "cmek") {
+          add(m, "Cloud KMS (CMEK)", "_governance", num(s.key_versions) * pricing.kms.key_version_month + num(s.operations_million) * 100 * pricing.kms.ops_per_10k);
         } else if (t === "knowledge_catalog") {
           const dp = pricing.dataplex;
           const dqTables = (tables * num(s.dq_share_pct)) / 100;
@@ -421,17 +438,13 @@
         }
       }
       setRegion(home);
-      if (sec.enabled) {
-        if (sec.sdp_discovery) add(m, "Sensitive Data Protection (discovery)", "_governance", newBy[m] * pricing.sensitive_data_protection.discovery_gb);
-        if (sec.cmek) add(m, "Cloud KMS (CMEK)", "_governance", 20 * pricing.kms.key_version_month + 300 * pricing.kms.ops_per_10k);
-      }
     }
     return Math.trunc(tables);
   }
 
   function componentView(c) {
     const m = COMPONENT_BY_ID[c.type];
-    return { id: c.id, type: c.type, start_month: Math.trunc(num(c.start_month) || 1), name: m.name, category: m.category, vendor: m.vendor, costed: m.costed, method: m.method,
+    return { id: c.id, type: c.type, start_month: Math.trunc(num(c.start_month) || 1), included: c.included !== false, name: m.name, category: m.category, vendor: m.vendor, costed: m.costed, method: m.method,
       steps: m.steps, notes: m.notes, doc: m.doc, settings: c.settings };
   }
 
@@ -447,19 +460,11 @@
         "Every connected BI, AI and governance tool reads the same governed tables, so metrics and permissions stay consistent.",
       ],
     });
-    if (sec.enabled) {
-      const tools = ["fine_grained", "vpc_sc", "scc"];
-      const pts = ["Column-level policy tags, row access policies and dynamic data masking apply to every consumer - SQL, BI tools, partner platforms and agents.",
-        "VPC Service Controls perimeter around ingestion, BigQuery and Vertex AI projects; Private Service Connect for endpoints.",
-        "Security Command Center for posture management and threat detection, including AI workloads."];
-      if (sec.cmek) {
-        tools.unshift("cmek");
-        pts.unshift("Customer-managed encryption keys (Cloud KMS, optionally Cloud EKM) across BigQuery, Cloud Storage, Pub/Sub, Datastream and Vertex AI - relevant for data-residency regulations such as KSA PDPL / NCA ECC.");
-      }
-      if (sec.sdp_discovery) {
-        tools.unshift("sdp");
-        pts.unshift("Sensitive Data Protection profiles every BigQuery table, classifies PII and can auto-apply policy tags.");
-      }
+    const secComps = comps.filter((c) => COMPONENT_BY_ID[c.type].category === "security");
+    if (secComps.length) {
+      const toolFor = { sdp: "sdp", cmek: "cmek", vpc_sc: "vpc_sc", policy_tags: "fine_grained", scc: "scc" };
+      const tools = secComps.filter((c) => toolFor[c.type]).map((c) => toolFor[c.type]);
+      const pts = secComps.map((c) => `${COMPONENT_BY_ID[c.type].name}: ${COMPONENT_BY_ID[c.type].method}.`);
       if (comps.some((c) => COMPONENT_BY_ID[c.type].vendor === "partner")) pts.push("Partner tools connect with service accounts or workload identity federation (no long-lived keys); keep them inside the perimeter with VPC-SC ingress rules.");
       blocks.push({ key: "security", title: "Security & compliance", tools, points: pts });
     }
@@ -503,7 +508,7 @@
     const growth = num(scenario.annual_growth_pct ?? 20) / 100;
     const prefs = { skill: scenario.skill || "sql", orchestration: scenario.orchestration || "auto", environment: scenario.environment || "production" };
     const bqModel = scenario.bq_model || "ondemand";
-    const sources = (scenario.sources || []).filter((s) => s.type);
+    const sources = (scenario.sources || []).filter((s) => s.type && s.included !== false);
     const up = (k) => (pricing[k].regional ? regions[ctx.rid].uplift : 1);
 
     const recs = sources.map((s) => recommend(s, prefs));
@@ -512,8 +517,9 @@
     const payg = new Map(), cud1 = new Map(), cud3 = new Map();
     const key = (m, svc, sid, rid) => `${m}\u0001${svc}\u0001${sid}\u0001${rid}`;
     const inc = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
+    const excluded = new Set(scenario.excluded_services || []);
     function add(m, svc, sid, usd, c1, c3) {
-      if (!usd) return;
+      if (!usd || excluded.has(svc)) return;
       const k = key(m, svc, sid, ctx.rid);
       inc(payg, k, usd);
       inc(cud1, k, c1 === undefined ? usd : c1);
@@ -708,9 +714,10 @@
     for (const view of [payg, cud1, cud3]) {
       const mt = z();
       for (const [k, v] of view) mt[+k.split("\u0001")[0]] += v;
-      for (let m = 1; m <= 36; m++) if (mt[m]) inc(view, key(m, "Contingency & operations", "_platform", regionId), mt[m] * cont);
+      for (let m = 1; m <= 36; m++) if (mt[m] && !excluded.has("Contingency & operations")) inc(view, key(m, "Contingency & operations", "_platform", regionId), mt[m] * cont);
     }
     const out = summarise(payg, cud1, cud3, recs, platform, meta, region);
+    out.excluded_services = [...excluded].sort();
     if (keepItems) out._items = payg;
     return out;
   }
@@ -833,8 +840,9 @@
     const payg = new Map(), cud1 = new Map(), cud3 = new Map();
     const inc = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
     const key = (m, svc, item, rid) => `${m}\u0001${svc}\u0001${item}\u0001${rid}`;
+    const excludedW = new Set(scenario.excluded_services || []);
     function add(m, svc, item, usd, c1, c3) {
-      if (!usd) return;
+      if (!usd || excludedW.has(svc)) return;
       const k = key(m, svc, item, ctx.rid);
       inc(payg, k, usd); inc(cud1, k, c1 === undefined ? usd : c1); inc(cud3, k, c3 === undefined ? usd : c3);
     }
@@ -941,7 +949,7 @@
     for (const view of [payg, cud1, cud3]) {
       const mt = new Array(37).fill(0);
       for (const [k, v] of view) mt[+k.split("\u0001")[0]] += v;
-      for (let m = 1; m <= 36; m++) if (mt[m]) inc(view, key(m, "Contingency & operations", "Contingency", dataRid), mt[m] * cont);
+      for (let m = 1; m <= 36; m++) if (mt[m] && !excludedW.has("Contingency & operations")) inc(view, key(m, "Contingency & operations", "Contingency", dataRid), mt[m] * cont);
     }
 
     // summary
@@ -1012,7 +1020,7 @@
   function buildPlan(scenario) {
     const teams = Math.max(1, Math.trunc(num((scenario.plan || {}).teams) || 2));
     const prefs = { skill: scenario.skill || "sql", orchestration: scenario.orchestration || "auto", environment: scenario.environment || "production" };
-    const sources = (scenario.sources || []).filter((s) => s.type);
+    const sources = (scenario.sources || []).filter((s) => s.type && s.included !== false);
     const recs = sources.map((s) => recommend(s, prefs));
     const items = sources.map((s, i) => ({ idx: i, id: s.id || s.type, name: s.name || s.type, pattern: recs[i].pattern, primary: recs[i].primary, effort_weeks: sourceEffort(s, recs[i]) }));
     const order = [...items].sort((a, b) => a.effort_weeks - b.effort_weeks || a.idx - b.idx);
@@ -1034,7 +1042,7 @@
     const compRows = comps.map((c) => {
       const meta = COMPONENT_BY_ID[c.type], cat = meta.category, t = c.type;
       let start;
-      if (cat === "governance") start = 1;
+      if (cat === "governance" || cat === "security") start = 1;
       else if (cat === "bi") start = firstLive;
       else if (["agent_platform", "vertex_gpu", "bqml"].includes(t) || (cat === "ai" && meta.vendor === "partner")) start = agentsMonth;
       else if (t === "gemini_enterprise") start = Math.min(36, agentsMonth + 1);
@@ -1047,11 +1055,11 @@
     horizon = Math.min(horizon, 24);
     const phases = [{ key: "foundation", name: "Foundation & landing zone", start: 1, end: 1,
       items: ["Projects, IAM and org policies", "Networking" + (recs.some((r) => r.needs_connectivity) ? " and private connectivity" : ""),
-        sec.enabled ? "VPC Service Controls and CMEK" : "Security baseline", "BigQuery datasets (raw / curated / marts)", "Dataform repo and CI/CD", "Monitoring and cost controls (budgets, quotas)"] }];
+        compRows.some((c) => c.category === "security") ? "Security controls: " + compRows.filter((c) => c.category === "security").map((c) => c.name).join(", ") : "Security baseline", "BigQuery datasets (raw / curated / marts)", "Dataform repo and CI/CD", "Monitoring and cost controls (budgets, quotas)"] }];
     for (const w of waves) phases.push({ key: "source", id: w.id, name: w.name, start: w.build_start_month, end: w.go_live_month, items: [w.pattern, `${w.effort_weeks} weeks, team ${w.team}`] });
     if (goLives.length) phases.push({ key: "elt", name: "Curated models & data quality (Dataform)", start: firstLive, end: allLive, items: ["Curated and mart layers per source as it lands", "Assertions and quality scans"] });
     for (const c of compRows) phases.push({ key: "component", id: c.id, category: c.category, vendor: c.vendor, name: c.name, start: c.start_month,
-      end: Math.min(horizon, c.start_month + (c.category === "governance" ? 0 : 1)), items: [c.vendor === "google" ? "Rollout and enablement" : "Connect partner tool to BigQuery (not costed)"] });
+      end: Math.min(horizon, c.start_month + (c.category === "governance" || c.category === "security" ? 0 : 1)), items: [c.vendor === "google" ? "Rollout and enablement" : "Connect partner tool to BigQuery (not costed)"] });
     phases.push({ key: "hypercare", name: "Optimisation & hypercare", start: Math.min(horizon, allLive + 1), end: horizon, items: ["Partitioning, clustering, BI Engine", "Slot / commitment right-sizing", "FinOps review"] });
     const milestones = [{ month: 1, name: "Landing zone ready" }];
     if (goLives.length) { milestones.push({ month: firstLive, name: "First data live in BigQuery" }); milestones.push({ month: allLive, name: "All sources live" }); }
@@ -1064,7 +1072,6 @@
     (ramped.sources || []).forEach((s) => { s.start_month = startById[s.id || s.type] || 1; });
     const compStart = Object.fromEntries(compRows.map((c) => [c.id, c.start_month]));
     ramped.components = comps.map((c) => ({ ...c, start_month: compStart[c.id] || 1 }));
-    ramped.security = sec;
     delete ramped.platform;
     const est = estimate(ramped, true);
     const steady = estimate(JSON.parse(JSON.stringify(scenario)));

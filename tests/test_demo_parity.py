@@ -38,6 +38,7 @@ def random_scenarios(n=25, seed=7):
                 "daily_change_gb": rnd.choice([0, 0.5, 10, 300, 1500]),
                 **({"region": rnd.choice(regions)} if rnd.random() > .6 else {}),
                 **({"start_month": rnd.randint(1, 8)} if rnd.random() > .6 else {}),
+                **({"included": False} if rnd.random() > .8 else {}),
             })
         out.append({
             "region": rnd.choice(regions), "skill": rnd.choice(["sql", "low_code", "code", "spark"]),
@@ -50,7 +51,8 @@ def random_scenarios(n=25, seed=7):
             "components": [
                 {"id": f"c{k}", "type": c["id"],
                  "settings": ({"region": rnd.choice(regions)} if c["costed"] and rnd.random() > .7 else {}),
-                 **({"start_month": rnd.randint(1, 6)} if rnd.random() > .7 else {})}
+                 **({"start_month": rnd.randint(1, 6)} if rnd.random() > .7 else {}),
+                 **({"included": False} if rnd.random() > .8 else {})}
                 for k, c in enumerate(rnd.sample(COMPONENTS, rnd.randint(0, 8)))
             ],
             "security": {"enabled": rnd.random() > .3, "cmek": rnd.random() > .5, "sdp_discovery": rnd.random() > .5},
@@ -63,6 +65,7 @@ def random_scenarios(n=25, seed=7):
                 "queries": {"heavy": {"frequency": rnd.choice(["yearly", "quarterly"])}},
             },
             "plan": {"teams": rnd.randint(1, 4)},
+            "excluded_services": rnd.sample(["Contingency & operations", "Datastream (CDC)", "BigQuery storage", "Composer (Airflow)", "Pub/Sub", "Network (HA VPN)"], rnd.randint(0, 2)),
             "sources": srcs,
         })
     return out
