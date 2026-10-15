@@ -102,9 +102,10 @@
           <label>BigQuery pricing
             <select id="bq_model"></select>
           </label>
-          <label id="slotsField">Avg. slots (editions)
+          <label id="slotsField">Avg. slots, production (editions)
             <input id="bq_slots" type="number" min="0" step="50" value="100">
           </label>
+          <div class="env-slots span2" id="envSlots" hidden aria-live="polite"></div>
           <label>Analytics scan, TiB/month
             <input id="analytics_tib_month" type="number" min="0" step="1" placeholder="Auto">
           </label>
@@ -286,11 +287,17 @@
     </form>
   </dialog>
 
+  <dialog id="drillDialog" aria-labelledby="drillTitle" class="wide drill">
+    <div class="drill-head"><h2 id="drillTitle">Products and pricing</h2><button type="button" class="btn ghost small" id="drillClose">Close</button></div>
+    <div id="drillBody"></div>
+  </dialog>
+
   <dialog id="envDialog" aria-labelledby="envTitle" class="wide">
     <form id="envForm" method="dialog">
       <h2 id="envTitle">Environments and sizing</h2>
       <p class="hint">The sources, products and workload describe the first environment (normally production). Size every other environment as a percentage of it per capability - e.g. development with 10% of the data and compute. Network links and the Looker licence are shared and counted once.</p>
       <div class="env-grid-wrap"><table class="env-grid" id="envGrid"></table></div>
+      <div class="env-spec" id="envSpec"></div>
       <div class="dlg-actions">
         <button type="button" class="btn ghost" id="envAdd">Add environment</button>
         <span class="spacer"></span>

@@ -389,7 +389,7 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         if bq_model == "ondemand":
             billable = max(0.0, scan_tib - bq["ondemand_free_tib"])
             add(m, "BigQuery compute", "_platform", billable * bq["ondemand_tib"] * bq_up, q=(billable, "TiB scanned"))
-        elif m >= plat_start:
+        elif m >= plat_start and src_start:   # no reservation until a source feeds BigQuery
             ed = bq["editions"][bq_model]
             slot_hours = edition_slots * HOURS
             add(m, "BigQuery compute", "_platform", slot_hours * ed["payg"] * bq_up,
@@ -493,7 +493,7 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
 
     out = _summarise(payg, cud, recs, platform, sources, per_source_meta, region, scenario, pricing)
     out["excluded_services"] = sorted(excluded)
-    out["environments"] = env_summary(envs, env_tot, cont, cont_on)
+    out["environments"] = env_summary(envs, env_tot, cont, cont_on, bq_model, edition_slots)
     drivers = defaultdict(set)
     name_of = {m_["id"]: m_["name"] for m_ in per_source_meta}
     for (m, svc, sid, rid) in payg:

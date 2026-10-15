@@ -382,7 +382,7 @@ VOLUME_UNITS = [
 def catalog_payload(regions):
     from .components import CATEGORIES, COMPONENTS, DEFAULT_COMPONENTS, DEFAULT_SECURITY
     from .workload import DEFAULT_WORKLOAD, FREQ_RUNS
-    from .environments import DEFAULT_ENVIRONMENTS, ENV_PRESETS, FACTOR_LABELS
+    from .environments import DEFAULT_ENVIRONMENTS, ENV_PRESETS, FACTOR_HELP, FACTOR_LABELS
     from .estimator import LAKEHOUSE_DEFAULTS
     return {
         "components": COMPONENTS,
@@ -402,7 +402,7 @@ def catalog_payload(regions):
         "iot_options": IOT_OPTIONS,
         "volume_units": VOLUME_UNITS,
         "environment_presets": ENV_PRESETS,
-        "environment_factors": [{"id": k, "name": v} for k, v in FACTOR_LABELS.items()],
+        "environment_factors": [{"id": k, "name": v, "help": FACTOR_HELP[k]} for k, v in FACTOR_LABELS.items()],
         "default_environments": DEFAULT_ENVIRONMENTS,
         "lakehouse_defaults": LAKEHOUSE_DEFAULTS,
         "storage_classes": [{"id": "standard", "name": "Standard"}, {"id": "nearline", "name": "Nearline (30-day minimum)"},

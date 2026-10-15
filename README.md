@@ -11,12 +11,14 @@
 - **wires Gemini Enterprise and Apigee the way the customer wants**: drag Gemini Enterprise onto Looker or BigQuery (or route it through agents), and Apigee onto the source systems (integration layer) or an agent (AI gateway);
 - **IoT options**: Google Cloud native (Pub/Sub, MQTT broker on GKE, Manufacturing Data Engine) or ISVs such as Litmus Edge and ClearBlade;
 - **sizes every environment**: choose the number of environments (production, development, UAT, pre-production, DR, sandbox …) and size each one per capability;
+  every sizing parameter is explained and editable on the Consumption estimate tab, next to the resulting per-environment specification (quantities and cost at month 12); on a BigQuery edition, average slots are shown and editable per environment (auto = production slots × compute %);
 - **lets you choose what is priced** - tick sources in or out for a phased estimate, switch individual products or service lines off without removing them from the architecture;
 - **explains every integration** - how each tool connects to BigQuery, step by step, with best practices and documentation links;
 - **prices each service in its own region** - BigQuery in one data centre, ingestion or GPU endpoints in another - and adds cross-region transfer where data moves;
 - **estimates 1-year and 3-year consumption**, pay-as-you-go and with committed-use discounts, by service, capability, region and source, in USD, SAR, AED, EUR, GBP or INR;
 - **sizes from workloads** (Workload sizing tab): pipelines, simple/complex/periodic queries, ad-hoc reports, dashboards, data by type (KB … ZB), telemetry and a ramp-up phase - and **sizes BigQuery slots** (baseline, autoscale max, edition, commitment) with recommendations;
 - **itemises the bill of materials**: product, quantity, unit, unit price, cost and why each service is needed, per environment;
+- **drills into every headline figure**: click the monthly, 1-year or 3-year total to see each product's quantity, unit price, cost and share, for all or one environment. Nothing is priced until a source system or a Google Cloud product is added;
 - **builds a month-by-month roadmap** (Roadmap tab): final architecture, phased plan by delivery squads, go-live per source and component, and ramped monthly consumption;
 - **exports to Google Sheets and Google Slides** (architecture, bill of materials, sizing and native charts) - directly into the user's Google Drive, or as .xlsx / .pptx files - plus a Markdown proposal, CSV, architecture SVG, scenario JSON or a print-ready PDF.
 

@@ -27,6 +27,15 @@ FACTOR_LABELS = {
     "platform_pct": "Platform, governance & security %",
 }
 
+FACTOR_HELP = {
+    "data_pct": "Scales BigQuery storage (bronze/silver/gold), Cloud Storage raw zone and one-time initial loads.",
+    "ingestion_pct": "Scales Datastream CDC, Dataflow, Pub/Sub, Data Fusion and Dataproc pipelines, transfer services, BigQuery Write API and cross-region transfer.",
+    "compute_pct": "Scales BigQuery query compute: TiB scanned on-demand, or the average slots on an edition when no slot count is set.",
+    "ai_pct": "Scales BI users, Gemini Enterprise seats, agent runtime and tokens, and Vertex AI GPU endpoints.",
+    "apps_pct": "Scales Apigee environments and calls, and operational databases (AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore).",
+    "platform_pct": "Scales orchestration (Composer / Workflows), the Data Fusion instance, Knowledge Catalog and security controls.",
+}
+
 ENV_PRESETS = [
     {"id": "prod", "name": "Production", "data_pct": 100, "ingestion_pct": 100, "compute_pct": 100, "ai_pct": 100, "apps_pct": 100, "platform_pct": 100},
     {"id": "preprod", "name": "Pre-production", "data_pct": 50, "ingestion_pct": 50, "compute_pct": 30, "ai_pct": 15, "apps_pct": 50, "platform_pct": 100},
@@ -126,7 +135,16 @@ def replicate(views: list[dict], bom: dict, envs: list[dict], group_fn, bq_model
     return env_tot
 
 
-def env_summary(envs, env_tot, cont, contingency_on):
+def effective_slots(env: dict, bq_model: str, base_slots: float) -> float | None:
+    """Average BigQuery edition slots this environment is priced at (None on on-demand)."""
+    if bq_model == "ondemand":
+        return None
+    if env.get("bq_slots") is not None:
+        return round(env["bq_slots"], 1)
+    return round(base_slots * env["compute_pct"] / 100.0, 1)
+
+
+def env_summary(envs, env_tot, cont, contingency_on, bq_model="ondemand", base_slots=0.0):
     """Year-1 / 3-year totals per environment (contingency applied pro rata)."""
     mult = 1 + (cont if contingency_on else 0.0)
     rows = []
@@ -137,6 +155,8 @@ def env_summary(envs, env_tot, cont, contingency_on):
         rows.append({
             "id": e["id"], "name": e["name"], "preset": e["preset"],
             "factors": {f: e[f] for f in FACTORS}, "bq_slots": e["bq_slots"],
+            "effective_slots": effective_slots(e, bq_model, base_slots),
+            "slots_basis": None if bq_model == "ondemand" else ("primary" if e is envs[0] else "manual" if e["bq_slots"] is not None else "compute_pct"),
             "monthly_year1": round(y1 / 12 + 1e-12, 2),
             "year1": round(y1 + 1e-12, 2), "year1_cud": round(sum(t["cud1"][1:13]) * mult + 1e-12, 2),
             "three_year": round(y3 + 1e-12, 2), "three_year_cud": round(sum(t["cud3"][1:37]) * mult + 1e-12, 2),

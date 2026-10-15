@@ -124,13 +124,20 @@
     }
     return envTot;
   }
-  function envSummary(envs, envTot, cont, contOn) {
+  function effectiveSlots(e, bqModel, baseSlots) {
+    if (bqModel === "ondemand") return null;
+    if (e.bq_slots !== null && e.bq_slots !== undefined) return pyRound(e.bq_slots, 1);
+    return pyRound(baseSlots * e.compute_pct / 100, 1);
+  }
+  function envSummary(envs, envTot, cont, contOn, bqModel = "ondemand", baseSlots = 0) {
     const mult = 1 + (contOn ? cont : 0);
     const sum = (a, lo, hi) => { let t = 0; for (let m = lo; m <= hi; m++) t += a[m]; return t; };
     return envs.map((e) => {
       const t = envTot[e.id];
       const y1 = sum(t.payg, 1, 12) * mult, y3 = sum(t.payg, 1, 36) * mult;
       return { id: e.id, name: e.name, preset: e.preset, factors: Object.fromEntries(FACTORS.map((f) => [f, e[f]])), bq_slots: e.bq_slots,
+        effective_slots: effectiveSlots(e, bqModel, baseSlots),
+        slots_basis: bqModel === "ondemand" ? null : e === envs[0] ? "primary" : (e.bq_slots !== null && e.bq_slots !== undefined) ? "manual" : "compute_pct",
         monthly_year1: round2(y1 / 12 + 1e-12), year1: round2(y1 + 1e-12), year1_cud: round2(sum(t.cud1, 1, 12) * mult + 1e-12),
         three_year: round2(y3 + 1e-12), three_year_cud: round2(sum(t.cud3, 1, 36) * mult + 1e-12) };
     });
@@ -164,8 +171,8 @@
       const [ms, svc, envId] = k.split("\u0001");
       const m = +ms;
       const ak = `${envId}\u0001${svc}`;
-      const a = acc.get(ak) || { m12: 0, q12: 0, y1: 0, qy1: 0, y3: 0 };
-      a.y3 += usd;
+      const a = acc.get(ak) || { m12: 0, q12: 0, y1: 0, qy1: 0, y3: 0, qy3: 0 };
+      a.y3 += usd; a.qy3 += qty;
       if (m <= 12) { a.y1 += usd; a.qy1 += qty; }
       if (m === 12) { a.m12 += usd; a.q12 += qty; }
       acc.set(ak, a);
@@ -184,6 +191,7 @@
       rows.push({ environment: envId, environment_name: envName[envId] || envId, service: svc, group, unit,
         qty_month12: unit ? pyRound(a.q12, 2) : null, qty_year1: unit ? pyRound(a.qy1, 2) : null,
         unit_price: unit && a.qy1 ? pyRound(a.y1 / a.qy1, 6) : null,
+        qty_three_year: unit ? pyRound(a.qy3, 2) : null, unit_price_three_year: unit && a.qy3 ? pyRound(a.y3 / a.qy3, 6) : null,
         month12: round2(a.m12 + 1e-12), year1: round2(a.y1 + 1e-12), three_year: round2(a.y3 + 1e-12), why });
     }
     const gi = (g) => (GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : 99);
@@ -885,7 +893,7 @@
       const eltTib = (ingGib[m] * A.elt_scan_multiplier) / GIB_PER_TIB;
       const analyticsTib = analyticsIn ? num(analyticsIn) * growthFactor(m, growth) : storedTib * A.auto_analytics_scan_multiplier;
       if (bqModel === "ondemand") { const billable = Math.max(0, eltTib + analyticsTib - bq.ondemand_free_tib); add(m, "BigQuery compute", "_platform", billable * bq.ondemand_tib * bqUp, U, U, [billable, "TiB scanned"]); }
-      else if (m >= platStart) {
+      else if (m >= platStart && Object.keys(srcStart).length) {
         const ed = bq.editions[bqModel], sh = slots * HOURS;
         add(m, "BigQuery compute", "_platform", sh * ed.payg * bqUp, sh * ed.cud1 * bqUp, sh * ed.cud3 * bqUp, [sh, "slot-hours"]);
       }
@@ -961,7 +969,7 @@
     }
     const out = summarise(payg, cud1, cud3, recs, platform, meta, region);
     out.excluded_services = [...excluded].sort();
-    out.environments = envSummary(envs, envTot, cont, contOn);
+    out.environments = envSummary(envs, envTot, cont, contOn, bqModel, slots);
     const drivers = {};
     const nameOf = Object.fromEntries(meta.map((x) => [x.id, x.name]));
     for (const k of payg.keys()) { const [, svc, sid] = k.split("\u0001"); if (sid in nameOf) (drivers[svc] = drivers[svc] || new Set()).add(nameOf[sid]); }

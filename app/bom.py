@@ -91,8 +91,9 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
     r2 = lambda x: round(x + 1e-12, 2)  # noqa: E731
     acc = {}
     for (m, svc, env_id), (usd, qty) in bom.items():
-        a = acc.setdefault((env_id, svc), {"m12": 0.0, "q12": 0.0, "y1": 0.0, "qy1": 0.0, "y3": 0.0})
+        a = acc.setdefault((env_id, svc), {"m12": 0.0, "q12": 0.0, "y1": 0.0, "qy1": 0.0, "y3": 0.0, "qy3": 0.0})
         a["y3"] += usd
+        a["qy3"] += qty
         if m <= 12:
             a["y1"] += usd
             a["qy1"] += qty
@@ -117,6 +118,8 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
             "qty_month12": round(a["q12"], 2) if unit else None,
             "qty_year1": round(a["qy1"], 2) if unit else None,
             "unit_price": round(a["y1"] / a["qy1"], 6) if unit and a["qy1"] else None,
+            "qty_three_year": round(a["qy3"], 2) if unit else None,
+            "unit_price_three_year": round(a["y3"] / a["qy3"], 6) if unit and a["qy3"] else None,
             "month12": r2(a["m12"]), "year1": r2(a["y1"]), "three_year": r2(a["y3"]),
             "why": why,
         })

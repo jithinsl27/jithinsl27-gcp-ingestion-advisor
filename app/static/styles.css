@@ -663,3 +663,65 @@ dialog.wide { width: min(1040px, calc(100vw - 32px)); max-width: none; }
 .g-setup summary { cursor: pointer; color: var(--blue); }
 .g-setup ol { padding-left: 18px; }
 .g-setup code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+
+/* ---------------------------------------------------------------- headline drill-down */
+.summary-strip .fig.drill { all: unset; display: block; cursor: pointer; border-radius: var(--radius-s); padding: 4px 8px; margin: -4px -8px; }
+.summary-strip .fig.drill b { font-family: var(--font); font-size: 24px; font-weight: 500; letter-spacing: -.01em; display: block; }
+.summary-strip .fig.drill span { display: block; font-size: 12.5px; color: var(--muted); }
+.summary-strip .fig.drill span i { font-style: normal; color: var(--blue); font-weight: 600; }
+.summary-strip .fig.drill:hover, .summary-strip .fig.drill:focus-visible { background: var(--blue-soft); }
+.summary-strip .fig.drill:hover span, .summary-strip .fig.drill:focus-visible span { color: var(--blue); }
+.summary-strip .fig.drill:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.summary-strip .empty-sum { margin-left: 0; font-style: italic; }
+.horizon .card h3 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.horizon .card h3 .link-btn { font-size: 12.5px; }
+dialog.drill { padding-top: 16px; }
+.drill-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.drill-head h2 { margin: 0; }
+.drill-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 10px; }
+.drill-view { font: inherit; text-align: left; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); border-radius: var(--radius-m); padding: 8px 12px; cursor: pointer; }
+.drill-view span { display: block; font-size: 12px; color: var(--muted); }
+.drill-view b { font-size: 18px; font-weight: 500; }
+.drill-view.on { border-color: var(--blue); background: var(--blue-soft); }
+.drill-view.on span { color: var(--blue); }
+.drill-scroll { max-height: 58vh; overflow: auto; border-top: 1px solid var(--line); margin-top: 8px; }
+.drill-table { width: 100%; }
+.drill-table thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.drill-table tfoot td { position: sticky; bottom: 0; background: var(--surface); font-weight: 600; }
+.drill-table .bom-group th.num { text-align: right; font-weight: 600; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.muted { color: var(--muted); }
+.env-split { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+@media (max-width: 640px) { .drill-views { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- slots per environment */
+.env-slots { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 10px; background: var(--surface-2); transition: box-shadow .3s; }
+.env-slots.flash { box-shadow: 0 0 0 3px var(--blue); }
+.es-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; margin-bottom: 4px; }
+.es-head span { color: var(--muted); font-size: 12px; }
+.es-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.es-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 3px 4px; }
+.es-table th:not(:first-child) { text-align: right; }
+.es-table td { padding: 3px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+.es-table td small { display: block; color: var(--muted); font-size: 11px; margin-left: 16px; }
+.es-table input { width: 72px; text-align: right; padding: 3px 6px; font-size: 12.5px; }
+.es-table td:nth-child(2) { text-align: right; }
+.es-table tfoot td { font-weight: 600; }
+.es-table tr.warn td { color: var(--g-red); }
+.env-slots .hint { font-size: 11.5px; margin-top: 6px; }
+.es-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ---------------------------------------------------------------- environment sizing & spec */
+.sizing-table, .spec-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.sizing-table th, .sizing-table td, .spec-table th, .spec-table td { border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: middle; }
+.sizing-table th, .spec-table th { text-align: left; font-weight: 500; color: var(--muted); }
+.sizing-table th.num, .spec-table th.num { text-align: right; }
+.sizing-table td small { display: block; color: var(--muted); font-size: 12px; max-width: 460px; margin-top: 2px; }
+.sizing-table input { width: 84px; text-align: right; }
+.spec-table td .q { display: block; font-size: 11.5px; color: var(--muted); }
+.spec-table td b { font-weight: 500; }
+.spec-table tr.spec-key td { background: var(--blue-soft); }
+.spec-table tfoot td { font-weight: 600; }
+.env-grid tbody th .f-help { display: block; font-weight: 400; font-size: 11.5px; color: var(--muted); max-width: 300px; margin-top: 2px; }
+.env-spec h3 { font-size: 14px; margin: 14px 0 0; }
+.env-spec { max-height: 38vh; overflow: auto; }

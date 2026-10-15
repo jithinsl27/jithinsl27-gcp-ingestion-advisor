@@ -319,3 +319,27 @@ def test_api_accepts_new_fields():
     assert r.status_code == 200, r.text
     assert len(r.json()["environments"]) == 2
     assert c.get("/api/config").json() == {"google_client_id": ""}
+
+
+def test_nothing_designed_costs_nothing():
+    from app.estimator import estimate
+    for model in ("ondemand", "standard", "enterprise", "enterprise_plus"):
+        out = estimate({"sources": [], "components": [], "bq_model": model, "bq_slots": 400,
+                        "environments": [{"id": "prod", "preset": "prod"}, {"id": "dev", "preset": "dev"}]})
+        assert out["totals"]["three_year_payg"] == 0
+        assert out["bom"] == []
+
+
+def test_env_effective_slots_and_three_year_bom():
+    from app.estimator import estimate
+    sc = {"region": "us-central1", "bq_model": "enterprise", "bq_slots": 200, "components": [],
+          "sources": [{"id": "s1", "type": "oracle", "frequency": "near_realtime", "daily_change_gb": 50}],
+          "environments": [{"id": "prod", "preset": "prod"}, {"id": "dev", "preset": "dev"},
+                           {"id": "uat", "preset": "uat", "bq_slots": 75}]}
+    out = estimate(sc)
+    slots = {e["id"]: (e["effective_slots"], e["slots_basis"]) for e in out["environments"]}
+    assert slots == {"prod": (200, "primary"), "dev": (20, "compute_pct"), "uat": (75, "manual")}
+    for b in out["bom"]:
+        if b["unit"]:
+            assert b["qty_three_year"] >= b["qty_year1"]
+    assert abs(sum(b["three_year"] for b in out["bom"]) - out["totals"]["three_year_payg"]) < 1

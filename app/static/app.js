@@ -138,7 +138,7 @@
     changed();
   }
 
-  const envCost = (id) => result?.environments?.find((e) => e.id === id);
+  const envCost = (id) => (hasEstimate() ? result.environments?.find((e) => e.id === id) : null);
   function renderEnvs() {
     if (!catalog) return;
     $("#envCount").value = String(scenario.environments.length);
@@ -152,8 +152,10 @@
   }
 
   let envDraft = [];
+  let slotsDraft = null;
   function openEnvDialog() {
     envDraft = clone(scenario.environments);
+    slotsDraft = scenario.bq_slots;
     renderEnvGrid();
     $("#envDialog").showModal();
   }
@@ -163,12 +165,13 @@
         <input type="text" data-env-i="${i}" data-env-k="name" value="${esc(e.name)}" aria-label="Environment name" maxlength="60">
         ${i === 0 ? `<span class="env-base">Baseline</span>` : `<select data-env-i="${i}" data-env-k="preset" aria-label="Preset">${opt(catalog.environment_presets, e.preset)}</select>
         <button type="button" class="link-btn" data-env-rm="${i}">Remove</button>`}</th>`).join("")}</tr></thead>`;
-    const rows = catalog.environment_factors.map((f) => `<tr><th scope="row">${esc(f.name)}</th>${envDraft.map((e, i) =>
+    const rows = catalog.environment_factors.map((f) => `<tr><th scope="row">${esc(f.name)}<small class="f-help">${esc(f.help || "")}</small></th>${envDraft.map((e, i) =>
       `<td><input type="number" min="0" max="1000" step="5" data-env-i="${i}" data-env-k="${f.id}" value="${esc(e[f.id])}" ${i === 0 ? "disabled" : ""} aria-label="${esc(e.name)} ${esc(f.name)}"></td>`).join("")}</tr>`).join("");
     const slots = editions ? `<tr><th scope="row">BigQuery slots (editions; blank = scale by compute %)</th>${envDraft.map((e, i) =>
-      `<td><input type="number" min="0" step="50" data-env-i="${i}" data-env-k="bq_slots" value="${i === 0 ? esc(scenario.bq_slots) : esc(e.bq_slots ?? "")}" ${i === 0 ? "disabled" : ""} placeholder="auto"></td>`).join("")}</tr>` : "";
+      `<td><input type="number" min="0" step="50" data-env-i="${i}" data-env-k="bq_slots" value="${i === 0 ? esc(scenario.bq_slots) : esc(e.bq_slots ?? "")}" placeholder="auto: ${autoSlots(e)}"></td>`).join("")}</tr>` : "";
     const cost = result?.environments ? `<tr class="env-cost"><th scope="row">Current estimate, year 1</th>${envDraft.map((e) => `<td>${envCost(e.id) ? money(envCost(e.id).year1) : "new"}</td>`).join("")}</tr>` : "";
     $("#envGrid").innerHTML = head + `<tbody>${rows}${slots}${cost}</tbody>`;
+    $("#envSpec").innerHTML = hasEstimate() ? `<h3>Resulting specification per environment</h3><p class="hint">What the sizing above provisions in each environment at month 12 (run-rate), from the applied estimate. Apply to refresh after changing a percentage.</p>${envSpecTable()}` : "";
   }
   function onEnvGridChange(e) {
     const el = e.target.closest("[data-env-i]");
@@ -181,16 +184,181 @@
       FACTOR_IDS().forEach((f) => (env[f] = p[f]));
       if (!envDraft.some((x, j) => x !== env && x.name === p.name)) env.name = p.name;
       renderEnvGrid();
-    } else if (k === "bq_slots") env.bq_slots = el.value === "" ? null : Math.max(0, Number(el.value));
+    } else if (k === "bq_slots") {
+      if (Number(el.dataset.envI) === 0) slotsDraft = el.value === "" ? scenario.bq_slots : Math.max(0, Number(el.value));
+      else env.bq_slots = el.value === "" ? null : Math.max(0, Number(el.value));
+    }
     else env[k] = Math.max(0, Number(el.value) || 0);
   }
   function saveEnvDialog() {
     $$("#envGrid [data-env-k=name]").forEach((el) => { const env = envDraft[Number(el.dataset.envI)]; env.name = el.value.trim() || env.name; });
     scenario.environments = normEnvs(envDraft);
+    if (slotsDraft != null) { scenario.bq_slots = slotsDraft; $("#bq_slots").value = slotsDraft; }
     $("#envDialog").close();
     renderEnvs();
     toast(`${scenario.environments.length} environment${scenario.environments.length > 1 ? "s" : ""} sized`);
     changed();
+  }
+
+  // ------------------------------------------------------------------ BigQuery slots per environment
+  const SLOT_STEP = 50;
+  const EDITION_MAX = { standard: 1600 };
+  // Slots an environment is priced at when no explicit count is set: production slots x its BigQuery compute %.
+  const autoSlots = (env) => Math.round((Number(scenario.bq_slots) || 0) * (Number(env.compute_pct) || 0) / 100 * 10) / 10;
+  const envSlotsOf = (env, i) => (i === 0 ? Number(scenario.bq_slots) || 0 : env.bq_slots ?? autoSlots(env));
+  // Suggestion from the Workload sizing tab (average demand rounded to the reservation step), scaled by compute %.
+  function wlSuggest(env) {
+    const sl = wlResult?.slots;
+    if (!sl || !(wlResult.totals?.three_year_payg > 0) || sl.model !== "editions") return null;
+    const prod = effectiveSlots(sl);
+    const v = Math.ceil(prod * (Number(env.compute_pct) || 0) / 100 / SLOT_STEP) * SLOT_STEP;
+    return env.compute_pct > 0 ? Math.max(SLOT_STEP, v) : 0;
+  }
+  function renderEnvSlots(force) {
+    const host = $("#envSlots");
+    if (!host || !catalog) return;
+    if (scenario.bq_model === "ondemand") { host.hidden = true; host.innerHTML = ""; return; }
+    if (!force && host.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+    host.hidden = false;
+    const ed = EDITION_NAME[scenario.bq_model] || scenario.bq_model;
+    const cap = EDITION_MAX[scenario.bq_model];
+    const sug = wlSuggest(scenario.environments[0]) != null;
+    const bqRow = (id) => (hasEstimate() ? (result.bom || []).find((b) => b.environment === id && b.service === "BigQuery compute") : null);
+    const rows = scenario.environments.map((e, i) => {
+      const v = envSlotsOf(e, i);
+      const basis = i === 0 ? "Baseline (production)" : e.bq_slots != null ? "Set manually" : `Auto · ${+e.compute_pct}% of ${esc(scenario.environments[0].name)}`;
+      const b = bqRow(e.id);
+      const over = cap && v > cap;
+      return `<tr${over ? ` class="warn"` : ""}><td><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}<small>${basis}</small></td>
+        <td><input type="number" min="0" step="${SLOT_STEP}" data-slot-i="${i}" value="${i === 0 ? esc(scenario.bq_slots) : esc(e.bq_slots ?? "")}" placeholder="${autoSlots(e)}" aria-label="${esc(e.name)} average slots"></td>
+        ${sug ? `<td class="num">${wlSuggest(e)}</td>` : ""}
+        <td class="num">${b ? money(b.year1 / 12) : "-"}</td></tr>`;
+    }).join("");
+    const total = scenario.environments.reduce((a, e, i) => a + envSlotsOf(e, i), 0);
+    host.innerHTML = `<div class="es-head"><b>Average slots by environment</b><span>${esc(ed)} edition</span></div>
+      <table class="es-table"><thead><tr><th>Environment</th><th>Avg slots</th>${sug ? `<th title="From the Workload sizing tab">Suggested</th>` : ""}<th>BQ compute / mo</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="num">${Math.round(total).toLocaleString()}</td>${sug ? "<td></td>" : ""}<td class="num">${hasEstimate() ? money(scenario.environments.reduce((a, e) => a + (bqRow(e.id)?.year1 || 0), 0) / 12) : "-"}</td></tr></tfoot></table>
+      <p class="hint">Blank = auto (production slots × the environment's BigQuery compute %). Each environment is priced for its average slots around the clock; BQ compute is the year-1 monthly average.${cap ? ` ${esc(ed)} edition is capped at ${cap.toLocaleString()} slots per reservation.` : ""}${scenario.sources.some((x) => x.included !== false) ? "" : " No slots are billed until a source system is added."}</p>
+      <div class="es-actions"><button type="button" class="link-btn" data-slot-auto>Reset to auto</button>${sug ? `<button type="button" class="link-btn" data-slot-wl>Use workload suggestion</button>` : ""}</div>`;
+  }
+  function onSlotInput(e) {
+    const el = e.target.closest("[data-slot-i]");
+    if (!el) return;
+    const i = Number(el.dataset.slotI);
+    const v = el.value === "" ? null : Math.max(0, Number(el.value));
+    if (i === 0) { scenario.bq_slots = v ?? 0; $("#bq_slots").value = scenario.bq_slots; }
+    else scenario.environments[i].bq_slots = v;
+    renderEnvSlots(true);
+    changed();
+  }
+
+  // ------------------------------------------------------------------ environment sizing: parameters + resulting spec
+  const fmtSpecQty = (q) => q == null ? "" : q >= 1e6 ? (q / 1e6).toFixed(2) + "M" : q >= 1e4 ? Math.round(q).toLocaleString() : (+(+q).toPrecision(3)).toLocaleString();
+  function envSpecTable() {
+    const envs = result.environments || [];
+    const services = [];
+    (result.bom || []).forEach((b) => { if (!services.some((x) => x.service === b.service)) services.push({ service: b.service, group: b.group, unit: b.unit }); });
+    services.sort((a, b) => (GROUP_ORDER_UI.indexOf(a.group) - GROUP_ORDER_UI.indexOf(b.group)));
+    let last = null;
+    const body = services.map((svc) => {
+      let head = "";
+      if (svc.group !== last) head = `<tr class="bom-group"><th colspan="${envs.length + 1}"><i style="background:${GROUP_COLORS[svc.group] || "#9AA0A6"}"></i>${esc(svc.group)}</th></tr>`;
+      last = svc.group;
+      return head + `<tr><td>${esc(svc.service)}</td>` + envs.map((e) => {
+        const b = result.bom.find((x) => x.environment === e.id && x.service === svc.service);
+        if (!b) return `<td class="num muted">${SHARED_UI.has(svc.service) && e !== envs[0] ? "shared" : "-"}</td>`;
+        return `<td class="num">${b.qty_month12 != null ? `<span class="q">${fmtSpecQty(b.qty_month12)} ${esc(b.unit || "")}</span>` : ""}<b>${money(b.month12)}</b></td>`;
+      }).join("") + `</tr>`;
+    }).join("");
+    const slotRow = scenario.bq_model !== "ondemand" ? `<tr class="spec-key"><td>Average BigQuery slots</td>${envs.map((e) => `<td class="num"><b>${e.effective_slots ?? "-"}</b></td>`).join("")}</tr>` : "";
+    return `<div style="overflow-x:auto"><table class="spec-table"><thead><tr><th>Product (quantity / month at month 12)</th>${envs.map((e, i) => `<th class="num"><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}</th>`).join("")}</tr></thead>
+      <tbody>${slotRow}${body}</tbody><tfoot><tr><td>Month 12 run-rate</td>${envs.map((e) => `<td class="num">${money((result.bom || []).filter((b) => b.environment === e.id).reduce((a, b) => a + b.month12, 0))}</td>`).join("")}</tr></tfoot></table></div>`;
+  }
+  function envSizingSection() {
+    const envs = scenario.environments;
+    const factors = catalog.environment_factors;
+    let html = `<h3 id="envSizing">How each environment is sized</h3>
+      <p class="hint">The sources, products and workload you enter describe <b>${esc(envs[0].name)}</b> (100%). Every other environment is priced as a percentage of it per capability - edit any value here; network links and the Looker licence are shared and counted once. <button type="button" class="link-btn" id="envSizeEdit">Add, rename or remove environments</button></p>
+      <div style="overflow-x:auto"><table class="sizing-table"><thead><tr><th>Sizing parameter</th>${envs.map((e, i) => `<th class="num"><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}</th>`).join("")}</tr></thead><tbody>`;
+    html += factors.map((f) => `<tr><td><b>${esc(f.name)}</b><small>${esc(f.help || "")}</small></td>${envs.map((e, i) =>
+      i === 0 ? `<td class="num muted">100%</td>` : `<td class="num"><input type="number" min="0" max="1000" step="5" data-szi="${i}" data-szk="${f.id}" value="${esc(e[f.id])}" aria-label="${esc(e.name)} ${esc(f.name)}"></td>`).join("")}</tr>`).join("");
+    if (scenario.bq_model !== "ondemand") html += `<tr><td><b>Average BigQuery slots</b><small>${esc(EDITION_NAME[scenario.bq_model] || "")} edition. Blank = auto (production slots × BigQuery compute %).</small></td>${envs.map((e, i) =>
+      `<td class="num"><input type="number" min="0" step="${SLOT_STEP}" data-szi="${i}" data-szk="bq_slots" value="${i === 0 ? esc(scenario.bq_slots) : esc(e.bq_slots ?? "")}" placeholder="${autoSlots(e)}" aria-label="${esc(e.name)} slots"></td>`).join("")}</tr>`;
+    html += `</tbody></table></div>`;
+    html += `<h3>Resulting specification per environment</h3><p class="hint">What those parameters provision in each environment: quantity and cost per month at month 12 (run-rate). Click any headline figure for the full price breakdown.</p>${envSpecTable()}`;
+    return html;
+  }
+  function onInlineSizing(e) {
+    const el = e.target.closest("[data-szi]");
+    if (!el) return;
+    const i = Number(el.dataset.szi), k = el.dataset.szk;
+    if (k === "bq_slots") {
+      const v = el.value === "" ? null : Math.max(0, Number(el.value));
+      if (i === 0) { scenario.bq_slots = v ?? 0; $("#bq_slots").value = scenario.bq_slots; } else scenario.environments[i].bq_slots = v;
+    } else scenario.environments[i][k] = Math.max(0, Number(el.value) || 0);
+    renderEnvs();
+    changed();
+  }
+
+  // ------------------------------------------------------------------ headline drill-down: products and pricing
+  const GROUP_ORDER_UI = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
+  const SHARED_UI = new Set(["Network (HA VPN)", "Network (Interconnect)", "Looker licence (customer quote)"]);
+  const DRILL = {
+    month: { label: "Average per month, year 1", note: "Year-1 quantity and cost divided by 12.", cost: (b) => b.year1 / 12, qty: (b) => b.qty_year1 == null ? null : b.qty_year1 / 12, price: (b) => b.unit_price, total: () => result.totals.avg_monthly_year1 },
+    year1: { label: "1-year, pay-as-you-go", note: "Months 1-12, list prices with regional uplift, before commitments.", cost: (b) => b.year1, qty: (b) => b.qty_year1, price: (b) => b.unit_price, total: () => result.totals.year1_payg },
+    three: { label: "3-year, pay-as-you-go", note: "Months 1-36 including data growth, before commitments.", cost: (b) => b.three_year, qty: (b) => b.qty_three_year, price: (b) => b.unit_price_three_year, total: () => result.totals.three_year_payg },
+  };
+  const drill = { view: "year1", env: "all" };
+  function openDrill(view) {
+    drill.view = DRILL[view] ? view : "year1";
+    if (drill.env !== "all" && !(result.environments || []).some((e) => e.id === drill.env)) drill.env = "all";
+    renderDrill();
+    if (!$("#drillDialog").open) $("#drillDialog").showModal();
+  }
+  function renderDrill() {
+    const d = DRILL[drill.view];
+    const envs = result.environments || [];
+    const rows = (result.bom || []).filter((b) => drill.env === "all" || b.environment === drill.env);
+    // collapse to one row per product (summing environments when "all")
+    const by = new Map();
+    rows.forEach((b) => {
+      const r = by.get(b.service) || { service: b.service, group: b.group, unit: b.unit, why: b.why, cost: 0, qty: 0, hasQty: false, envs: [] };
+      const c = d.cost(b), q = d.qty(b);
+      r.cost += c;
+      if (q != null) { r.qty += q; r.hasQty = true; }
+      r.envs.push({ name: b.environment_name, cost: c });
+      by.set(b.service, r);
+    });
+    const list = [...by.values()].filter((r) => r.cost > 0.004)
+      .sort((a, b) => (GROUP_ORDER_UI.indexOf(a.group) - GROUP_ORDER_UI.indexOf(b.group)) || (b.cost - a.cost));
+    const total = list.reduce((a, r) => a + r.cost, 0);
+    const groupTot = {};
+    list.forEach((r) => (groupTot[r.group] = (groupTot[r.group] || 0) + r.cost));
+    let last = null;
+    const multi = envs.length > 1 && drill.env === "all";
+    const body = list.map((r) => {
+      let head = "";
+      if (r.group !== last) head = `<tr class="bom-group"><th colspan="4"><i style="background:${GROUP_COLORS[r.group] || "#9AA0A6"}"></i>${esc(r.group)}</th><th class="num">${money(groupTot[r.group])}</th><th class="num">${total ? Math.round(1000 * groupTot[r.group] / total) / 10 : 0}%</th></tr>`;
+      last = r.group;
+      const unitP = r.hasQty && r.qty ? r.cost / r.qty : null;
+      const split = multi && r.envs.length > 1 ? `<span class="env-split">${r.envs.map((x) => `${esc(x.name)} ${moneyShort(x.cost)}`).join(" · ")}</span>` : "";
+      return head + `<tr><td class="bom-prod"><b>${esc(r.service)}</b><span>${esc(r.why)}</span>${split}</td>
+        <td class="num">${r.hasQty ? fmtSpecQty(r.qty) : "-"}</td><td class="bom-unit">${esc(r.unit || "-")}</td><td class="num">${unitPrice(unitP)}</td>
+        <td class="num"><b>${money(r.cost)}</b></td><td class="num">${total ? (Math.round(1000 * r.cost / total) / 10) : 0}%</td></tr>`;
+    }).join("");
+    const envName = drill.env === "all" ? "All environments" : envs.find((e) => e.id === drill.env)?.name || "";
+    const head = d.total();
+    $("#drillBody").innerHTML = `
+      <div class="drill-views" role="group" aria-label="Figure">${Object.entries(DRILL).map(([k, v]) =>
+        `<button type="button" class="drill-view${drill.view === k ? " on" : ""}" data-drill-view="${k}"><span>${esc(v.label)}</span><b>${money(v.total())}</b></button>`).join("")}</div>
+      ${envs.length > 1 ? `<div class="bom-filter" role="group" aria-label="Environment">${[{ id: "all", name: "All environments", c: null }, ...envs].map((e) =>
+        `<button type="button" class="chip-btn${drill.env === e.id ? " on" : ""}" data-drill-env="${esc(e.id)}">${esc(e.name)}${e.id === "all" ? "" : ` · ${moneyShort(drill.view === "three" ? e.three_year : drill.view === "year1" ? e.year1 : e.monthly_year1)}`}</button>`).join("")}</div>` : ""}
+      <p class="hint">${esc(d.note)} Unit price is the blended effective price (tiers, free allowances and regional uplift for ${esc(result.region.name)}).${drill.env === "all" ? "" : ` Showing ${esc(envName)} only.`}</p>
+      <div class="drill-scroll"><table class="bom-table drill-table"><thead><tr><th>Product &amp; why it is needed</th><th class="num">Quantity</th><th>Unit</th><th class="num">Unit price</th><th class="num">Cost</th><th class="num">Share</th></tr></thead>
+      <tbody>${body || `<tr><td colspan="6">Nothing priced in this environment.</td></tr>`}</tbody>
+      <tfoot><tr><td colspan="4">Total · ${esc(envName)}</td><td class="num">${money(total)}</td><td class="num">100%</td></tr></tfoot></table></div>
+      ${drill.env === "all" && Math.abs(total - head) > 1 ? `<p class="hint">Rounding difference vs headline: ${money(head - total)}.</p>` : ""}`;
+    $("#drillTitle").textContent = `${d.label} - products and pricing`;
   }
 
   function legacySecurityComponents(sec) {
@@ -205,6 +373,21 @@
   const compMeta = (type) => catalog.components.find((c) => c.id === type);
   const compDefaults = (type) => Object.fromEntries((compMeta(type)?.settings || []).map((f) => [f.key, f.default]));
 
+  // Nothing is priced until the architecture has at least one included source or costed Google product.
+  const designed = () => !!catalog && (scenario.sources.some((s) => s.included !== false)
+    || scenario.components.some((c) => c.included !== false && compMeta(c.type)?.costed));
+  const hasEstimate = () => !!result && designed() && (result.totals?.three_year_payg || 0) > 0;
+  function emptyWorkload() {
+    const w = clone(catalog.default_workload);
+    Object.assign(w.data, { structured_tb: 0, semi_structured_tb: 0, unstructured_tb: 0, tables: 0 });
+    w.telemetry.volume_gb = 0;
+    Object.assign(w.pipelines, { simple: 0, medium: 0, complex: 0 });
+    Object.values(w.queries).forEach((q) => { q.count = 0; });
+    w.dashboards.count = 0;
+    Object.assign(w.ramp, { months: 0, data_gb: 0, pipelines: 0, reports: 0 });
+    return w;
+  }
+
   // ------------------------------------------------------------------ boot
   async function boot() {
     try {
@@ -215,8 +398,8 @@
     }
     DEFAULT_SCENARIO = {
       ...DEFAULT_SCENARIO,
-      components: clone(catalog.default_components),
-      security: clone(catalog.default_security),
+      components: [],      // nothing is priced until the architect adds sources or products
+      security: {},
       workload: clone(catalog.default_workload),
     };
     scenario = withDefaults({});
@@ -317,6 +500,7 @@
     ["bq_slots", "annual_growth_pct", "contingency_pct"].forEach((k) => ($("#" + k).value = scenario[k] ?? ""));
     $("#analytics_tib_month").value = scenario.analytics_tib_month ?? "";
     $("#slotsField").hidden = scenario.bq_model === "ondemand";
+    renderEnvSlots();
     const lk = scenario.lakehouse;
     $("#lk_raw_zone").checked = lk.raw_zone !== false;
     ["raw_scope", "raw_storage_class"].forEach((k) => ($("#lk_" + k).value = lk[k]));
@@ -332,7 +516,15 @@
     $("#processing_region").addEventListener("change", (e) => { scenario.processing_region = e.target.value; changed(); });
     $("#currency").addEventListener("change", (e) => { currency = e.target.value; save(); renderSummary(); renderCost(); renderPlatform(); renderWorkloadResults(); renderRoadmap(); });
     ["skill", "orchestration", "bq_model", "environment"].forEach((k) =>
-      $("#" + k).addEventListener("change", (e) => { scenario[k] = e.target.value; $("#slotsField").hidden = scenario.bq_model === "ondemand"; changed(); }));
+      $("#" + k).addEventListener("change", (e) => {
+        scenario[k] = e.target.value;
+        $("#slotsField").hidden = scenario.bq_model === "ondemand";
+        changed();
+        if (k === "bq_model") {
+          renderEnvSlots();
+          if (scenario.bq_model !== "ondemand") { $("#envSlots").classList.add("flash"); setTimeout(() => $("#envSlots")?.classList.remove("flash"), 1600); $("#envSlots").scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+        }
+      }));
     ["bq_slots", "annual_growth_pct", "contingency_pct", "analytics_tib_month"].forEach((k) =>
       $("#" + k).addEventListener("input", (e) => {
         const v = e.target.value === "" ? null : Number(e.target.value);
@@ -529,7 +721,7 @@
         scenario.workload = clone(catalog.default_workload);
         renderWorkloadForm();
         changed();
-        toast("Workload reset to the example values");
+        toast("Example workload values loaded");
       }
     });
 
@@ -542,6 +734,34 @@
       doExport(b.dataset.export);
     });
     $("#importFile").addEventListener("change", importScenario);
+
+    // cost drill-down
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-drill]");
+      if (b && hasEstimate()) openDrill(b.dataset.drill);
+    });
+    $("#drillDialog").addEventListener("click", (e) => {
+      const v = e.target.closest("[data-drill-view]"), en = e.target.closest("[data-drill-env]");
+      if (v) { drill.view = v.dataset.drillView; renderDrill(); }
+      else if (en) { drill.env = en.dataset.drillEnv; renderDrill(); }
+      else if (e.target.closest("#drillClose")) $("#drillDialog").close();
+    });
+    // per-environment slots (sidebar) and inline sizing (consumption tab)
+    $("#envSlots").addEventListener("change", onSlotInput);
+    $("#envSlots").addEventListener("click", (e) => {
+      const a = e.target.closest("[data-slot-auto]");
+      if (a) { scenario.environments.forEach((x, i) => { if (i) x.bq_slots = null; }); renderEnvSlots(true); changed(); }
+      const w = e.target.closest("[data-slot-wl]");
+      if (w && wlSuggest(scenario.environments[0]) != null) {
+        scenario.environments.forEach((x, i) => {
+          const v = wlSuggest(x);
+          if (i === 0) { scenario.bq_slots = v; $("#bq_slots").value = v; } else x.bq_slots = v;
+        });
+        renderEnvSlots(true); changed(); toast("Slots per environment set from workload sizing");
+      }
+    });
+    $("#costBody").addEventListener("change", onInlineSizing);
+    $("#costBody").addEventListener("click", (e) => { if (e.target.closest("#envSizeEdit")) openEnvDialog(); });
   }
 
   function menu(btnSel, popSel) {
@@ -907,6 +1127,7 @@
   // ------------------------------------------------------------------ rendering
   function renderAll() {
     renderEnvs();
+    renderEnvSlots();
     renderSources();
     renderPills();
     renderSummary();
@@ -945,14 +1166,17 @@
 
   function renderSummary() {
     const el = $("#summaryStrip");
-    if (!result || !scenario.sources.length) { el.innerHTML = ""; return; }
+    if (!hasEstimate()) {
+      el.innerHTML = catalog ? `<div class="note empty-sum">No consumption yet - the estimate starts as soon as you add a source system or a Google Cloud product to the architecture.</div>` : "";
+      return;
+    }
     const t = result.totals;
     const nReg = result.by_region?.length || 1;
-    el.innerHTML = `
-      <div class="fig"><b>${money(t.avg_monthly_year1)}</b><span>Average per month, year 1</span></div>
-      <div class="fig"><b>${money(t.year1_payg)}</b><span>1-year, pay-as-you-go</span></div>
-      <div class="fig"><b>${money(t.three_year_payg)}</b><span>3-year, pay-as-you-go</span></div>
-      <div class="note">BigQuery in ${esc(result.region.name)}${nReg > 1 ? ` · ${nReg} regions in use` : ""} · ${result.recommendations.length} of ${scenario.sources.length} sources in this estimate</div>`;
+    const fig = (v, label, view) => `<button type="button" class="fig drill" data-drill="${view}" title="Show the products and pricing behind this figure"><b>${money(v)}</b><span>${label} <i aria-hidden="true">›</i></span></button>`;
+    el.innerHTML = fig(t.avg_monthly_year1, "Average per month, year 1", "month")
+      + fig(t.year1_payg, "1-year, pay-as-you-go", "year1")
+      + fig(t.three_year_payg, "3-year, pay-as-you-go", "three")
+      + `<div class="note">BigQuery in ${esc(result.region.name)}${nReg > 1 ? ` · ${nReg} regions in use` : ""} · ${result.recommendations.length} of ${scenario.sources.length} sources · ${scenario.components.filter((c) => c.included !== false).length} products · ${result.environments.length} environment${result.environments.length > 1 ? "s" : ""}</div>`;
   }
 
   // ---------------- architecture diagram
@@ -1380,14 +1604,14 @@
   function renderCost() {
     const host = $("#costBody");
     if (bomEnv && bomEnv !== "all" && !(result?.environments || []).some((e) => e.id === bomEnv)) bomEnv = null;
-    if (!result || !scenario.sources.length) { host.innerHTML = `<p class="empty-note">The estimate appears once at least one source system is added. For a workload-based estimate without sources, use Workload sizing.</p>`; return; }
+    if (!hasEstimate()) { host.innerHTML = `<p class="empty-note">Nothing is priced yet. The estimate appears once you add a source system or a Google Cloud product to the architecture. For a workload-based estimate without sources, use Workload sizing.</p>`; return; }
     const t = result.totals;
     let html = `<div class="horizon">
-      <div class="card"><h3>1-year consumption</h3><div class="big">${money(t.year1_payg)}</div>
+      <div class="card"><h3>1-year consumption <button type="button" class="link-btn" data-drill="year1">Products &amp; pricing ›</button></h3><div class="big">${money(t.year1_payg)}</div>
         <div class="row"><span>With 1-year commitments</span><span>${money(t.year1_cud1)}</span></div>
         <div class="row"><span>Commitment saving</span><span>${money(t.year1_payg - t.year1_cud1)}</span></div>
         <div class="range">Discussion range ${money(t.range_low_1y)} to ${money(t.range_high_1y)}</div></div>
-      <div class="card"><h3>3-year consumption</h3><div class="big">${money(t.three_year_payg)}</div>
+      <div class="card"><h3>3-year consumption <button type="button" class="link-btn" data-drill="three">Products &amp; pricing ›</button></h3><div class="big">${money(t.three_year_payg)}</div>
         <div class="row"><span>With 3-year commitments</span><span>${money(t.three_year_cud3)}</span></div>
         <div class="row"><span>Year 1 / 2 / 3</span><span>${moneyShort(t.year1_payg)} / ${moneyShort(t.year2_payg)} / ${moneyShort(t.year3_payg)}</span></div>
         <div class="range">Discussion range ${money(t.range_low_3y)} to ${money(t.range_high_3y)}</div></div>
@@ -1401,8 +1625,9 @@
         + envs.map((e, i) => `<tr><td><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}<span class="share" style="width:${Math.max(2, 60 * e.three_year / maxE)}px"></span></td>
           <td class="env-f">${i === 0 ? "Baseline" : catalog.environment_factors.map((f) => `${esc(f.name.replace(" %", ""))} ${+e.factors[f.id]}%`).join(" · ") + (e.bq_slots != null && scenario.bq_model !== "ondemand" ? ` · ${e.bq_slots} slots` : "")}</td>
           <td>${money(e.monthly_year1)}</td><td>${money(e.year1)}</td><td>${money(e.three_year)}</td></tr>`).join("")
-        + `</tbody></table></div><p class="hint">Change the number of environments and their sizing in the sidebar (Environments → Size).</p>`;
+        + `</tbody></table></div>`;
     }
+    html += envSizingSection();
     html += `<h3>Monthly run-rate over 36 months</h3><div class="chart-key"><span><i></i>Pay-as-you-go</span><span><i class="cud"></i>With 3-year commitments</span></div>
       <div class="chart-wrap">${chartSvg(result.monthly)}</div>`;
     html += bomSection();
@@ -1553,7 +1778,7 @@
             ${n("contingency_pct", "Contingency %", 5)}
             <div class="span3">${chk("include_components", "Include the analytics, AI & governance components from the Architecture tab")}</div>
           </div></fieldset>
-          <button type="button" class="btn ghost small" id="wlReset">Reset to example values</button>
+          <button type="button" class="btn ghost small" id="wlReset">Load example values</button>
         </form>
         <div class="wl-results" id="wlResults" aria-live="polite"></div>
       </div>`;
@@ -1599,6 +1824,7 @@
     if (!host) return;
     if (!wlResult) { host.innerHTML = `<p class="hint">Calculating…</p>`; return; }
     const r = wlResult, t = r.totals;
+    if (!(t.three_year_payg > 0)) { host.innerHTML = `<p class="empty-note">Enter the customer's data estate, pipelines, queries or dashboards on the left to size consumption - or load the example values.</p>`; return; }
     const rampN = r.ramp_months;
     let html = `<div class="wl-kpis">
       ${rampN ? `<div><span>Ramp-up, months 1-${rampN}</span><b>${money(t.ramp_monthly)}</b><span>per month</span></div>` : ""}
@@ -1833,13 +2059,13 @@
   function doExport(kind) {
     if (kind === "reset") {
       const prev = scenario;
-      scenario = withDefaults({});
+      scenario = withDefaults({ workload: emptyWorkload() });
       syncForm(); changed();
       toast("Started a new scenario", 6000, { label: "Undo", run: () => { scenario = prev; syncForm(); changed(); } });
       return;
     }
     if (kind === "json") return download(`${slug()}.json`, "application/json", JSON.stringify(scenario, null, 2));
-    if (!result || !scenario.sources.length) return toast("Add at least one source first");
+    if (!hasEstimate()) return toast("Add a source system or a product first");
     if (kind === "print") { window.print(); return; }
     if (kind === "gsheets") return openGoogleExport("sheets");
     if (kind === "gslides") return openGoogleExport("slides");
