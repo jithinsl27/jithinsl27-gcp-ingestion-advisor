@@ -111,7 +111,8 @@
       "type": "gemini_enterprise",
       "settings": {
         "edition": "standard",
-        "users": 300
+        "users": 300,
+        "grounding": "both"
       }
     },
     {
@@ -139,7 +140,8 @@
         "api_calls_million": 30,
         "proxy_type": "extensible",
         "analytics": "yes",
-        "advanced_security": "no"
+        "advanced_security": "no",
+        "role": "both"
       }
     },
     {
@@ -247,5 +249,27 @@
     "slot_hours_per_tib": 60,
     "contingency_pct": 10,
     "include_components": false
-  }
+  },
+  "environments": [
+    {
+      "id": "prod",
+      "name": "Production",
+      "preset": "prod"
+    },
+    {
+      "id": "dev",
+      "name": "Development",
+      "preset": "dev"
+    },
+    {
+      "id": "uat",
+      "name": "UAT / test",
+      "preset": "uat"
+    },
+    {
+      "id": "dr",
+      "name": "Disaster recovery",
+      "preset": "dr"
+    }
+  ]
 }

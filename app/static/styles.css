@@ -452,7 +452,7 @@ h3.mini { font-size: 13px; color: var(--ink-2); margin: 14px 0 8px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
 .span3 { grid-column: 1 / -1; }
 .qtable { display: grid; gap: 6px; }
-.qrow { display: grid; grid-template-columns: 1.4fr .8fr 1fr 1fr; gap: 8px; align-items: center; font-size: 13.5px; }
+.qrow { display: grid; grid-template-columns: 1.2fr .7fr 1fr 1.5fr; gap: 8px; align-items: center; font-size: 13.5px; }
 .qhead { font-size: 12px; color: var(--muted); font-weight: 600; }
 .wl-results { position: sticky; top: 90px; min-width: 0; }
 .wl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; margin-bottom: 18px; }
@@ -578,3 +578,88 @@ h3.mini { font-size: 13px; color: var(--ink-2); margin: 14px 0 8px; }
 .svc-toggle input { width: 15px; height: 15px; accent-color: var(--blue); margin: 0; }
 .svc-table tr.svc-off td { color: var(--muted); }
 .svc-table tr.svc-off td:last-child { text-align: right; font-style: italic; }
+
+/* ---------------------------------------------------------------- volume units */
+.vol { display: flex; gap: 4px; margin-top: 4px; }
+.vol input { flex: 1 1 auto; min-width: 0; margin-top: 0 !important; }
+.vol select { flex: 0 0 64px; width: 64px; margin-top: 0 !important; padding-left: 6px; padding-right: 2px; }
+.qrow .vol { margin-top: 0; }
+
+/* ---------------------------------------------------------------- environments */
+.panel-head .inline-field.small { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); margin-left: auto; }
+.panel-head .inline-field.small select { width: auto; margin: 0; padding: 4px 22px 4px 8px; font-size: 13px; }
+.env-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.env-item { width: 100%; display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; align-items: center; text-align: left; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius-s); padding: 7px 10px; cursor: pointer; font: inherit; color: inherit; }
+.env-item:hover { border-color: var(--line-strong); }
+.env-item b { display: block; font-size: 13.5px; font-weight: 600; }
+.env-item span { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.env-item .tool { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.env-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.env-item .env-dot { margin: 0; }
+.env-dot.e0 { background: #1A73E8; } .env-dot.e1 { background: #188038; } .env-dot.e2 { background: #F9AB00; }
+.env-dot.e3 { background: #D93025; } .env-dot.e4 { background: #9334E6; } .env-dot.e5 { background: #12A4AF; }
+dialog.wide { width: min(1040px, calc(100vw - 32px)); max-width: none; }
+.env-grid-wrap { overflow-x: auto; margin: 10px 0 4px; }
+.env-grid { border-collapse: collapse; width: 100%; font-size: 13px; }
+.env-grid th, .env-grid td { border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: middle; }
+.env-grid thead th { vertical-align: top; text-align: left; min-width: 150px; }
+.env-grid tbody th { text-align: left; font-weight: 500; color: var(--ink-2); min-width: 190px; }
+.env-grid input, .env-grid select { width: 100%; margin: 0 0 4px; }
+.env-grid td input { text-align: right; }
+.env-grid input:disabled { opacity: .6; }
+.env-grid .env-base { display: inline-block; font-size: 11.5px; font-weight: 600; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 999px; }
+.env-grid .env-cost td { font-weight: 600; text-align: right; }
+.env-table .env-f { font-size: 12px; color: var(--muted); max-width: 360px; text-align: left; }
+.bom-table thead th:nth-child(4) { text-align: left; }
+
+/* ---------------------------------------------------------------- diagram additions */
+.canvas-tip { font-size: 12.5px; color: #5F6368; margin: 8px 4px 0; }
+.dg-node.raw rect { fill: #FEF7E0; stroke: #E37400; stroke-width: 1.3; }
+.bq-layer rect { stroke-width: 1; }
+.bq-layer.bronze rect { fill: #F6E7D8; stroke: #B06D2C; }
+.bq-layer.silver rect { fill: #EEF0F2; stroke: #80868B; }
+.bq-layer.gold rect { fill: #FEF3C7; stroke: #C99A06; }
+.bq-layer text { font: 500 11.5px var(--font); fill: #202124; }
+.dg-edge.side { stroke-dasharray: none; stroke-width: 1.6; }
+.dg-node.partner rect { stroke-dasharray: 5 3; }
+.dragging-mode .dg-node:not(.drop-target) { opacity: .45; }
+.dg-node.drop-target rect { stroke: var(--g-blue) !important; stroke-width: 2.5; }
+.dg-node.drop-hover rect { fill: #E8F0FE !important; stroke-width: 3.5; }
+[data-dragmode] { cursor: grab; }
+.drag-ghost { position: fixed; z-index: 1000; pointer-events: none; background: #1A73E8; color: #fff; font: 600 13px var(--font);
+  padding: 6px 12px; border-radius: 999px; box-shadow: var(--shadow-pop); }
+
+/* ---------------------------------------------------------------- bill of materials */
+.bom-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.chip-btn { font: 500 13px var(--font); border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); padding: 4px 12px; border-radius: 999px; cursor: pointer; }
+.chip-btn.on { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.bom-table td, .bom-table th { vertical-align: top; }
+.bom-table .bom-prod { min-width: 300px; max-width: 460px; }
+.bom-table .bom-prod b { display: block; font-weight: 600; }
+.bom-table .bom-prod span { display: block; font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 2px; }
+.bom-table .bom-unit { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: left; }
+.bom-table tr.bom-group th { text-align: left; font-size: 12.5px; color: var(--ink-2); background: var(--surface-2); padding-top: 6px; padding-bottom: 6px; }
+.bom-table tr.bom-group i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+.bom-table tr.bom-env th { text-align: left; font-size: 14px; background: var(--blue-soft); color: var(--blue); }
+
+/* ---------------------------------------------------------------- integration modes */
+.mode-box { border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface-2); padding: 8px 10px; margin: 8px 0; }
+.mode-box label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.mode-box select { margin-top: 4px; }
+.mode-box p { font-size: 12.5px; margin: 6px 0 0; color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- slot sizing */
+.slot-grid { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: start; margin-bottom: 12px; }
+@media (max-width: 900px) { .slot-grid { grid-template-columns: 1fr; } }
+.slot-bar { fill: var(--blue); opacity: .8; }
+.slot-recs { margin: 0 0 8px; padding-left: 18px; font-size: 13.5px; }
+.slot-recs li { margin-bottom: 4px; }
+.slot-recs.reasons { font-size: 12.5px; color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- Google export dialog */
+.g-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.g-setup { margin-top: 8px; font-size: 13px; }
+.g-setup summary { cursor: pointer; color: var(--blue); }
+.g-setup ol { padding-left: 18px; }
+.g-setup code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }

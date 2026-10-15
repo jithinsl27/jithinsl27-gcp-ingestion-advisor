@@ -170,6 +170,6 @@ def build_plan(scenario: dict) -> dict:
         "totals": {"ramped_year1": est["totals"]["year1_payg"], "steady_year1": steady["totals"]["year1_payg"],
                    "ramped_three_year": est["totals"]["three_year_payg"], "steady_three_year": steady["totals"]["three_year_payg"],
                    "ramped_year1_cud1": est["totals"]["year1_cud1"], "ramped_three_year_cud3": est["totals"]["three_year_cud3"]},
-        "group_order": ["Data ingestion & CDC", "BigQuery", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"],
+        "group_order": ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"],
         "assumptions": {"foundation_weeks": FOUNDATION_WEEKS, "effort_weeks": EFFORT_WEEKS, "weeks_per_month": WEEKS_PER_MONTH},
     }

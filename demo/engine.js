@@ -24,6 +24,173 @@
   }
   const alt = (tool, why) => ({ tool, why });
 
+  function iot(r, option) {
+    if (option === "mqtt_broker") {
+      r.chain = ["mqtt_broker", ...r.chain];
+      r.engine += "+mqtt_broker";
+      r.pattern = "Devices -> MQTT broker on GKE / Compute Engine -> " + r.pattern;
+      r.rationale.unshift("Devices keep speaking MQTT to a self-managed broker (EMQX, HiveMQ or Mosquitto) on GKE or Compute Engine, which bridges telemetry into Pub/Sub.");
+      r.caveats.push("You operate the broker: size it for concurrent device connections, run it as an HA pair and manage device certificates.");
+    } else if (option === "litmus") {
+      r.chain = ["litmus", ...r.chain];
+      r.primary = "litmus";
+      r.pattern = "Litmus Edge -> " + r.pattern;
+      r.rationale.unshift("Litmus Edge (ISV) connects to PLCs, SCADA and historians with industrial drivers, normalises and contextualises data at the edge, and publishes to Pub/Sub; Litmus Edge Manager manages the fleet.");
+      r.caveats.push("Litmus is a partner licence (edge devices / sites) - not included in the GCP estimate.");
+    } else if (option === "clearblade") {
+      r.chain = ["clearblade", ...r.chain];
+      r.primary = "clearblade";
+      r.pattern = "ClearBlade IoT Core -> " + r.pattern;
+      r.rationale.unshift("ClearBlade IoT Core (ISV) is the drop-in replacement for the retired Cloud IoT Core: MQTT / HTTP device registry, authentication and commands, forwarding telemetry to Pub/Sub.");
+      r.caveats.push("ClearBlade is a partner subscription - not included in the GCP estimate.");
+    } else if (option === "mde") {
+      r.chain = ["litmus", "pubsub", "mde"];
+      r.primary = "mde";
+      r.engine = "pubsub+dataflow_stream";
+      r.pattern = "Manufacturing Connect (Litmus) -> Pub/Sub -> Manufacturing Data Engine -> BigQuery";
+      r.rationale = ["Google Cloud Manufacturing Data Engine (MDE) with Manufacturing Connect edge (built with Litmus) ingests OT data, applies a common manufacturing data model and writes to BigQuery, Bigtable and Cloud Storage.",
+        "Best for plant-floor analytics, OEE and predictive maintenance at multi-site scale."];
+      r.caveats.push("MDE is deployed with a Google partner; Manufacturing Connect edge licences are not included in this estimate.");
+    } else {
+      r.rationale.unshift("Google Cloud native: devices (or a gateway) publish over HTTPS / gRPC with the Pub/Sub client libraries using service-account or workload-identity credentials.");
+      r.caveats.push("Cloud IoT Core is retired - for MQTT devices choose an MQTT broker on GKE or an ISV such as ClearBlade or Litmus.");
+    }
+    return r;
+  }
+
+  // ------------------------------------------------------------------ environments (port of app/environments.py)
+  const FACTORS = D.env_factors;
+  const PRESET_BY_ID = Object.fromEntries(D.catalog.environment_presets.map((p) => [p.id, p]));
+  const SHARED = new Set(D.shared_services);
+  function normalizedEnvs(scenario) {
+    const raw = scenario.environments && scenario.environments.length ? scenario.environments : D.catalog.default_environments;
+    const out = [];
+    raw.forEach((e, i) => {
+      if (e.included === false) return;
+      const preset = PRESET_BY_ID[e.preset || ""] || (out.length ? PRESET_BY_ID.dev : PRESET_BY_ID.prod);
+      const env = { id: String(e.id || `env${i + 1}`), name: e.name || preset.name, preset: e.preset || preset.id };
+      for (const f of FACTORS) env[f] = Math.max(0, num(e[f] === null || e[f] === undefined ? preset[f] : e[f]));
+      env.bq_slots = e.bq_slots === null || e.bq_slots === undefined || e.bq_slots === "" ? null : Math.max(0, num(e.bq_slots));
+      out.push(env);
+    });
+    if (!out.length) { const p = { id: "prod", name: "Production", preset: "prod", bq_slots: null }; FACTORS.forEach((f) => (p[f] = 100)); out.push(p); }
+    FACTORS.forEach((f) => (out[0][f] = 100));
+    return out;
+  }
+  function factorKey(svc, group) {
+    if (SHARED.has(svc)) return null;
+    const s = svc.toLowerCase();
+    if (svc === "BigQuery storage" || s.startsWith("cloud storage") || svc === "One-time initial load") return "data_pct";
+    if (svc === "BigQuery compute" || svc.startsWith("BigQuery queries from")) return "compute_pct";
+    if (svc === "BigQuery ingestion (Write API / streaming)" || svc === "Cross-region data transfer") return "ingestion_pct";
+    return { "Data ingestion & CDC": "ingestion_pct", "Analytics & AI": "ai_pct", "APIs & databases": "apps_pct", "Governance & security": "platform_pct",
+      "Platform & network": "platform_pct", "BigQuery & storage": "data_pct" }[group] || "platform_pct";
+  }
+  function envFactor(env, svc, group, bqModel, baseSlots) {
+    if (svc === "BigQuery compute" && bqModel !== "ondemand" && env.bq_slots !== null) return baseSlots ? env.bq_slots / baseSlots : 0;
+    const k = factorKey(svc, group);
+    return k === null ? 0 : env[k] / 100;
+  }
+  // views: Maps keyed "m\u0001svc\u0001..." ; bom: Map keyed "m\u0001svc\u0001env" -> [usd, qty]
+  function replicateEnvs(views, bom, envs, bqModel, baseSlots) {
+    const names = ["payg", "cud1", "cud3"];
+    const envTot = Object.fromEntries(envs.map((e) => [e.id, Object.fromEntries(names.map((n) => [n, new Array(37).fill(0)]))]));
+    const primary = envs[0].id;
+    views.forEach((view, i) => { for (const [k, v] of view) envTot[primary][names[i]][+k.split("\u0001")[0]] += v; });
+    if (envs.length > 1) {
+      views.forEach((view, i) => {
+        const base = [...view.entries()];
+        for (const env of envs.slice(1)) {
+          for (const [k, v] of base) {
+            const parts = k.split("\u0001");
+            const f = envFactor(env, parts[1], serviceGroup(parts[1]), bqModel, baseSlots);
+            if (f) { view.set(k, view.get(k) + v * f); envTot[env.id][names[i]][+parts[0]] += v * f; }
+          }
+        }
+      });
+      const baseBom = [...bom.entries()].filter(([k]) => k.split("\u0001")[2] === primary).map(([k, v]) => [k, v.slice()]);
+      for (const env of envs.slice(1)) {
+        for (const [k, [usd, qty]] of baseBom) {
+          const [m, svc] = k.split("\u0001");
+          const f = envFactor(env, svc, serviceGroup(svc), bqModel, baseSlots);
+          if (f) {
+            const kk = `${m}\u0001${svc}\u0001${env.id}`;
+            const row = bom.get(kk) || [0, 0];
+            row[0] += usd * f; row[1] += qty * f;
+            bom.set(kk, row);
+          }
+        }
+      }
+    }
+    return envTot;
+  }
+  function envSummary(envs, envTot, cont, contOn) {
+    const mult = 1 + (contOn ? cont : 0);
+    const sum = (a, lo, hi) => { let t = 0; for (let m = lo; m <= hi; m++) t += a[m]; return t; };
+    return envs.map((e) => {
+      const t = envTot[e.id];
+      const y1 = sum(t.payg, 1, 12) * mult, y3 = sum(t.payg, 1, 36) * mult;
+      return { id: e.id, name: e.name, preset: e.preset, factors: Object.fromEntries(FACTORS.map((f) => [f, e[f]])), bq_slots: e.bq_slots,
+        monthly_year1: round2(y1 / 12 + 1e-12), year1: round2(y1 + 1e-12), year1_cud: round2(sum(t.cud1, 1, 12) * mult + 1e-12),
+        three_year: round2(y3 + 1e-12), three_year_cud: round2(sum(t.cud3, 1, 36) * mult + 1e-12) };
+    });
+  }
+
+  // ------------------------------------------------------------------ bill of materials (port of app/bom.py)
+  function whyFor(svc, ctx) {
+    let base = (D.bom_why.find(([p]) => svc.startsWith(p)) || [null, ""])[1];
+    if (svc.endsWith("tokens (agents)")) base = "Gemini model tokens consumed by the data agents as they reason over BigQuery data.";
+    const comps = ctx.components || [];
+    if (svc === "BigQuery compute") {
+      base += ctx.bq_model === "ondemand" ? " Billed per TiB scanned (on-demand)." : ` ${ctx.edition_slots.toFixed(0)} baseline slots on BigQuery ${titleCase(ctx.bq_model.replace(/_/g, " "))} edition.`;
+    } else if (svc === "Gemini Enterprise") {
+      const ge = comps.find((c) => c.type === "gemini_enterprise");
+      if (ge) base += ` ${Math.trunc(num(ge.settings.users))} users, ${D.ge_grounding[ge.settings.grounding] || ""}.`;
+    } else if (svc.startsWith("Apigee")) {
+      const ap = comps.find((c) => c.type === "apigee");
+      if (ap) base += ` Apigee is ${D.apigee_role[ap.settings.role] || "used for API management"}.`;
+    } else if (svc === "Cloud Storage (raw zone)") {
+      const lk = ctx.lakehouse;
+      base += ` ${titleCase(lk.raw_storage_class)} class, ${lk.raw_retention_months} months retention, ${lk.raw_scope === "all" ? "all sources" : "batch and file sources"}.`;
+    } else if (svc === "Contingency & operations") {
+      base = `${+ctx.contingency_pct}% allowance for ` + base[0].toLowerCase() + base.slice(1);
+    }
+    return base;
+  }
+  function pyRound(x, d) { const f = Math.pow(10, d); return Math.round((x + Number.EPSILON) * f) / f; }
+  function buildBom(bom, units, envs, drivers, ctx) {
+    const acc = new Map();
+    for (const [k, [usd, qty]] of bom) {
+      const [ms, svc, envId] = k.split("\u0001");
+      const m = +ms;
+      const ak = `${envId}\u0001${svc}`;
+      const a = acc.get(ak) || { m12: 0, q12: 0, y1: 0, qy1: 0, y3: 0 };
+      a.y3 += usd;
+      if (m <= 12) { a.y1 += usd; a.qy1 += qty; }
+      if (m === 12) { a.m12 += usd; a.q12 += qty; }
+      acc.set(ak, a);
+    }
+    const envOrder = Object.fromEntries(envs.map((e, i) => [e.id, i]));
+    const envName = Object.fromEntries(envs.map((e) => [e.id, e.name]));
+    const rows = [];
+    for (const [k, a] of acc) {
+      if (a.y3 <= 0) continue;
+      const [envId, svc] = k.split("\u0001");
+      const unit = units[svc] || null;
+      const group = serviceGroup(svc);
+      const drv = [...(drivers[svc] || [])].sort();
+      let why = whyFor(svc, ctx);
+      if (drv.length) why += " Driven by: " + drv.slice(0, 6).join(", ") + (drv.length > 6 ? ` and ${drv.length - 6} more` : "") + ".";
+      rows.push({ environment: envId, environment_name: envName[envId] || envId, service: svc, group, unit,
+        qty_month12: unit ? pyRound(a.q12, 2) : null, qty_year1: unit ? pyRound(a.qy1, 2) : null,
+        unit_price: unit && a.qy1 ? pyRound(a.y1 / a.qy1, 6) : null,
+        month12: round2(a.m12 + 1e-12), year1: round2(a.y1 + 1e-12), three_year: round2(a.y3 + 1e-12), why });
+    }
+    const gi = (g) => (GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : 99);
+    rows.sort((x, y) => ((envOrder[x.environment] ?? 99) - (envOrder[y.environment] ?? 99)) || (gi(x.group) - gi(y.group)) || (y.three_year - x.three_year));
+    return rows;
+  }
+
   // ------------------------------------------------------------------ recommender
   function recommend(src, prefs) {
     prefs = prefs || {};
@@ -189,7 +356,7 @@
         r.rationale.push("Pub/Sub decouples producers; Dataflow streaming handles parsing, enrichment, windowing and exactly-once writes to BigQuery.");
         r.alternatives.push(alt("pubsub", "Pub/Sub BigQuery subscription + Dataform/continuous queries if transformations can run after landing (ELT)."));
       }
-      if (stype === "iot") r.caveats.push("IoT Core is retired: devices publish via MQTT broker partners or HTTPS to Pub/Sub.");
+      if (stype === "iot") r = iot(r, src.iot_option || "native");
     } else if (cat === "logs") {
       r = Rec(sid, "log_sink", "Cloud Logging sink -> BigQuery (or Log Analytics)", ["log_sink"], "log_sink");
       r.rationale.push("A log router sink with a filter streams matching entries into BigQuery tables; Log Analytics linked datasets avoid duplication.");
@@ -370,62 +537,73 @@
         const t = c.type, s = c.settings;
         if (m < Math.trunc(num(c.start_month) || 1) || c.included === false) continue;
         setRegion(s.region || home);
-        if (t === "looker") add(m, "Looker licence (customer quote)", "_ai", num(s.annual_quote_usd) / 12);
-        else if (t === "looker_studio_pro") add(m, "Looker Studio Pro", "_ai", num(s.users) * pricing.looker.studio_pro_user_month);
-        else if (t === "gemini_enterprise") add(m, "Gemini Enterprise", "_ai", num(s.users) * pricing.gemini_enterprise[`${s.edition}_user_month`]);
+        if (t === "looker") add(m, "Looker licence (customer quote)", "_ai", num(s.annual_quote_usd) / 12, undefined, undefined, [1, "licence-months"]);
+        else if (t === "looker_studio_pro") add(m, "Looker Studio Pro", "_ai", num(s.users) * pricing.looker.studio_pro_user_month, undefined, undefined, [num(s.users), "user-months"]);
+        else if (t === "gemini_enterprise") {
+          add(m, "Gemini Enterprise", "_ai", num(s.users) * pricing.gemini_enterprise[`${s.edition}_user_month`], undefined, undefined, [num(s.users), "user-months"]);
+          if (bqModel === "ondemand" && (s.grounding || "bigquery") !== "agents") {
+            const tib = (num(s.users) * num(s.questions_per_user_month) * num(s.gb_per_question)) / GIB_PER_TIB;
+            setRegion(home);
+            add(m, "BigQuery queries from Gemini Enterprise", "_ai", tib * pricing.bigquery.ondemand_tib * up("bigquery"), undefined, undefined, [tib, "TiB scanned"]);
+          }
+        }
         else if (t === "agent_platform") {
           const req = num(s.requests_month), ae = pricing.agent_engine;
           const vcpuH = Math.max(0, (req * num(s.agent_seconds)) / 3600 - ae.free_vcpu_hr);
           const gibH = Math.max(0, (req * num(s.agent_seconds) * 2) / 3600 - ae.free_gib_hr);
           const u = up("agent_engine");
-          add(m, "Agent Engine runtime", "_ai", (vcpuH * ae.vcpu_hr + gibH * ae.gib_hr) * u, (vcpuH * ae.cud1_vcpu_hr + gibH * ae.cud1_gib_hr) * u, (vcpuH * ae.cud3_vcpu_hr + gibH * ae.cud3_gib_hr) * u);
+          add(m, "Agent Engine runtime", "_ai", (vcpuH * ae.vcpu_hr + gibH * ae.gib_hr) * u, (vcpuH * ae.cud1_vcpu_hr + gibH * ae.cud1_gib_hr) * u, (vcpuH * ae.cud3_vcpu_hr + gibH * ae.cud3_gib_hr) * u, [vcpuH, "vCPU-hours"]);
           const gm = pricing.gemini_models[s.model];
-          add(m, `${gm.name} tokens (agents)`, "_ai", (req * (num(s.input_tokens) * gm.input_mtok + num(s.output_tokens) * gm.output_mtok)) / 1e6);
-          if (bqModel === "ondemand") add(m, "BigQuery queries from agents", "_ai", ((req * num(s.bq_gb_per_request)) / GIB_PER_TIB) * pricing.bigquery.ondemand_tib * up("bigquery"));
+          add(m, `${gm.name} tokens (agents)`, "_ai", (req * (num(s.input_tokens) * gm.input_mtok + num(s.output_tokens) * gm.output_mtok)) / 1e6, undefined, undefined, [(req * (num(s.input_tokens) + num(s.output_tokens))) / 1e6, "M tokens"]);
+          if (bqModel === "ondemand") {
+            const tib = (req * num(s.bq_gb_per_request)) / GIB_PER_TIB;
+            setRegion(home);
+            add(m, "BigQuery queries from agents", "_ai", tib * pricing.bigquery.ondemand_tib * up("bigquery"), undefined, undefined, [tib, "TiB scanned"]);
+          }
         } else if (t === "vertex_gpu") {
           const node = pricing.vertex_prediction.nodes[s.gpu];
-          add(m, `Vertex AI endpoint (${node.name})`, "_ai", num(s.replicas) * num(s.hours_per_day) * 30.4 * node.hr * up("vertex_prediction"));
+          add(m, `Vertex AI endpoint (${node.name})`, "_ai", num(s.replicas) * num(s.hours_per_day) * 30.4 * node.hr * up("vertex_prediction"), undefined, undefined, [num(s.replicas) * num(s.hours_per_day) * 30.4, "node-hours"]);
         } else if (t === "apigee") {
           const ap = pricing.apigee, calls = num(s.api_calls_million);
-          add(m, "Apigee (environment)", "_ai", ap.environment_month[s.environment]);
-          add(m, "Apigee (API calls)", "_ai", tieredM(calls, ap.calls_per_million[s.proxy_type]));
+          add(m, "Apigee (environment)", "_ai", ap.environment_month[s.environment], undefined, undefined, [1, "environment-months"]);
+          add(m, "Apigee (API calls)", "_ai", tieredM(calls, ap.calls_per_million[s.proxy_type]), undefined, undefined, [calls, "M API calls"]);
           if (s.analytics === "yes" && s.environment !== "base") add(m, "Apigee (API calls)", "_ai", calls * ap.analytics_per_million);
-          if (s.advanced_security === "yes" && s.environment !== "base") add(m, "Apigee (Advanced API Security)", "_ai", calls * ap.advanced_security_per_million);
+          if (s.advanced_security === "yes" && s.environment !== "base") add(m, "Apigee (Advanced API Security)", "_ai", calls * ap.advanced_security_per_million, undefined, undefined, [calls, "M API calls"]);
         } else if (t === "alloydb") {
           const a = pricing.alloydb;
           const nodes = (s.ha === "yes" ? 2 : 1) + num(s.read_pool_nodes);
           const v = num(s.vcpu) * nodes * HOURS, g = num(s.memory_gib) * nodes * HOURS, u = up("alloydb");
-          add(m, "AlloyDB", "_db", (v * a.vcpu_hr + g * a.mem_gib_hr) * u, (v * a.cud1_vcpu_hr + g * a.cud1_mem_gib_hr) * u, (v * a.cud3_vcpu_hr + g * a.cud3_mem_gib_hr) * u);
+          add(m, "AlloyDB", "_db", (v * a.vcpu_hr + g * a.mem_gib_hr) * u, (v * a.cud1_vcpu_hr + g * a.cud1_mem_gib_hr) * u, (v * a.cud3_vcpu_hr + g * a.cud3_mem_gib_hr) * u, [nodes * HOURS, "node-hours"]);
           add(m, "AlloyDB", "_db", num(s.storage_gib) * a.storage_gib_month * u);
         } else if (t === "cloudsql") {
           const q = pricing.cloudsql, ha = s.ha === "yes";
           const comp = (num(s.vcpu) * (ha ? q.ha_vcpu_hr : q.vcpu_hr) + num(s.memory_gib) * (ha ? q.ha_mem_gib_hr : q.mem_gib_hr)) * HOURS;
           const u = up("cloudsql");
-          add(m, "Cloud SQL", "_db", comp * u, comp * q.cud1_factor * u, comp * q.cud3_factor * u);
+          add(m, "Cloud SQL", "_db", comp * u, comp * q.cud1_factor * u, comp * q.cud3_factor * u, [HOURS, "instance-hours"]);
           add(m, "Cloud SQL", "_db", num(s.storage_gib) * (ha ? q.ha_ssd_gib_month : q.ssd_gib_month) * u);
         } else if (t === "spanner") {
           const sp = pricing.spanner, comp = num(s.nodes) * sp.node_hr[s.edition] * HOURS, u = up("spanner");
-          add(m, "Spanner", "_db", comp * u, comp * sp.cud1_factor * u, comp * sp.cud3_factor * u);
+          add(m, "Spanner", "_db", comp * u, comp * sp.cud1_factor * u, comp * sp.cud3_factor * u, [num(s.nodes) * HOURS, "node-hours"]);
           add(m, "Spanner", "_db", num(s.storage_gib) * sp.ssd_gib_month * u);
         } else if (t === "bigtable") {
           const bt = pricing.bigtable, comp = num(s.nodes) * bt.node_hr[s.edition] * HOURS, u = up("bigtable");
-          add(m, "Bigtable", "_db", comp * u, comp * bt.cud1_factor * u, comp * bt.cud3_factor * u);
+          add(m, "Bigtable", "_db", comp * u, comp * bt.cud1_factor * u, comp * bt.cud3_factor * u, [num(s.nodes) * HOURS, "node-hours"]);
           add(m, "Bigtable", "_db", num(s.storage_gib) * bt.ssd_gib_month * u);
         } else if (t === "firestore") {
           const fs = pricing.firestore;
           const ops = (Math.max(0, num(s.reads_million) * 1e6 - fs.free_reads_month) / 1e5) * fs.reads_per_100k + (Math.max(0, num(s.writes_million) * 1e6 - fs.free_writes_month) / 1e5) * fs.writes_per_100k;
           const u = up("firestore");
-          add(m, "Firestore", "_db", ops * u, ops * fs.cud1_factor * u, ops * fs.cud3_factor * u);
+          add(m, "Firestore", "_db", ops * u, ops * fs.cud1_factor * u, ops * fs.cud3_factor * u, [num(s.reads_million) + num(s.writes_million), "M operations"]);
           add(m, "Firestore", "_db", Math.max(0, num(s.storage_gib) - fs.free_storage_gib) * fs.storage_gib_month * u);
         } else if (t === "memorystore") {
           const ms = pricing.memorystore, cap = num(s.capacity_gib);
           const rate = ms.standard_tier_gib_hr.find(([lim]) => lim === null || cap <= lim)[1];
           const c2 = cap * rate * HOURS * up("memorystore");
-          add(m, "Memorystore", "_db", c2, c2 * ms.cud1_factor, c2 * ms.cud3_factor);
+          add(m, "Memorystore", "_db", c2, c2 * ms.cud1_factor, c2 * ms.cud3_factor, [cap * HOURS, "GiB-hours"]);
         } else if (t === "sdp") {
-          add(m, "Sensitive Data Protection (discovery)", "_governance", newBy[m] * pricing.sensitive_data_protection.discovery_gb);
+          add(m, "Sensitive Data Protection (discovery)", "_governance", newBy[m] * pricing.sensitive_data_protection.discovery_gb, undefined, undefined, [newBy[m], "GB profiled"]);
         } else if (t === "cmek") {
-          add(m, "Cloud KMS (CMEK)", "_governance", num(s.key_versions) * pricing.kms.key_version_month + num(s.operations_million) * 100 * pricing.kms.ops_per_10k);
+          add(m, "Cloud KMS (CMEK)", "_governance", num(s.key_versions) * pricing.kms.key_version_month + num(s.operations_million) * 100 * pricing.kms.ops_per_10k, undefined, undefined, [num(s.key_versions), "key versions"]);
         } else if (t === "knowledge_catalog") {
           const dp = pricing.dataplex;
           const dqTables = (tables * num(s.dq_share_pct)) / 100;
@@ -434,7 +612,7 @@
           add(m, "Knowledge Catalog (Dataplex) - quality, profiling, lineage", "_governance",
             (dcu * dp.premium_dcu_hr + metaGib * dp.metadata_gib_month) * u,
             (dcu * dp.premium_cud1_dcu_hr + metaGib * dp.metadata_gib_month) * u,
-            (dcu * dp.premium_cud3_dcu_hr + metaGib * dp.metadata_gib_month) * u);
+            (dcu * dp.premium_cud3_dcu_hr + metaGib * dp.metadata_gib_month) * u, [dcu, "DCU-hours"]);
         }
       }
       setRegion(home);
@@ -445,7 +623,8 @@
   function componentView(c) {
     const m = COMPONENT_BY_ID[c.type];
     return { id: c.id, type: c.type, start_month: Math.trunc(num(c.start_month) || 1), included: c.included !== false, name: m.name, category: m.category, vendor: m.vendor, costed: m.costed, method: m.method,
-      steps: m.steps, notes: m.notes, doc: m.doc, settings: c.settings };
+      steps: m.steps, notes: m.notes, doc: m.doc, settings: c.settings,
+      mode_note: ((m.modes || {}).notes || {})[c.settings[(m.modes || {}).key || ""]] || "" };
   }
 
   function platformStory(comps, sec, sources) {
@@ -454,7 +633,7 @@
     blocks.push({
       key: "lakehouse", title: "BigQuery lakehouse foundation", tools: ["dataform", "bqml", "reverse_etl"],
       points: [
-        "Raw, curated and mart datasets in BigQuery; open Apache Iceberg tables through BigLake keep data portable across engines.",
+        "Medallion lakehouse: a Cloud Storage raw zone keeps immutable source extracts; BigQuery bronze (as ingested), silver (cleansed, conformed) and gold (curated marts) datasets are built by Dataform; Apache Iceberg tables through BigLake keep data portable across engines.",
         cdc.length ? "Continuous CDC from " + cdc.slice(0, 4).join(", ") + " keeps operational data fresh for analytics and agents." : "Add CDC sources (Datastream) when agents and dashboards need minute-level freshness.",
         "Dataform builds tested, version-controlled SQL models; BigQuery ML and AI functions bring Gemini and vector search into SQL.",
         "Every connected BI, AI and governance tool reads the same governed tables, so metrics and permissions stay consistent.",
@@ -497,6 +676,19 @@
   const streamVcpus = (daily, transform) => Math.max(A.stream_min_vcpu, Math.ceil(daily / A.stream_gb_per_vcpu_day[transform]));
   const round2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 
+  const RAW_BATCH_ENGINES = new Set(["files_transfer", "dataflow_batch", "datafusion", "dataproc", "cloud_run", "app_integration", "dts_migration"]);
+  function lakehouseSettings(scenario) {
+    const lk = { ...D.catalog.lakehouse_defaults };
+    for (const [k, v] of Object.entries(scenario.lakehouse || {})) if (v !== null && v !== undefined) lk[k] = v;
+    lk.raw_zone = lk.raw_zone !== false;
+    lk.raw_retention_months = Math.max(1, Math.trunc(num(lk.raw_retention_months)));
+    lk.silver_pct = Math.max(0, num(lk.silver_pct));
+    lk.gold_pct = Math.max(0, num(lk.gold_pct));
+    if (!["standard", "nearline", "coldline", "archive"].includes(lk.raw_storage_class)) lk.raw_storage_class = "standard";
+    if (!["batch", "all"].includes(lk.raw_scope)) lk.raw_scope = "batch";
+    return lk;
+  }
+
   function estimate(scenario, keepItems) {
     const pricing = D.pricing;
     const regions = Object.fromEntries(D.regions.map((r) => [r.id, r]));
@@ -518,13 +710,22 @@
     const key = (m, svc, sid, rid) => `${m}\u0001${svc}\u0001${sid}\u0001${rid}`;
     const inc = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
     const excluded = new Set(scenario.excluded_services || []);
-    function add(m, svc, sid, usd, c1, c3) {
+    const envs = normalizedEnvs(scenario);
+    const primaryEnv = envs[0].id;
+    const bom = new Map(), units = {};
+    function add(m, svc, sid, usd, c1, c3, q) {
       if (!usd || excluded.has(svc)) return;
       const k = key(m, svc, sid, ctx.rid);
       inc(payg, k, usd);
       inc(cud1, k, c1 === undefined ? usd : c1);
       inc(cud3, k, c3 === undefined ? usd : c3);
+      const bk = `${m}\u0001${svc}\u0001${primaryEnv}`;
+      const row = bom.get(bk) || [0, 0];
+      row[0] += usd;
+      if (q) { row[1] += q[0]; if (!(svc in units)) units[svc] = q[1]; }
+      bom.set(bk, row);
     }
+    const U = undefined;
 
     const df = pricing.dataflow, ds = pricing.datastream, ps = pricing.pubsub, bq = pricing.bigquery;
     const z = () => new Array(37).fill(0);
@@ -532,6 +733,9 @@
     const initialBy = z(), backfillBy = z();
     const srcStart = {};
     const meta = [];
+    const rawIn = z();
+    const lk = lakehouseSettings(scenario);
+    const curated = (lk.silver_pct + lk.gold_pct) / 100;
 
     sources.forEach((src, i) => {
       const rec = recs[i];
@@ -553,6 +757,8 @@
       ctx.rid = srcRid;
       meta.push({ id: sid, name, region: srcRid });
       const xfer = interRegionRate(regions, srcRid, regionId, pricing);
+      const inRaw = lk.raw_zone && (lk.raw_scope === "all" || (!STREAMING.has(freq) && engines.some((e) => RAW_BATCH_ENGINES.has(e))));
+      if (inRaw) rawIn[start] += initial;
 
       for (let m = 1; m <= 36; m++) {
         if (m < start) continue;
@@ -560,9 +766,10 @@
         const monthly = daily * 30;
         ingGib[m] += monthly;
         netGib[m] += monthly * netRatio;
+        if (inRaw) rawIn[m] += monthly;
         if (xfer) {
-          add(m, "Cross-region data transfer", sid, monthly * xfer);
-          if (m === start && initial) add(m, "Cross-region data transfer", sid, initial * xfer);
+          add(m, "Cross-region data transfer", sid, monthly * xfer, U, U, [monthly, "GiB"]);
+          if (m === start && initial) add(m, "Cross-region data transfer", sid, initial * xfer, U, U, [initial, "GiB"]);
         }
         for (const eng of engines) {
           if (eng === "datastream") dsCdc[m] += monthly;
@@ -570,39 +777,43 @@
             const vh = batchVcpuHours(monthly, runs, transform);
             let usd = (vh * df.batch_vcpu_hr + vh * A.memory_gib_per_vcpu * df.memory_gib_hr) * up("dataflow");
             if (transform === "heavy") usd += monthly * df.shuffle_gib * up("dataflow");
-            add(m, "Dataflow (batch)", sid, usd);
+            add(m, "Dataflow (batch)", sid, usd, U, U, [vh, "vCPU-hours"]);
           } else if (eng === "dataflow_stream") {
             if (oneTime) continue;
             const v = streamVcpus(daily, transform);
             const c = (v * HOURS * df.streaming_vcpu_hr + v * HOURS * A.memory_gib_per_vcpu * df.memory_gib_hr + v * HOURS * A.streaming_engine_cu_per_vcpu_hr * df.streaming_engine_cu_hr) * up("dataflow");
-            add(m, "Dataflow (streaming)", sid, c, c * (1 - df.cud1_discount), c * (1 - df.cud3_discount));
-          } else if (eng === "pubsub_bqsub") add(m, "Pub/Sub", sid, (monthly / GIB_PER_TIB) * (ps.throughput_tib + ps.bq_subscription_tib));
-          else if (eng === "pubsub") add(m, "Pub/Sub", sid, (monthly / GIB_PER_TIB) * ps.throughput_tib * 2);
+            add(m, "Dataflow (streaming)", sid, c, c * (1 - df.cud1_discount), c * (1 - df.cud3_discount), [v * HOURS, "vCPU-hours"]);
+          } else if (eng === "pubsub_bqsub") add(m, "Pub/Sub", sid, (monthly / GIB_PER_TIB) * (ps.throughput_tib + ps.bq_subscription_tib), U, U, [monthly / GIB_PER_TIB, "TiB"]);
+          else if (eng === "pubsub") add(m, "Pub/Sub", sid, (monthly / GIB_PER_TIB) * ps.throughput_tib * 2, U, U, [monthly / GIB_PER_TIB, "TiB"]);
           else if (eng === "datafusion") {
             let vh = 0;
             if (runs > 0 && monthly > 0) vh = runs * Math.max(A.datafusion_min_vcpu_hr_per_run, monthly / runs / A.datafusion_gb_per_vcpu_hr);
             else if (!oneTime && monthly > 0) vh = HOURS * 4;
-            add(m, "Data Fusion pipelines (Dataproc)", sid, vh * pricing.datafusion.pipeline_vcpu_hr_all_in * up("datafusion"));
+            add(m, "Data Fusion pipelines (Dataproc)", sid, vh * pricing.datafusion.pipeline_vcpu_hr_all_in * up("datafusion"), U, U, [vh, "vCPU-hours"]);
           } else if (eng === "dataproc") {
             if (runs > 0 && monthly > 0) {
               const dcu = runs * Math.max(A.spark_min_dcu_hr_per_run, monthly / runs / A.spark_gb_per_dcu_hr[transform]);
-              add(m, "Dataproc Serverless", sid, dcu * pricing.dataproc_serverless.dcu_hr * up("dataproc_serverless"));
+              add(m, "Dataproc Serverless", sid, dcu * pricing.dataproc_serverless.dcu_hr * up("dataproc_serverless"), U, U, [dcu, "DCU-hours"]);
             }
           } else if (eng === "files_transfer") {
-            if (onPrem || cat === "mainframe") add(m, "Storage Transfer Service", sid, monthly * pricing.storage_transfer.agent_gib);
+            if (onPrem || cat === "mainframe") add(m, "Storage Transfer Service", sid, monthly * pricing.storage_transfer.agent_gib, U, U, [monthly, "GiB"]);
             landing[m] += daily * A.landing_retention_days;
           } else if (eng === "dts_migration") {
-            if (src.type === "teradata" && !oneTime) add(m, "Compute Engine (migration agent)", sid, HOURS * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"));
+            if (src.type === "teradata" && !oneTime) add(m, "Compute Engine (migration agent)", sid, HOURS * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"), U, U, [HOURS, "VM-hours"]);
           } else if (eng === "sap_connector") writeApi[m] += monthly;
           else if (eng === "log_sink") streamIns[m] += monthly;
           else if (eng === "app_integration") {
             const ic = pricing.integration_connectors;
-            add(m, "Integration Connectors", sid, HOURS * ic.third_party_node_hr + Math.max(0, monthly - ic.free_gib) * ic.data_processed_gib);
+            add(m, "Integration Connectors", sid, HOURS * ic.third_party_node_hr + Math.max(0, monthly - ic.free_gib) * ic.data_processed_gib, U, U, [HOURS, "node-hours"]);
           } else if (eng === "cloud_run") {
             const cr = pricing.cloud_run;
             const secs = (runs || 30) * A.cloud_run_minutes_per_run * 60;
-            add(m, "Cloud Run jobs", sid, secs * (cr.vcpu_second + 2 * cr.gib_second) * up("cloud_run"));
+            add(m, "Cloud Run jobs", sid, secs * (cr.vcpu_second + 2 * cr.gib_second) * up("cloud_run"), U, U, [runs || 30, "job runs"]);
             writeApi[m] += monthly;
+          } else if (eng === "mqtt_broker") {
+            if (oneTime) continue;
+            const vmH = A.mqtt_broker_vms * HOURS;
+            add(m, "MQTT broker (Compute Engine)", sid, vmH * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"), U, U, [vmH, "VM-hours"]);
           }
         }
         if (m === start && initial > 0) {
@@ -610,18 +821,18 @@
           if (pe === "datastream") backfillBy[m] += initial;
           else if (pe === "dataflow_batch" || pe === "dataflow_stream") {
             const vh = batchVcpuHours(initial, Math.max(1, Math.ceil(initial / 2000)), "light");
-            add(m, "One-time initial load", sid, (vh * df.batch_vcpu_hr + vh * A.memory_gib_per_vcpu * df.memory_gib_hr) * up("dataflow"));
+            add(m, "One-time initial load", sid, (vh * df.batch_vcpu_hr + vh * A.memory_gib_per_vcpu * df.memory_gib_hr) * up("dataflow"), U, U, [initial, "GiB loaded"]);
           } else if (pe === "datafusion") {
             const vh = Math.max(A.datafusion_min_vcpu_hr_per_run, initial / A.datafusion_gb_per_vcpu_hr);
-            add(m, "One-time initial load", sid, vh * pricing.datafusion.pipeline_vcpu_hr_all_in * up("datafusion"));
+            add(m, "One-time initial load", sid, vh * pricing.datafusion.pipeline_vcpu_hr_all_in * up("datafusion"), U, U, [initial, "GiB loaded"]);
           } else if (pe === "dataproc") {
             const dcu = Math.max(A.spark_min_dcu_hr_per_run, initial / A.spark_gb_per_dcu_hr.light);
-            add(m, "One-time initial load", sid, dcu * pricing.dataproc_serverless.dcu_hr * up("dataproc_serverless"));
+            add(m, "One-time initial load", sid, dcu * pricing.dataproc_serverless.dcu_hr * up("dataproc_serverless"), U, U, [initial, "GiB loaded"]);
           } else if (pe === "files_transfer") {
             if (onPrem || cat === "mainframe") add(m, "One-time initial load", sid, initial * pricing.storage_transfer.agent_gib);
-            add(m, "One-time initial load", sid, initial * pricing.gcs.standard_gib_month * up("gcs"));
+            add(m, "One-time initial load", sid, initial * pricing.gcs.standard_gib_month * up("gcs"), U, U, [initial, "GiB loaded"]);
           } else if (pe === "dts_migration" && src.type === "teradata") {
-            add(m, "One-time initial load", sid, (initial / A.teradata_agent_gb_per_hr) * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"));
+            add(m, "One-time initial load", sid, (initial / A.teradata_agent_gb_per_hr) * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"), U, U, [initial, "GiB loaded"]);
           } else if (pe === "sap_connector") writeApi[m] += initial;
         }
       }
@@ -635,7 +846,7 @@
         const dsVols = {};
         sources.forEach((s, i) => { const id = s.id || s.type; if (recs[i].engine.split("+").includes("datastream") && s.frequency !== "one_time" && (srcStart[id] || 1) <= m) dsVols[id] = num(s.daily_change_gb); });
         const dsTot = Object.values(dsVols).reduce((a, b) => a + b, 0) || 1;
-        for (const [sid, v] of Object.entries(dsVols)) { ctx.rid = srcRegion[sid] || regionId; add(m, "Datastream (CDC)", sid, total * (v / dsTot)); }
+        for (const [sid, v] of Object.entries(dsVols)) { ctx.rid = srcRegion[sid] || regionId; add(m, "Datastream (CDC)", sid, total * (v / dsTot), U, U, [dsCdc[m] * (v / dsTot), "GiB"]); }
       }
     }
     ctx.rid = regionId;
@@ -644,7 +855,7 @@
       if (backfillBy[m]) {
         const billable = Math.max(0, backfillBy[m] - freeBackfill);
         freeBackfill = Math.max(0, freeBackfill - backfillBy[m]);
-        add(m, "One-time initial load", "_datastream_backfill", billable * ds.backfill_gib);
+        add(m, "One-time initial load", "_datastream_backfill", billable * ds.backfill_gib, U, U, [billable, "GiB loaded"]);
       }
     }
 
@@ -653,10 +864,10 @@
     ctx.rid = regionId;
     const bqUp = up("bigquery");
     let stored = 0;
-    const history = [], newBy = z();
+    const history = [], newBy = z(), bronzeBy = z();
     const analyticsIn = scenario.analytics_tib_month;
     const slots = num(scenario.bq_slots) || 100;
-    const mult = 1 + A.curated_layers_overhead;
+    const mult = 1 + curated;
     for (let m = 1; m <= 36; m++) {
       newBy[m] = initialBy[m] + netGib[m];
       history.push(newBy[m]);
@@ -666,16 +877,17 @@
       const lt = older * A.longterm_share_after_90d;
       const active = stored - lt;
       const activeB = Math.max(0, active * mult - bq.storage_free_gib);
-      add(m, "BigQuery storage", "_platform", (activeB * bq.storage_active_gib_month + lt * mult * bq.storage_longterm_gib_month) * bqUp);
+      add(m, "BigQuery storage", "_platform", (activeB * bq.storage_active_gib_month + lt * mult * bq.storage_longterm_gib_month) * bqUp, U, U, [activeB + lt * mult, "GiB-months"]);
+      bronzeBy[m] = stored;
       const wa = Math.max(0, writeApi[m] - bq.storage_write_api_free_tib * GIB_PER_TIB);
-      add(m, "BigQuery ingestion (Write API / streaming)", "_platform", (wa * bq.storage_write_api_gib + streamIns[m] * bq.streaming_inserts_gib) * bqUp);
+      add(m, "BigQuery ingestion (Write API / streaming)", "_platform", (wa * bq.storage_write_api_gib + streamIns[m] * bq.streaming_inserts_gib) * bqUp, U, U, [wa + streamIns[m], "GiB"]);
       const storedTib = (stored * mult) / GIB_PER_TIB;
       const eltTib = (ingGib[m] * A.elt_scan_multiplier) / GIB_PER_TIB;
       const analyticsTib = analyticsIn ? num(analyticsIn) * growthFactor(m, growth) : storedTib * A.auto_analytics_scan_multiplier;
-      if (bqModel === "ondemand") add(m, "BigQuery compute", "_platform", Math.max(0, eltTib + analyticsTib - bq.ondemand_free_tib) * bq.ondemand_tib * bqUp);
+      if (bqModel === "ondemand") { const billable = Math.max(0, eltTib + analyticsTib - bq.ondemand_free_tib); add(m, "BigQuery compute", "_platform", billable * bq.ondemand_tib * bqUp, U, U, [billable, "TiB scanned"]); }
       else if (m >= platStart) {
         const ed = bq.editions[bqModel], sh = slots * HOURS;
-        add(m, "BigQuery compute", "_platform", sh * ed.payg * bqUp, sh * ed.cud1 * bqUp, sh * ed.cud3 * bqUp);
+        add(m, "BigQuery compute", "_platform", sh * ed.payg * bqUp, sh * ed.cud1 * bqUp, sh * ed.cud3 * bqUp, [sh, "slot-hours"]);
       }
     }
 
@@ -684,52 +896,88 @@
     if (orch === "composer") {
       const cp = pricing.composer;
       const dcuH = cp[sources.length <= 10 ? "small_env_avg_dcu" : "medium_env_avg_dcu"] * HOURS;
-      for (let m = platStart; m <= 36; m++) add(m, "Composer (Airflow)", "_platform", dcuH * cp.dcu_hr * up("composer"), dcuH * cp.cud1_dcu_hr * up("composer"), dcuH * cp.cud3_dcu_hr * up("composer"));
+      for (let m = platStart; m <= 36; m++) add(m, "Composer (Airflow)", "_platform", dcuH * cp.dcu_hr * up("composer"), dcuH * cp.cud1_dcu_hr * up("composer"), dcuH * cp.cud3_dcu_hr * up("composer"), [dcuH, "DCU-hours"]);
     } else if (orch === "workflows") {
-      for (let m = platStart; m <= 36; m++) add(m, "Workflows + Scheduler", "_platform", sources.length * pricing.workflows.scheduler_job_month);
+      for (let m = platStart; m <= 36; m++) add(m, "Workflows + Scheduler", "_platform", sources.length * pricing.workflows.scheduler_job_month, U, U, [sources.length, "scheduled jobs"]);
     }
     if (platform.datafusion_edition) {
       const dfp = pricing.datafusion;
       const inst = platform.datafusion_edition === "enterprise" ? HOURS * dfp.enterprise_hr : Math.max(0, HOURS - dfp.basic_free_hours) * dfp.basic_hr;
       const label = `Data Fusion instance (${titleCase(platform.datafusion_edition)})`;
-      for (let m = platStart; m <= 36; m++) add(m, label, "_platform", inst * up("datafusion"));
+      for (let m = platStart; m <= 36; m++) add(m, label, "_platform", inst * up("datafusion"), U, U, [HOURS, "instance-hours"]);
     }
     if (platform.connectivity === "ha_vpn") {
       const n = pricing.network;
-      for (let m = platStart; m <= 36; m++) add(m, "Network (HA VPN)", "_platform", n.ha_vpn_tunnel_hr * n.ha_vpn_tunnels * HOURS);
+      for (let m = platStart; m <= 36; m++) add(m, "Network (HA VPN)", "_platform", n.ha_vpn_tunnel_hr * n.ha_vpn_tunnels * HOURS, U, U, [n.ha_vpn_tunnels * HOURS, "tunnel-hours"]);
     } else if (platform.connectivity === "interconnect") {
       const ic = pricing.interconnect;
-      for (let m = platStart; m <= 36; m++) add(m, "Network (Interconnect)", "_platform", ic.dedicated_10g_port_month + ic.vlan_attachment_hr * ic.vlan_attachments * HOURS);
+      for (let m = platStart; m <= 36; m++) add(m, "Network (Interconnect)", "_platform", ic.dedicated_10g_port_month + ic.vlan_attachment_hr * ic.vlan_attachments * HOURS, U, U, [1, "10 Gbps ports"]);
     }
-    for (let m = 1; m <= 36; m++) if (landing[m]) add(m, "Cloud Storage (landing zone)", "_platform", landing[m] * pricing.gcs.standard_gib_month * up("gcs"));
+    ctx.rid = regionId;
+    const rawStored = z();
+    for (let m = 1; m <= 36; m++) {
+      if (lk.raw_zone) {
+        let gib = 0;
+        for (let k = Math.max(1, m - lk.raw_retention_months + 1); k <= m; k++) gib += rawIn[k];
+        rawStored[m] = gib;
+        if (gib) add(m, "Cloud Storage (raw zone)", "_platform", gib * pricing.gcs[`${lk.raw_storage_class}_gib_month`] * up("gcs"), U, U, [gib, "GiB-months"]);
+      } else if (landing[m]) add(m, "Cloud Storage (landing zone)", "_platform", landing[m] * pricing.gcs.standard_gib_month * up("gcs"), U, U, [landing[m], "GiB-months"]);
+    }
 
     // analytics, AI, governance, security
     const { comps, sec } = normalizedComponents(scenario);
-    const tables = costComponents(comps, sec, pricing, up, sources, newBy, bqModel, add, A.curated_layers_overhead, (r) => (ctx.rid = ridOf(r || regionId)), regionId);
+    const tables = costComponents(comps, sec, pricing, up, sources, newBy, bqModel, add, curated, (r) => (ctx.rid = ridOf(r || regionId)), regionId);
     ctx.rid = regionId;
     platform.layer = { components: comps.map(componentView), security: sec, tables_estimated: tables, story: platformStory(comps, sec, sources) };
     platform.processing_region = procRegion;
+    const r2 = (x) => pyRound(x, 2);
+    platform.lakehouse = { ...lk, raw_gib_month12: r2(rawStored[12]),
+      layers: [
+        { id: "bronze", name: "Bronze", role: "Raw / staging tables as ingested (CDC, loads, streams)", pct: 100, gib_month12: r2(bronzeBy[12]) },
+        { id: "silver", name: "Silver", role: "Cleansed, deduplicated, conformed (Dataform)", pct: lk.silver_pct, gib_month12: r2((bronzeBy[12] * lk.silver_pct) / 100) },
+        { id: "gold", name: "Gold", role: "Curated marts, features and semantic models for BI and AI", pct: lk.gold_pct, gib_month12: r2((bronzeBy[12] * lk.gold_pct) / 100) },
+      ] };
+
+    const envTot = replicateEnvs([payg, cud1, cud3], bom, envs, bqModel, slots);
 
     const cont = num(scenario.contingency_pct ?? A.contingency * 100) / 100;
+    const contOn = !excluded.has("Contingency & operations");
     for (const view of [payg, cud1, cud3]) {
       const mt = z();
       for (const [k, v] of view) mt[+k.split("\u0001")[0]] += v;
-      for (let m = 1; m <= 36; m++) if (mt[m] && !excluded.has("Contingency & operations")) inc(view, key(m, "Contingency & operations", "_platform", regionId), mt[m] * cont);
+      for (let m = 1; m <= 36; m++) if (mt[m] && contOn) inc(view, key(m, "Contingency & operations", "_platform", regionId), mt[m] * cont);
+    }
+    if (contOn) {
+      const monthBom = new Map();
+      for (const [k, [usd]] of bom) { const [m, , envId] = k.split("\u0001"); const mk = `${m}\u0001${envId}`; monthBom.set(mk, (monthBom.get(mk) || 0) + usd); }
+      for (const [mk, v] of monthBom) {
+        if (!v) continue;
+        const [m, envId] = mk.split("\u0001");
+        const bk = `${m}\u0001Contingency & operations\u0001${envId}`;
+        const row = bom.get(bk) || [0, 0];
+        row[0] += v * cont;
+        bom.set(bk, row);
+      }
     }
     const out = summarise(payg, cud1, cud3, recs, platform, meta, region);
     out.excluded_services = [...excluded].sort();
+    out.environments = envSummary(envs, envTot, cont, contOn);
+    const drivers = {};
+    const nameOf = Object.fromEntries(meta.map((x) => [x.id, x.name]));
+    for (const k of payg.keys()) { const [, svc, sid] = k.split("\u0001"); if (sid in nameOf) (drivers[svc] = drivers[svc] || new Set()).add(nameOf[sid]); }
+    out.bom = buildBom(bom, units, envs, drivers, { bq_model: bqModel, contingency_pct: pyRound(cont * 100, 1), lakehouse: lk, components: comps, edition_slots: slots });
     if (keepItems) out._items = payg;
     return out;
   }
 
-  const GROUP_ORDER = ["Data ingestion & CDC", "BigQuery", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
+  const GROUP_ORDER = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
   function serviceGroup(name) {
     const n = name.toLowerCase();
-    if (n.startsWith("bigquery") && !n.includes("agents")) return "BigQuery";
+    if ((n.startsWith("bigquery") && !n.includes("agents") && !n.includes("gemini")) || n.startsWith("cloud storage")) return "BigQuery & storage";
     if (["apigee", "alloydb", "cloud sql", "spanner", "bigtable", "firestore", "memorystore"].some((k) => n.includes(k))) return "APIs & databases";
     if (["looker", "gemini", "agent", "vertex ai"].some((k) => n.includes(k))) return "Analytics & AI";
     if (["knowledge catalog", "sensitive data", "kms"].some((k) => n.includes(k))) return "Governance & security";
-    if (["composer", "workflows", "network", "landing", "data fusion instance", "cross-region"].some((k) => n.includes(k))) return "Platform & network";
+    if (["composer", "workflows", "network", "data fusion instance", "cross-region"].some((k) => n.includes(k))) return "Platform & network";
     if (n.includes("contingency")) return "Contingency";
     return "Data ingestion & CDC";
   }
@@ -944,12 +1192,15 @@
       for (let m = 1; m <= 36; m++) newByW[m] = m === 1 ? storedBy[1] : ingestedBy[m];
       costComponents(comps, sec, pricing, up, [{ tables: Math.trunc(num(d.tables) / 2.5) }], newByW, W.bq_model, add, 0.5, (r) => (ctx.rid = regions[r] ? r : dataRid), dataRid);
     }
+    const envs = normalizedEnvs(scenario);
+    const envTot = replicateEnvs([payg, cud1, cud3], new Map(), envs, "ondemand", 0);
     const cont = num(W.contingency_pct) / 100;
+    const contOn = !excludedW.has("Contingency & operations");
     ctx.rid = dataRid;
     for (const view of [payg, cud1, cud3]) {
       const mt = new Array(37).fill(0);
       for (const [k, v] of view) mt[+k.split("\u0001")[0]] += v;
-      for (let m = 1; m <= 36; m++) if (mt[m] && !excludedW.has("Contingency & operations")) inc(view, key(m, "Contingency & operations", "Contingency", dataRid), mt[m] * cont);
+      for (let m = 1; m <= 36; m++) if (mt[m] && contOn) inc(view, key(m, "Contingency & operations", "Contingency", dataRid), mt[m] * cont);
     }
 
     // summary
@@ -998,7 +1249,93 @@
       totals, monthly, by_category: categoryRows, lines: lineRows, by_region: regionRows,
       scan_tib_steady_month: Math.round(tib * 1000) / 1000, scan_lines_steady_month: scanLines, compute_comparison: compare,
       assumptions: WA, ramp_months: rampMonths, fx: pricing.fx,
+      environments: envSummary(envs, envTot, cont, contOn),
+      slots: slotSizing(W, scanLines, WA, pricing, u, new Set(normalizedComponents(scenario).comps.filter((c) => c.included !== false).map((c) => c.type)), envs),
       disclaimer: "Workload-based ballpark from public list prices. Query cost depends heavily on bytes scanned - partitioning, clustering, BI Engine and materialized views can reduce it substantially. Partner tools are not costed.",
+    };
+  }
+
+  const SLOT_STEP = 50, STANDARD_MAX_SLOTS = 1600;
+  const ceilStep = (x, step = SLOT_STEP) => Math.trunc(Math.ceil(Math.max(0, x) / step - 1e-9) * step);
+  function slotSizing(W, scanLines, WA, pricing, uplift, compTypes, envs) {
+    const S = W.slots;
+    const sph = num(WA.slot_hours_per_tib);
+    const window = Math.max(1, Math.min(24, Math.trunc(num(S.batch_window_hours))));
+    const biz = Math.max(1, Math.min(24, Math.trunc(num(S.business_hours))));
+    const peakF = Math.max(1, num(S.peak_concurrency));
+    const targetMin = Math.max(1, num(S.heavy_target_minutes));
+    const cls = { pipelines: 0, interactive: 0, adhoc: 0, heavy: 0 };
+    let totalTib = 0;
+    for (const { item, tib } of scanLines) {
+      totalTib += tib;
+      if (item.endsWith("pipelines (ELT)")) cls.pipelines += tib;
+      else if (["Simple queries", "Complex queries", "Dashboards / reports"].includes(item)) cls.interactive += tib;
+      else if (item === "Ad-hoc reports") cls.adhoc += tib;
+      else if (item === "Heavy / periodic queries") cls.heavy += tib;
+    }
+    const sh = Object.fromEntries(Object.entries(cls).map(([k, v]) => [k, v * sph]));
+    const totalSh = Object.values(sh).reduce((a, b) => a + b, 0);
+    const profile = new Array(24).fill(0);
+    for (let h = 0; h < window; h++) profile[h] += (sh.pipelines + sh.heavy) / 30 / window;
+    const start = 8;
+    for (let h = start; h < Math.min(24, start + biz); h++) profile[h] += (sh.interactive + sh.adhoc) / 30 / biz;
+    const avgSlots = totalSh / 730;
+    const peakProfile = profile.map((p, h) => p * (h >= start && h < start + biz ? peakF : 1));
+    const peakSlots = Math.max(...peakProfile);
+    const hq = W.queries.heavy, aq = W.queries.adhoc;
+    const heavyBurst = num(hq.count) ? ((num(hq.gb) / 1024) * sph) / (targetMin / 60) : 0;
+    const adhocBurst = num(aq.count) ? ((num(aq.gb) / 1024) * sph) / (targetMin / 60) : 0;
+    const maxSlots = ceilStep(Math.max(peakSlots, heavyBurst, adhocBurst, SLOT_STEP));
+    const reasons = [];
+    let edition = "standard";
+    const ent = [];
+    if (compTypes.has("vpc_sc")) ent.push("VPC Service Controls");
+    if (compTypes.has("cmek")) ent.push("customer-managed encryption keys");
+    if (compTypes.has("policy_tags")) ent.push("column / row-level security and data masking");
+    if (["bqml", "agent_platform", "gemini_enterprise"].some((t) => compTypes.has(t))) ent.push("BigQuery ML and AI functions");
+    if (num(W.dashboards.count) && num(W.dashboards.cache_pct) > 0) ent.push("BI Engine acceleration for dashboards");
+    if (ent.length) { edition = "enterprise"; reasons.push("Enterprise edition is needed for " + ent.join(", ") + " (not available in Standard)."); }
+    if (compTypes.has("assured_workloads")) { edition = "enterprise_plus"; reasons.push("Enterprise Plus is needed for Assured Workloads compliance controls and managed disaster recovery."); }
+    if (edition === "standard") reasons.push("No Enterprise-only features are in the architecture, so Standard edition (autoscaling only) fits.");
+    if (maxSlots > STANDARD_MAX_SLOTS && edition === "standard") { edition = "enterprise"; reasons.push(`Peak demand of ${maxSlots} slots exceeds Standard edition's ${STANDARD_MAX_SLOTS}-slot reservation limit.`); }
+    if (["standard", "enterprise", "enterprise_plus"].includes(S.edition)) {
+      if (S.edition !== edition) reasons.push(`Edition overridden to ${titleCase(S.edition)} by the architect.`);
+      edition = S.edition;
+    }
+    const ed = pricing.bigquery.editions[edition];
+    const paygP = ed.payg * uplift, c1P = ed.cud1 * uplift, c3P = ed.cud3 * uplift;
+    const canCommit = edition !== "standard";
+    const monthlyCost = (b, price) => { let auto = 0; for (const p of profile) auto += ceilStep(Math.max(0, p - b)); auto *= 30; return [b * 730 * price + auto * paygP, auto]; };
+    let bestB = 0, bestCost = null, bestAuto = 0;
+    const cands = canCommit ? Array.from({ length: maxSlots / SLOT_STEP + 1 }, (_, i) => i * SLOT_STEP) : [0];
+    for (const b of cands) { const [c, auto] = monthlyCost(b, c1P); if (bestCost === null || c < bestCost - 1e-9) { bestB = b; bestCost = c; bestAuto = auto; } }
+    const autoscaleOnly = monthlyCost(0, paygP)[0];
+    const rec3 = monthlyCost(bestB, c3P)[0];
+    const bq = pricing.bigquery;
+    const ondemand = Math.max(0, totalTib - bq.ondemand_free_tib) * bq.ondemand_tib * uplift;
+    const model = bestCost < ondemand * 0.9 ? "editions" : "ondemand";
+    const r2 = (x) => round2(x + 1e-12);
+    const f0 = (x) => Math.round(r2(x)).toLocaleString("en-US");
+    const edName = titleCase(edition);
+    const recs = [];
+    if (model === "editions") recs.push(`Use BigQuery ${edName} edition: ${f0(bestCost)} USD/month vs ${f0(ondemand)} USD on-demand for the same work.`);
+    else recs.push(`Stay on on-demand pricing (${f0(ondemand)} USD/month): at this volume slots would cost ${f0(bestCost)} USD/month. Revisit when scans grow.`);
+    if (canCommit && bestB) recs.push(`Reserve a baseline of ${bestB} slots on a 1-year commitment (${f0(rec3)} USD/month on 3 years) and let autoscaling cover peaks up to ${maxSlots} slots.`);
+    else if (canCommit) recs.push(`No baseline is worth committing yet - use an autoscaling reservation with max ${maxSlots} slots.`);
+    else recs.push(`Standard edition has no baseline or commitments: create an autoscaling reservation with max ${maxSlots} slots.`);
+    if (heavyBurst > peakSlots) recs.push(`Heavy / periodic queries need ~${ceilStep(heavyBurst)} slots to finish within ${+targetMin} minutes - schedule them in the batch window or a separate reservation so dashboards are not starved.`);
+    recs.push("Separate reservations (or assignments) for ELT, BI and data science keep workloads isolated; idle slots are shared between reservations automatically.");
+    recs.push("Validate after go-live with INFORMATION_SCHEMA.JOBS_TIMELINE and the slot estimator, then right-size the baseline.");
+    const labels = { pipelines: "ELT pipelines", interactive: "Dashboards & interactive queries", adhoc: "Ad-hoc reports", heavy: "Heavy / periodic queries" };
+    return {
+      inputs: S, slot_hours_per_tib: sph,
+      by_class: Object.keys(cls).map((k) => ({ class: labels[k], tib_month: pyRound(cls[k], 3), slot_hours_month: pyRound(sh[k], 1), avg_slots: pyRound(sh[k] / 730, 1) })),
+      profile: peakProfile.map((p) => pyRound(p, 1)),
+      avg_slots: pyRound(avgSlots, 1), peak_slots: pyRound(peakSlots, 1), heavy_burst_slots: pyRound(heavyBurst, 1), max_slots: maxSlots, baseline_slots: bestB,
+      edition, edition_reasons: reasons, model,
+      costs: { ondemand_month: r2(ondemand), autoscale_only_month: r2(autoscaleOnly), recommended_month: r2(bestCost), recommended_month_3yr: r2(rec3), autoscale_slot_hours_month: pyRound(bestAuto, 1) },
+      recommendations: recs,
+      by_environment: envs.map((e) => { const f = e.compute_pct / 100; return { id: e.id, name: e.name, baseline_slots: bestB ? ceilStep(bestB * f) : 0, max_slots: f ? ceilStep(maxSlots * f) : 0, bq_slots: e.bq_slots }; }),
     };
   }
 

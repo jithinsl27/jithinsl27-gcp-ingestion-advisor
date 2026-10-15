@@ -2,17 +2,21 @@
 # One-command deployment of Data Cloud Compass to Cloud Run.
 #
 # Usage:  ./deploy.sh [--project PROJECT_ID] [--region REGION] [--service NAME] [--private]
+#                     [--oauth-client-id CLIENT_ID]
 #
 # * Uses the active gcloud project if --project is not given.
 # * Enables the required APIs, builds the container with Cloud Build
 #   (no local Docker needed) and deploys it to Cloud Run.
 # * --private  : require IAM authentication (no public URL access).
+# * --oauth-client-id : optional OAuth web client ID; enables "Create in my Google Drive"
+#   for the Google Sheets / Slides exports (add the Cloud Run URL as an authorised origin).
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 REGION="${REGION:-us-central1}"
 SERVICE="${SERVICE:-ingestion-advisor}"
 PUBLIC=true
+OAUTH_CLIENT_ID="${GOOGLE_OAUTH_CLIENT_ID:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -20,7 +24,8 @@ while [[ $# -gt 0 ]]; do
     --region)  REGION="$2"; shift 2 ;;
     --service) SERVICE="$2"; shift 2 ;;
     --private) PUBLIC=false; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    --oauth-client-id) OAUTH_CLIENT_ID="$2"; shift 2 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -47,12 +52,15 @@ gcloud run deploy "${SERVICE}" \
   ${AUTH_FLAG} \
   --memory 512Mi --cpu 1 \
   --min-instances 0 --max-instances 3 \
-  --set-env-vars "APP_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo 1.0.0)" \
+  --set-env-vars "APP_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo 1.0.0),GOOGLE_OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}" \
   --quiet
 
 URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
 echo ""
 echo "Deployed: ${URL}"
+if [[ -n "${OAUTH_CLIENT_ID}" ]]; then
+  echo "Google Drive export enabled - add ${URL} as an authorised JavaScript origin of the OAuth client."
+fi
 if ! ${PUBLIC}; then
   echo "The service is private. Open it with:  gcloud run services proxy ${SERVICE} --region ${REGION}"
   echo "or put it behind Identity-Aware Proxy (see docs/deployment.md)."

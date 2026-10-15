@@ -28,7 +28,8 @@
       "location": "on_prem",
       "transform": "none",
       "initial_volume_gb": 0,
-      "daily_change_gb": 15
+      "daily_change_gb": 15,
+      "iot_option": "litmus"
     },
     {
       "id": "m3",
@@ -66,7 +67,8 @@
       "type": "gemini_enterprise",
       "settings": {
         "edition": "business",
-        "users": 40
+        "users": 40,
+        "grounding": "bigquery"
       }
     },
     {
@@ -107,6 +109,18 @@
       "id": "c104",
       "type": "scc",
       "settings": {}
+    }
+  ],
+  "environments": [
+    {
+      "id": "prod",
+      "name": "Production",
+      "preset": "prod"
+    },
+    {
+      "id": "dev",
+      "name": "Development",
+      "preset": "dev"
     }
   ]
 }

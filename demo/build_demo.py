@@ -23,6 +23,8 @@ sys.path.insert(0, str(ROOT))
 from app.catalog import catalog_payload  # noqa: E402
 from app.estimator import ASSUMPTIONS, CDC_CATEGORIES, load_pricing, load_regions  # noqa: E402
 from app.workload import DEFAULT_WORKLOAD, WORKLOAD_ASSUMPTIONS  # noqa: E402
+from app.bom import APIGEE_ROLE, GE_GROUNDING, WHY  # noqa: E402
+from app.environments import FACTORS, SHARED_SERVICES  # noqa: E402
 
 STATIC = ROOT / "app" / "static"
 DIST = Path(__file__).parent / "dist"
@@ -42,6 +44,8 @@ def data_payload() -> dict:
         "cdc_categories": sorted(CDC_CATEGORIES),
         "default_workload": DEFAULT_WORKLOAD,
         "workload_assumptions": WORKLOAD_ASSUMPTIONS,
+        "bom_why": WHY, "ge_grounding": GE_GROUNDING, "apigee_role": APIGEE_ROLE,
+        "env_factors": FACTORS, "shared_services": list(SHARED_SERVICES),
         "samples": samples,
     }
 
@@ -56,6 +60,8 @@ def build():
     css = (STATIC / "styles.css").read_text()
     app_js = (STATIC / "app.js").read_text()
     engine_js = (Path(__file__).parent / "engine.js").read_text()
+    exports_js = (STATIC / "exports.js").read_text()
+    vendor_js = (STATIC / "vendor" / "pptxgen.bundle.js").read_text()
     data_js = "window.ADVISOR_DATA = " + json.dumps(data_payload(), separators=(",", ":")) + ";"
 
     head_extra = '<meta name="claude:viewport-fit-sides" content="cover">'
@@ -69,6 +75,10 @@ def build():
                    f"<script>{safe_script(app_js)}</script>")
         out = html.replace('<link rel="stylesheet" href="/static/styles.css">', f"<style>{css}\n.demo-banner{{background:var(--blue-soft);color:var(--ink);font-size:13px;padding:6px max(16px, env(safe-area-inset-left, 0px));text-align:center}}</style>")
         out = out.replace('<script src="/static/app.js"></script>', scripts)
+        # Google Sheets / Slides exports: full page inlines the libraries; the sandboxed artifact cannot download files
+        vendor = "" if no_download else f"<script>{safe_script(vendor_js)}</script>"
+        out = out.replace('<script src="/static/vendor/pptxgen.bundle.js" defer></script>', vendor)
+        out = out.replace('<script src="/static/exports.js"></script>', f"<script>{safe_script(exports_js)}</script>")
         out = out.replace("<body>", "<body>\n  " + banner, 1)
         return out
 

@@ -6,6 +6,7 @@ Serves the single-page UI from /static and a small JSON API:
   POST /api/estimate   recommendations + 1/3-year ballpark
   POST /api/plan       month-by-month ramp-up plan with ramped consumption
   POST /api/workload   workload-based sizing (pipelines, queries, dashboards, data volumes)
+  GET  /api/config     front-end settings (optional Google OAuth client ID for Drive exports)
   GET  /healthz        liveness probe for Cloud Run
 """
 from __future__ import annotations
@@ -44,13 +45,37 @@ class Source(BaseModel):
     frequency: Literal["realtime", "near_realtime", "hourly", "daily", "weekly", "monthly", "one_time"] = "daily"
     location: Literal["on_prem", "gcp", "aws", "azure", "saas"] = "on_prem"
     transform: Literal["none", "light", "heavy"] = "none"
-    initial_volume_gb: float = Field(0, ge=0, le=50_000_000)
-    daily_change_gb: float = Field(0, ge=0, le=5_000_000)
+    initial_volume_gb: float = Field(0, ge=0, le=2e12)     # up to ~2 ZB (inputs accept KB ... ZB, stored in GB)
+    daily_change_gb: float = Field(0, ge=0, le=2e12)
     tables: Optional[int] = Field(None, ge=0)
     notes: str = Field("", max_length=2000)
     region: Optional[str] = None             # processing region for this source (defaults to scenario region)
     included: bool = True                    # False = kept in the scenario but left out of this phase's estimate
     start_month: Optional[int] = Field(None, ge=1, le=36)
+    iot_option: Optional[Literal["native", "mqtt_broker", "litmus", "clearblade", "mde"]] = None
+
+
+class Environment(BaseModel):
+    id: str = Field(..., max_length=40)
+    name: str = Field("", max_length=60)
+    preset: Optional[str] = Field(None, max_length=20)
+    included: bool = True
+    data_pct: Optional[float] = Field(None, ge=0, le=1000)
+    ingestion_pct: Optional[float] = Field(None, ge=0, le=1000)
+    compute_pct: Optional[float] = Field(None, ge=0, le=1000)
+    ai_pct: Optional[float] = Field(None, ge=0, le=1000)
+    apps_pct: Optional[float] = Field(None, ge=0, le=1000)
+    platform_pct: Optional[float] = Field(None, ge=0, le=1000)
+    bq_slots: Optional[float] = Field(None, ge=0, le=100_000)
+
+
+class Lakehouse(BaseModel):
+    raw_zone: bool = True
+    raw_scope: Literal["batch", "all"] = "batch"
+    raw_retention_months: int = Field(3, ge=1, le=120)
+    raw_storage_class: Literal["standard", "nearline", "coldline", "archive"] = "standard"
+    silver_pct: float = Field(30, ge=0, le=500)
+    gold_pct: float = Field(20, ge=0, le=500)
 
 
 class SecurityOpts(BaseModel):
@@ -71,19 +96,19 @@ class Component(BaseModel):
 class QueryLine(BaseModel):
     count: float = Field(0, ge=0, le=1_000_000)
     frequency: Literal["hourly", "daily", "weekly", "monthly", "quarterly", "yearly"] = "daily"
-    gb: float = Field(1, ge=0, le=10_000_000)
+    gb: float = Field(1, ge=0, le=2e12)
 
 
 class WorkloadData(BaseModel):
-    structured_tb: float = Field(20, ge=0, le=1_000_000)
-    semi_structured_tb: float = Field(10, ge=0, le=1_000_000)
-    unstructured_tb: float = Field(20, ge=0, le=1_000_000)
+    structured_tb: float = Field(20, ge=0, le=2e9)
+    semi_structured_tb: float = Field(10, ge=0, le=2e9)
+    unstructured_tb: float = Field(20, ge=0, le=2e9)
     annual_growth_pct: float = Field(20, ge=-50, le=500)
     tables: float = Field(500, ge=0, le=10_000_000)
 
 
 class WorkloadTelemetry(BaseModel):
-    volume_gb: float = Field(100, ge=0, le=100_000_000)
+    volume_gb: float = Field(100, ge=0, le=2e12)
     per: Literal["day", "month"] = "day"
     transform: bool = False
     retention_months: int = Field(13, ge=1, le=120)
@@ -101,15 +126,23 @@ class WorkloadDashboards(BaseModel):
     count: float = Field(25, ge=0, le=1_000_000)
     refreshes_per_day: float = Field(12, ge=0, le=1440)
     queries_per_refresh: float = Field(8, ge=0, le=1000)
-    gb_per_query: float = Field(0.5, ge=0, le=100_000)
+    gb_per_query: float = Field(0.5, ge=0, le=2e12)
     cache_pct: float = Field(60, ge=0, le=100)
 
 
 class WorkloadRamp(BaseModel):
     months: int = Field(2, ge=0, le=24)
-    data_gb: float = Field(110, ge=0, le=100_000_000)
+    data_gb: float = Field(110, ge=0, le=2e12)
     pipelines: float = Field(5, ge=0, le=100_000)
     reports: float = Field(1, ge=0, le=100_000)
+
+
+class WorkloadSlots(BaseModel):
+    batch_window_hours: float = Field(6, ge=1, le=24)
+    business_hours: float = Field(10, ge=1, le=24)
+    peak_concurrency: float = Field(1.5, ge=1, le=20)
+    heavy_target_minutes: float = Field(30, ge=1, le=1440)
+    edition: Literal["auto", "standard", "enterprise", "enterprise_plus"] = "auto"
 
 
 class Workload(BaseModel):
@@ -126,6 +159,7 @@ class Workload(BaseModel):
     slot_hours_per_tib: float = Field(60, gt=0, le=10_000)
     contingency_pct: float = Field(10, ge=0, le=100)
     include_components: bool = False
+    slots: Optional[WorkloadSlots] = None
 
 
 class Scenario(BaseModel):
@@ -147,11 +181,19 @@ class Scenario(BaseModel):
     workload: Optional[Workload] = None
     plan: Optional[dict[str, int]] = None    # {"teams": 2}
     excluded_services: list[str] = Field(default_factory=list, max_length=100)  # service lines left out of pricing
+    environments: Optional[list[Environment]] = Field(None, max_length=12)
+    lakehouse: Optional[Lakehouse] = None
 
 
 @app.get("/healthz")
 def healthz():
     return {"status": "ok", "version": VERSION}
+
+
+@app.get("/api/config")
+def get_config():
+    """Front-end settings. GOOGLE_OAUTH_CLIENT_ID enables 'Create in my Google Drive' for Sheets / Slides exports."""
+    return {"google_client_id": os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")}
 
 
 @app.get("/api/catalog")

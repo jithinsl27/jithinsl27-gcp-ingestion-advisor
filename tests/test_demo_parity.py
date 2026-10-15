@@ -39,7 +39,10 @@ def random_scenarios(n=25, seed=7):
                 **({"region": rnd.choice(regions)} if rnd.random() > .6 else {}),
                 **({"start_month": rnd.randint(1, 8)} if rnd.random() > .6 else {}),
                 **({"included": False} if rnd.random() > .8 else {}),
+                **({"iot_option": rnd.choice(["native", "mqtt_broker", "litmus", "clearblade", "mde"])} if rnd.random() > .5 else {}),
             })
+            if rnd.random() > .7:
+                srcs[-1]["type"] = "iot"
         out.append({
             "region": rnd.choice(regions), "skill": rnd.choice(["sql", "low_code", "code", "spark"]),
             "orchestration": rnd.choice(["auto", "auto", "composer", "workflows", "none"]),
@@ -50,7 +53,9 @@ def random_scenarios(n=25, seed=7):
             "processing_region": rnd.choice(regions),
             "components": [
                 {"id": f"c{k}", "type": c["id"],
-                 "settings": ({"region": rnd.choice(regions)} if c["costed"] and rnd.random() > .7 else {}),
+                 "settings": {**({"region": rnd.choice(regions)} if c["costed"] and rnd.random() > .7 else {}),
+                              **({"grounding": rnd.choice(["bigquery", "looker", "both", "agents"])} if c["id"] == "gemini_enterprise" else {}),
+                              **({"role": rnd.choice(["integration", "agents", "both"])} if c["id"] == "apigee" else {})},
                  **({"start_month": rnd.randint(1, 6)} if rnd.random() > .7 else {}),
                  **({"included": False} if rnd.random() > .8 else {})}
                 for k, c in enumerate(rnd.sample(COMPONENTS, rnd.randint(0, 8)))
@@ -62,9 +67,14 @@ def random_scenarios(n=25, seed=7):
                 "telemetry": {"volume_gb": rnd.choice([0, 100, 3000]), "per": rnd.choice(["day", "month"]), "transform": rnd.random() > .5},
                 "pipelines": {"engine": rnd.choice(["elt", "etl"]), "simple": rnd.randint(0, 80)},
                 "ramp": {"months": rnd.randint(0, 4)},
-                "queries": {"heavy": {"frequency": rnd.choice(["yearly", "quarterly"])}},
+                "queries": {"heavy": {"frequency": rnd.choice(["yearly", "quarterly"]), "gb": rnd.choice([100, 1024, 20000])}},
+                "slots": {"batch_window_hours": rnd.choice([4, 6, 10]), "edition": rnd.choice(["auto", "auto", "standard", "enterprise_plus"])},
             },
             "plan": {"teams": rnd.randint(1, 4)},
+            "environments": rnd.choice([None, [{"id": "prod", "name": "Prod"}, {"id": "dev", "preset": "dev"}],
+                                        [{"id": "p"}, {"id": "u", "preset": "uat", "compute_pct": 40, "bq_slots": 50}, {"id": "d", "preset": "dr"},
+                                         {"id": "x", "preset": "sandbox", "included": False}]]),
+            "lakehouse": rnd.choice([None, {"raw_zone": False}, {"raw_scope": "all", "raw_retention_months": 12, "raw_storage_class": "nearline", "silver_pct": 60, "gold_pct": 10}]),
             "excluded_services": rnd.sample(["Contingency & operations", "Datastream (CDC)", "BigQuery storage", "Composer (Airflow)", "Pub/Sub", "Network (HA VPN)"], rnd.randint(0, 2)),
             "sources": srcs,
         })
@@ -103,12 +113,30 @@ def test_js_engine_matches_python(tmp_path):
         assert [m["payg"] for m in js["monthly"]] == pytest.approx([m["payg"] for m in py["monthly"]], abs=0.05)
         assert {r["region"]: r["three_year"] for r in js["by_region"]} == pytest.approx({r["region"]: r["three_year"] for r in py["by_region"]}, abs=0.05)
         assert [c["type"] for c in js["platform"]["layer"]["components"]] == [c["type"] for c in py["platform"]["layer"]["components"]]
+        assert [c["mode_note"] for c in js["platform"]["layer"]["components"]] == [c["mode_note"] for c in py["platform"]["layer"]["components"]]
+        for f in ("raw_zone", "raw_scope", "raw_retention_months", "raw_storage_class"):
+            assert js["platform"]["lakehouse"][f] == py["platform"]["lakehouse"][f]
+        assert [l["gib_month12"] for l in js["platform"]["lakehouse"]["layers"]] == pytest.approx([l["gib_month12"] for l in py["platform"]["lakehouse"]["layers"]], abs=0.05)
+        # environments and bill of materials
+        assert [(e["id"], e["factors"]) for e in js["environments"]] == [(e["id"], e["factors"]) for e in py["environments"]]
+        assert [e["three_year"] for e in js["environments"]] == pytest.approx([e["three_year"] for e in py["environments"]], abs=0.05)
+        assert [(b["environment"], b["service"], b["unit"]) for b in js["bom"]] == [(b["environment"], b["service"], b["unit"]) for b in py["bom"]]
+        for a, b in zip(js["bom"], py["bom"]):
+            assert a["three_year"] == pytest.approx(b["three_year"], abs=0.05)
+            assert (a["qty_year1"] or 0) == pytest.approx(b["qty_year1"] or 0, abs=0.05, rel=1e-6)
+            assert a["why"] == b["why"]
         # workload sizing
         pw, jw = workload_estimate(sc), res["w"]
         for k, v in pw["totals"].items():
             assert jw["totals"][k] == pytest.approx(v, abs=0.05, rel=1e-6), ("workload", k)
         assert [(l["category"], l["service"], l["item"]) for l in jw["lines"]] == [(l["category"], l["service"], l["item"]) for l in pw["lines"]]
         assert [c["monthly"] for c in jw["compute_comparison"]] == pytest.approx([c["monthly"] for c in pw["compute_comparison"]], abs=0.05)
+        assert [e["three_year"] for e in jw["environments"]] == pytest.approx([e["three_year"] for e in pw["environments"]], abs=0.05)
+        js_s, py_s = jw["slots"], pw["slots"]
+        for f in ("max_slots", "baseline_slots", "edition", "edition_reasons", "model", "by_environment"):
+            assert js_s[f] == py_s[f], ("slots", f)
+        assert js_s["costs"] == pytest.approx(py_s["costs"], abs=0.05)
+        assert js_s["profile"] == pytest.approx(py_s["profile"], abs=0.11)
         # ramp-up plan
         pp, jp = build_plan(sc), res["p"]
         assert jp["horizon"] == pp["horizon"]

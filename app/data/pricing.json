@@ -45,8 +45,9 @@
     "editions": {
       "standard": {
         "payg": 0.04,
-        "cud1": 0.036,
-        "cud3": 0.032
+        "cud1": 0.04,
+        "cud3": 0.04,
+        "note": "Standard edition: autoscaling only - no baseline slots or capacity commitments; max 1,600 slots per reservation."
       },
       "enterprise": {
         "payg": 0.06,
@@ -125,7 +126,10 @@
   },
   "gcs": {
     "regional": true,
-    "standard_gib_month": 0.02
+    "standard_gib_month": 0.02,
+    "nearline_gib_month": 0.01,
+    "coldline_gib_month": 0.004,
+    "archive_gib_month": 0.0012
   },
   "storage_transfer": {
     "regional": false,

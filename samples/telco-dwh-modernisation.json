@@ -40,7 +40,8 @@
       "location": "on_prem",
       "transform": "heavy",
       "initial_volume_gb": 0,
-      "daily_change_gb": 250
+      "daily_change_gb": 250,
+      "iot_option": "native"
     },
     {
       "id": "t4",
@@ -129,6 +130,23 @@
       "id": "c105",
       "type": "scc",
       "settings": {}
+    }
+  ],
+  "environments": [
+    {
+      "id": "prod",
+      "name": "Production",
+      "preset": "prod"
+    },
+    {
+      "id": "dev",
+      "name": "Development",
+      "preset": "dev"
+    },
+    {
+      "id": "preprod",
+      "name": "Pre-production",
+      "preset": "preprod"
     }
   ]
 }

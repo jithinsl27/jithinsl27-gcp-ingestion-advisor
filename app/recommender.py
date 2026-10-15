@@ -40,6 +40,40 @@ def _alt(tool, why):
     return {"tool": tool, "why": why}
 
 
+def _iot(r, option):
+    """Adapt the event pattern to the chosen IoT integration (Google-native or ISV)."""
+    if option == "mqtt_broker":
+        r.chain = ["mqtt_broker"] + r.chain
+        r.engine += "+mqtt_broker"
+        r.pattern = "Devices -> MQTT broker on GKE / Compute Engine -> " + r.pattern
+        r.rationale.insert(0, "Devices keep speaking MQTT to a self-managed broker (EMQX, HiveMQ or Mosquitto) on GKE or Compute Engine, which bridges telemetry into Pub/Sub.")
+        r.caveats.append("You operate the broker: size it for concurrent device connections, run it as an HA pair and manage device certificates.")
+    elif option == "litmus":
+        r.chain = ["litmus"] + r.chain
+        r.primary = "litmus"
+        r.pattern = "Litmus Edge -> " + r.pattern
+        r.rationale.insert(0, "Litmus Edge (ISV) connects to PLCs, SCADA and historians with industrial drivers, normalises and contextualises data at the edge, and publishes to Pub/Sub; Litmus Edge Manager manages the fleet.")
+        r.caveats.append("Litmus is a partner licence (edge devices / sites) - not included in the GCP estimate.")
+    elif option == "clearblade":
+        r.chain = ["clearblade"] + r.chain
+        r.primary = "clearblade"
+        r.pattern = "ClearBlade IoT Core -> " + r.pattern
+        r.rationale.insert(0, "ClearBlade IoT Core (ISV) is the drop-in replacement for the retired Cloud IoT Core: MQTT / HTTP device registry, authentication and commands, forwarding telemetry to Pub/Sub.")
+        r.caveats.append("ClearBlade is a partner subscription - not included in the GCP estimate.")
+    elif option == "mde":
+        r.chain = ["litmus", "pubsub", "mde"]
+        r.primary = "mde"
+        r.engine = "pubsub+dataflow_stream"
+        r.pattern = "Manufacturing Connect (Litmus) -> Pub/Sub -> Manufacturing Data Engine -> BigQuery"
+        r.rationale = ["Google Cloud Manufacturing Data Engine (MDE) with Manufacturing Connect edge (built with Litmus) ingests OT data, applies a common manufacturing data model and writes to BigQuery, Bigtable and Cloud Storage.",
+                       "Best for plant-floor analytics, OEE and predictive maintenance at multi-site scale."]
+        r.caveats.append("MDE is deployed with a Google partner; Manufacturing Connect edge licences are not included in this estimate.")
+    else:
+        r.rationale.insert(0, "Google Cloud native: devices (or a gateway) publish over HTTPS / gRPC with the Pub/Sub client libraries using service-account or workload-identity credentials.")
+        r.caveats.append("Cloud IoT Core is retired - for MQTT devices choose an MQTT broker on GKE or an ISV such as ClearBlade or Litmus.")
+    return r
+
+
 def recommend(src: dict, prefs: dict | None = None) -> Recommendation:
     prefs = prefs or {}
     skill = prefs.get("skill", "sql")
@@ -251,7 +285,7 @@ def recommend(src: dict, prefs: dict | None = None) -> Recommendation:
             r.rationale.append("Pub/Sub decouples producers; Dataflow streaming handles parsing, enrichment, windowing and exactly-once writes to BigQuery.")
             r.alternatives.append(_alt("pubsub", "Pub/Sub BigQuery subscription + Dataform/continuous queries if transformations can run after landing (ELT)."))
         if stype == "iot":
-            r.caveats.append("IoT Core is retired: devices publish via MQTT broker partners or HTTPS to Pub/Sub.")
+            r = _iot(r, src.get("iot_option") or "native")
 
     elif cat == "logs":
         r = Recommendation(sid, "log_sink", "Cloud Logging sink -> BigQuery (or Log Analytics)",

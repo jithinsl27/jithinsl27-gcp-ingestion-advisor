@@ -82,6 +82,27 @@ Entries flagged `"verify": true` are approximations (Composer environment size i
 
 Partner components (Power BI, Tableau, MicroStrategy, Qlik, ThoughtSpot, DataRobot, Dataiku, SageMaker, Azure ML, Databricks, Collibra, Alation, Atlan, Informatica) are never costed.
 
+## Environments
+
+The scenario describes the primary environment. Each additional environment adds a copy of every service line scaled by one factor: storage, Cloud Storage and initial loads by *data %*; CDC, pipelines, streaming, Write API and transfer by *ingestion %*; BigQuery query compute by *compute %* (or `bq_slots / baseline slots` with editions); BI, Gemini Enterprise, agents and GPU endpoints by *AI %*; Apigee and operational databases by *apps %*; orchestration, Data Fusion, governance and security by *platform %*. HA VPN / Interconnect and the Looker licence are shared (factor 0). Contingency applies to the total.
+
+## Lakehouse layers
+
+- **Raw zone**: GiB landed = initial load + monthly change of the sources in scope (file / extract-based engines, or all sources), kept for *retention* months, priced at the chosen Cloud Storage class (Standard $0.020, Nearline $0.010, Coldline $0.004, Archive $0.0012 per GiB-month in us-central1). It replaces the short-lived landing bucket.
+- **Silver and gold**: BigQuery storage is bronze × (1 + silver % + gold %); defaults 30 % + 20 % (the previous 50 % curated overhead).
+
+## IoT
+
+Google-native Pub/Sub ingestion is costed as before. *MQTT broker on GKE / Compute Engine* adds an HA pair of 4-vCPU VMs. *Manufacturing Data Engine* is costed as Pub/Sub + Dataflow streaming. Litmus, ClearBlade and Manufacturing Connect licences are partner costs and are not included.
+
+## Bill of materials
+
+Every line item carries a quantity in its billing unit (GiB, TiB scanned, slot-hours, vCPU-hours, DCU-hours, user-months, node-hours, M API calls …). The BOM shows month-12 and year-1 quantities and a blended unit price = year-1 cost ÷ year-1 quantity, which includes regional uplift, tiers and free allowances.
+
+## BigQuery slot sizing
+
+Per job type: monthly TiB × slot-hours per TiB (default 60). Pipelines and heavy jobs fill the batch window; dashboards, interactive and ad-hoc queries fill business hours, multiplied by the busiest-hour factor for the peak. Max autoscale = max(peak hour, heavy-query burst to finish within the target minutes) rounded up to 50 slots. The baseline is chosen from 0 … max in 50-slot steps to minimise `baseline × 730 × 1-yr commit price + Σ autoscaled slots (rounded up to 50) × 30 × PAYG price`. Standard edition: no baseline or commitments, 1,600-slot maximum. Editions recommended only when at least 10 % cheaper than on-demand.
+
 ## Regions
 
 Every line item carries a region. Sources use their own processing region (default: BigQuery region); Google components can each set a region; orchestration, Data Fusion and network use the processing region; BigQuery, storage and security use the home region. When a source (or workload streaming) runs outside the BigQuery region, cross-region transfer is added at ~$0.02/GiB within a continent and ~$0.08/GiB between continents (verify for specific routes).

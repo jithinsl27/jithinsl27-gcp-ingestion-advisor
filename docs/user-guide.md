@@ -22,11 +22,20 @@ Click **Add source** for each system the customer wants in BigQuery.
 | Freshness needed | Real-time … monthly, or one-time migration | CDC / streaming vs batch |
 | In-flight transformation | None (ELT), light, heavy | Adds processing, changes throughput |
 | Processing region | Where this source's ingestion runs (default: BigQuery region) | Regional price and cross-region transfer |
-| Initial volume (GB) / Daily change (GB/day) | Historical load and ongoing change | One-time and ongoing cost, storage growth |
+| Initial volume / Daily change | Historical load and ongoing change, in KB, MB, GB, TB, PB, EB or ZB | One-time and ongoing cost, storage growth |
+| IoT integration (IoT sources only) | Google Cloud native (Pub/Sub direct, MQTT broker on GKE, Manufacturing Data Engine) or ISV (Litmus Edge, ClearBlade IoT Core) | Pattern, diagram and cost (ISV licences are not costed; the MQTT broker is costed as an HA pair of VMs) |
 
 The colour bar shows the flow: green dashed = streaming/CDC, orange = scheduled batch, red dotted = one-time.
 
-## 3. Engagement settings
+## 3. Environments
+
+Choose the **Total** number of environments in the sidebar and press **Size** to open the sizing grid. The first environment (normally production) is the baseline described by your sources, products and workload. Every other environment is sized as a percentage of it per capability: data volume, ingestion & pipelines, BigQuery compute (or a fixed slot count with editions), BI/AI/agent usage, APIs & databases, and platform/governance/security. Presets give sensible starting points (development 10 %, UAT 25 %, pre-production 50 %, DR keeps 100 % of the data with little compute). Network links and the Looker licence are shared and counted once. The Consumption estimate and Workload sizing tabs show cost by environment, and the bill of materials can be filtered by environment.
+
+## 3b. Lakehouse layers
+
+The **Lakehouse layers** panel controls the Cloud Storage **raw zone** (on/off, which sources land there, retention and storage class) and the size of the BigQuery **silver** and **gold** layers as a share of bronze. The diagram shows the raw zone and the three layers with their size at month 12.
+
+## 3c. Engagement settings
 
 Team skill set (drives batch tool choice), orchestration, BigQuery pricing model and slots, analytics scan volume, growth, contingency, environment, and the **processing region** for shared services (orchestration, Data Fusion, network).
 
@@ -39,6 +48,15 @@ At the top of the **Architecture** tab, type a product name in the search box (e
 - **Governance and security are products too** - Knowledge Catalog, Collibra, Alation, Atlan, Informatica, Sensitive Data Protection, Cloud KMS (CMEK), VPC Service Controls, policy tags & masking, Security Command Center, Assured Workloads. The band at the bottom of the diagram shows only what you add.
 - **Google Cloud products are costed; partner products** (Power BI, Tableau, SageMaker, Databricks, Collibra …) are drawn with a dashed border and a *Partner* tag and never costed.
 
+### Gemini Enterprise and Apigee wiring
+
+Customers use these differently, so the connection is flexible:
+
+- **Gemini Enterprise** can be grounded on **BigQuery** (federated data store), on **Looker**'s semantic layer, on **both**, or reach data only **through agents**. Drag its node on the diagram onto Looker, BigQuery or an agent, or pick *Connects to* in its settings or on the Integrations tab. Grounding on Looker adds Looker if it is missing.
+- **Apigee** can be the **integration layer** (in front of application, SaaS and API sources, and publishing data products as APIs), the **AI gateway** for agents, or both. Drag it onto the source systems or an agent, or pick *Used as*.
+
+The diagram edges, the Integrations narrative, the bill of materials and the exports follow the choice.
+
 ### Choosing what is priced
 
 - **Sources**: tick or untick each source in the sidebar (or use **Select all** / **Clear all**). Unticked sources stay in the scenario, appear dimmed as *Later phase* on the diagram, and are left out of recommendations, the estimate and the roadmap - useful for pricing phase 1 first.
@@ -46,6 +64,8 @@ At the top of the **Architecture** tab, type a product name in the search box (e
 - **Service lines**: on the Consumption estimate tab, untick any service (e.g. Datastream, Composer, contingency) to leave it out of every total, the roadmap and workload sizing; unticked lines stay listed so you can tick them back.
 
 ## 5. Tabs
+
+The **Consumption estimate** tab includes cost **by environment** and the **bill of materials**: product, quantity per month (month 12) and for year 1, unit, blended unit price, month-12 / year-1 / 3-year cost, and why the service is needed (with the sources that drive it).
 
 | Tab | Use it to |
 |---|---|
@@ -69,7 +89,13 @@ Use when the customer describes workloads rather than systems, e.g. *"100 pipeli
 - **Ramp-up phase**: months, data volume, pipelines and reports during ramp-up.
 - **Regions & pricing**: separate regions for data & queries, pipelines and streaming; on-demand or editions (with slot-hours per TiB); option to include the components from the Architecture tab.
 
+Every volume field has a unit selector (KB … ZB).
+
 Results: ramp-up and steady-state monthly cost, 1-year and 3-year totals, by category, monthly chart, on-demand vs editions comparison, line items and by region.
+
+### BigQuery slot sizing
+
+From the same inputs the tool sizes slots: each job type's monthly TiB × slot-hours per TiB, placed in an average day (pipelines and heavy periodic jobs in the batch window, dashboards, interactive and ad-hoc queries over business hours, with a busiest-hour factor). It reports average and peak slots, the burst a heavy query needs to finish in the target time, the **max autoscale** reservation (50-slot steps) and the **baseline** that minimises baseline-commitment + autoscaling cost. The **edition** is chosen from the architecture (Enterprise for VPC-SC, CMEK, column/row security, BigQuery ML, BI Engine; Enterprise Plus for Assured Workloads / managed DR; Standard otherwise - Standard has no baseline or commitments and a 1,600-slot limit), and on-demand is recommended when it is cheaper. **Use in the consumption estimate** copies the edition and slots to the Engagement settings.
 
 ## 7. Roadmap
 
@@ -82,7 +108,14 @@ Generated automatically from the sources and components:
 
 ## 8. Export and save
 
-**Export**: Markdown proposal (includes integrations, workload sizing and roadmap), CSV, scenario JSON, architecture SVG, print/PDF. **Open scenario** reloads a saved JSON.
+**Export**:
+
+- **Google Sheets** - a workbook with summary, the architecture picture and layer list, sources and patterns, bill of materials, monthly consumption, environments, workload and slot sizing, roadmap and assumptions, with native charts.
+- **Google Slides** - a customer deck: title, target architecture, ingestion patterns, integrations, consumption KPIs and charts, environments, bill of materials, slot sizing, roadmap, assumptions and next steps.
+
+Choose **Create in my Google Drive** to upload and convert to Sheets / Slides (needs an OAuth client ID once - see [deployment](deployment.md#google-sheets--slides-export)), or **Download** the .xlsx / .pptx and open it with Google Sheets / Slides.
+
+Also: Markdown proposal, CSV (includes the bill of materials), scenario JSON, architecture SVG, print/PDF. **Open scenario** reloads a saved JSON.
 
 ## Good practice
 

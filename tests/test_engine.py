@@ -205,3 +205,117 @@ def test_services_and_components_can_be_left_out_of_pricing():
     r = estimate({**sc, "components": comps})
     assert not any(s["service"] == "Gemini Enterprise" for s in r["by_service"])
     assert any(c["type"] == "gemini_enterprise" and not c["included"] for c in r["platform"]["layer"]["components"])
+
+
+# --------------------------------------------------------------------------- environments, BOM, lakehouse, IoT, modes, slots
+from app.workload import workload_estimate  # noqa: E402
+
+
+def _base(**kw):
+    sc = {"region": "us-central1", "bq_model": "ondemand", "contingency_pct": 10,
+          "sources": [src(id="a", type="oracle", frequency="near_realtime", daily_change_gb=50, initial_volume_gb=1000),
+                      src(id="b", type="files_onprem", frequency="daily", daily_change_gb=20, initial_volume_gb=500)],
+          "components": [{"id": "c1", "type": "looker", "settings": {}}, {"id": "c2", "type": "gemini_enterprise", "settings": {}},
+                         {"id": "c3", "type": "apigee", "settings": {}}]}
+    sc.update(kw)
+    return sc
+
+
+def test_environments_add_scaled_cost_and_sum_to_total():
+    one = estimate(_base())
+    three = estimate(_base(environments=[{"id": "prod"}, {"id": "dev", "preset": "dev"}, {"id": "uat", "preset": "uat"}]))
+    assert len(three["environments"]) == 3
+    assert three["totals"]["three_year_payg"] > one["totals"]["three_year_payg"]
+    assert sum(e["three_year"] for e in three["environments"]) == pytest.approx(three["totals"]["three_year_payg"], abs=1)
+    assert three["environments"][0]["three_year"] == pytest.approx(one["totals"]["three_year_payg"], abs=1)
+    dev = three["environments"][1]
+    assert 0 < dev["three_year"] < three["environments"][0]["three_year"] * 0.5
+
+
+def test_environment_factor_zero_adds_nothing_and_network_is_shared():
+    sc = _base(environments=[{"id": "p"}, {"id": "z", "preset": "dev", **{f: 0 for f in ("data_pct", "ingestion_pct", "compute_pct", "ai_pct", "apps_pct", "platform_pct")}}])
+    r = estimate(sc)
+    assert r["environments"][1]["three_year"] == 0
+    assert r["totals"]["three_year_payg"] == pytest.approx(estimate(_base())["totals"]["three_year_payg"], abs=0.5)
+
+
+def test_bom_rows_have_quantities_units_and_reasons():
+    r = estimate(_base())
+    assert r["bom"]
+    total = sum(b["three_year"] for b in r["bom"])
+    assert total == pytest.approx(r["totals"]["three_year_payg"], abs=1)
+    ds = next(b for b in r["bom"] if b["service"] == "Datastream (CDC)")
+    assert ds["unit"] == "GiB" and ds["qty_month12"] > 0 and ds["unit_price"] > 0
+    assert "Driven by" in ds["why"]
+    assert all(b["why"] for b in r["bom"])
+
+
+def test_raw_zone_and_medallion_layers():
+    on = estimate(_base())
+    off = estimate(_base(lakehouse={"raw_zone": False}))
+    svcs_on = {s["service"] for s in on["by_service"]}
+    assert "Cloud Storage (raw zone)" in svcs_on
+    assert "Cloud Storage (raw zone)" not in {s["service"] for s in off["by_service"]}
+    layers = on["platform"]["lakehouse"]["layers"]
+    assert [l["id"] for l in layers] == ["bronze", "silver", "gold"]
+    more_gold = estimate(_base(lakehouse={"gold_pct": 80}))
+    bq = lambda r: next(s["three_year"] for s in r["by_service"] if s["service"] == "BigQuery storage")  # noqa: E731
+    assert bq(more_gold) > bq(on)
+
+
+def test_iot_options_change_pattern_and_cost():
+    native = recommend(src(type="iot", frequency="realtime", iot_option="native"), {})
+    litmus = recommend(src(type="iot", frequency="realtime", iot_option="litmus"), {})
+    mqtt = recommend(src(type="iot", frequency="realtime", iot_option="mqtt_broker"), {})
+    assert litmus.chain[0] == "litmus" and litmus.primary == "litmus"
+    assert "mqtt_broker" in mqtt.engine
+    assert native.chain[0] == "pubsub"
+    sc = lambda opt: {"sources": [src(type="iot", frequency="realtime", daily_change_gb=10, iot_option=opt)]}  # noqa: E731
+    assert "MQTT broker (Compute Engine)" in {s["service"] for s in estimate(sc("mqtt_broker"))["by_service"]}
+    assert estimate(sc("litmus"))["totals"]["three_year_payg"] == pytest.approx(estimate(sc("native"))["totals"]["three_year_payg"])
+
+
+def test_gemini_enterprise_grounding_and_apigee_role():
+    bq_q = lambda r: [s for s in r["by_service"] if s["service"] == "BigQuery queries from Gemini Enterprise"]  # noqa: E731
+    assert bq_q(estimate(_base()))
+    agents_only = _base()
+    agents_only["components"][1]["settings"] = {"grounding": "agents"}
+    assert not bq_q(estimate(agents_only))
+    looker = _base()
+    looker["components"][1]["settings"] = {"grounding": "looker"}
+    view = next(c for c in estimate(looker)["platform"]["layer"]["components"] if c["type"] == "gemini_enterprise")
+    assert "Looker" in view["mode_note"]
+    ap = _base()
+    ap["components"][2]["settings"] = {"role": "agents"}
+    row = next(b for b in estimate(ap)["bom"] if b["service"] == "Apigee (environment)")
+    assert "AI gateway" in row["why"]
+
+
+def test_slot_sizing_recommendation():
+    w = workload_estimate({"region": "us-central1", "components": [], "workload": {}})
+    sl = w["slots"]
+    assert sl["max_slots"] % 50 == 0 and sl["max_slots"] >= sl["baseline_slots"]
+    assert sl["edition"] in ("standard", "enterprise", "enterprise_plus")
+    assert sl["recommendations"] and len(sl["profile"]) == 24
+    big = workload_estimate({"region": "us-central1", "components": [{"id": "c", "type": "vpc_sc"}],
+                             "workload": {"data": {"structured_tb": 2000}, "pipelines": {"simple": 2000, "medium": 1000, "complex": 500, "runs_per_day": 4},
+                                           "slots": {"batch_window_hours": 24}}})["slots"]
+    assert big["edition"] == "enterprise"
+    assert big["avg_slots"] > sl["avg_slots"]
+    assert big["model"] == "editions" and big["baseline_slots"] > 0
+
+
+def test_standard_edition_has_no_commitments():
+    w = workload_estimate({"region": "us-central1", "components": [], "workload": {"slots": {"edition": "standard"}}})
+    assert w["slots"]["baseline_slots"] == 0
+
+
+def test_api_accepts_new_fields():
+    c = TestClient(app)
+    body = _base(environments=[{"id": "p", "name": "Prod"}, {"id": "d", "preset": "dev", "bq_slots": 50}],
+                 lakehouse={"raw_scope": "all", "raw_storage_class": "nearline"})
+    body["sources"].append(src(id="i", type="iot", frequency="realtime", iot_option="clearblade", daily_change_gb=1e6))
+    r = c.post("/api/estimate", json=body)
+    assert r.status_code == 200, r.text
+    assert len(r.json()["environments"]) == 2
+    assert c.get("/api/config").json() == {"google_client_id": ""}

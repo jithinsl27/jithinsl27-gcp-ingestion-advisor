@@ -44,6 +44,9 @@
       <div class="menu">
         <button class="btn primary" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export</button>
         <div class="menu-pop right" id="exportMenu" role="menu" hidden>
+          <button role="menuitem" data-export="gsheets">Google Sheets - architecture, sizing &amp; charts</button>
+          <button role="menuitem" data-export="gslides">Google Slides - customer presentation</button>
+          <hr>
           <button role="menuitem" data-export="md">Proposal (Markdown)</button>
           <button role="menuitem" data-export="csv">Cost breakdown (CSV)</button>
           <button role="menuitem" data-export="json">Save scenario (JSON)</button>
@@ -74,6 +77,17 @@
         <div class="empty" id="sourceEmpty">
           <p>Add each system the customer wants in BigQuery. You'll get a pattern per source and a running cost.</p>
         </div>
+      </section>
+
+      <section class="panel" aria-labelledby="envHead">
+        <div class="panel-head">
+          <h2 id="envHead">Environments</h2>
+          <label class="inline-field small">Total
+            <select id="envCount" aria-label="Total number of environments"></select>
+          </label>
+          <button class="btn ghost small" id="envConfigure" type="button">Size</button>
+        </div>
+        <ul class="env-list" id="envList"></ul>
       </section>
 
       <details class="panel settings" open>
@@ -112,6 +126,31 @@
           </label>
         </div>
       </details>
+
+      <details class="panel settings" id="lakePanel">
+        <summary><h2>Lakehouse layers</h2></summary>
+        <div class="grid2">
+          <label class="toggle span2"><input type="checkbox" id="lk_raw_zone"> Cloud Storage raw zone</label>
+          <label>Land in raw zone
+            <select id="lk_raw_scope">
+              <option value="batch">Batch file / extract sources</option>
+              <option value="all">All sources (incl. CDC, streams)</option>
+            </select>
+          </label>
+          <label>Raw retention (months)
+            <input id="lk_raw_retention_months" type="number" min="1" max="120" step="1">
+          </label>
+          <label class="span2">Raw zone storage class
+            <select id="lk_raw_storage_class"></select>
+          </label>
+          <label>Silver, % of bronze
+            <input id="lk_silver_pct" type="number" min="0" max="500" step="5">
+          </label>
+          <label>Gold, % of bronze
+            <input id="lk_gold_pct" type="number" min="0" max="500" step="5">
+          </label>
+        </div>
+      </details>
     </aside>
 
     <section class="stage">
@@ -146,7 +185,8 @@
           <span><i class="ln batch"></i>Scheduled batch</span>
           <span><i class="ln once"></i>One-time migration</span>
         </div>
-<div class="diagram-wrap" id="diagram"></div></div>
+<div class="diagram-wrap" id="diagram"></div>
+<p class="canvas-tip" id="canvasTip">Tip: drag <b>Gemini Enterprise</b> onto Looker, BigQuery or an agent, or drag <b>Apigee</b> onto the source systems (integration layer) or an agent (AI gateway), to change how they connect.</p></div>
       </div>
 
       <div class="tabpanel" id="tab-recs" role="tabpanel" hidden>
@@ -200,11 +240,14 @@
         <label class="span2">Processing region for this source
           <select id="f_region"></select>
         </label>
-        <label>Initial / historical volume (GB)
-          <input id="f_initial_volume_gb" type="number" min="0" step="any" value="100">
+        <label class="span2" id="f_iot_wrap" hidden>IoT integration
+          <select id="f_iot_option"></select>
         </label>
-        <label>Daily change volume (GB/day)
-          <input id="f_daily_change_gb" type="number" min="0" step="any" value="1">
+        <label>Initial / historical volume
+          <span class="vol"><input id="f_initial_volume_gb" type="number" min="0" step="any" value="100"><select id="f_initial_unit" aria-label="Unit for initial volume"></select></span>
+        </label>
+        <label>Daily change volume (per day)
+          <span class="vol"><input id="f_daily_change_gb" type="number" min="0" step="any" value="1"><select id="f_daily_unit" aria-label="Unit for daily change volume"></select></span>
         </label>
         <label class="span2">Discovery notes
           <textarea id="f_notes" rows="2" placeholder="Owners, constraints, SLAs, licensing..."></textarea>
@@ -243,6 +286,42 @@
     </form>
   </dialog>
 
+  <dialog id="envDialog" aria-labelledby="envTitle" class="wide">
+    <form id="envForm" method="dialog">
+      <h2 id="envTitle">Environments and sizing</h2>
+      <p class="hint">The sources, products and workload describe the first environment (normally production). Size every other environment as a percentage of it per capability - e.g. development with 10% of the data and compute. Network links and the Looker licence are shared and counted once.</p>
+      <div class="env-grid-wrap"><table class="env-grid" id="envGrid"></table></div>
+      <div class="dlg-actions">
+        <button type="button" class="btn ghost" id="envAdd">Add environment</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="envCancel">Cancel</button>
+        <button type="submit" class="btn primary">Apply</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="gDialog" aria-labelledby="gTitle">
+    <form method="dialog" id="gForm">
+      <h2 id="gTitle">Export to Google Workspace</h2>
+      <p id="gIntro" class="hint"></p>
+      <div class="g-actions">
+        <button type="button" class="btn primary" id="gDrive">Create in my Google Drive</button>
+        <button type="button" class="btn ghost" id="gDownload">Download file</button>
+      </div>
+      <details class="g-setup" id="gSetup">
+        <summary>Set up direct export to Google Drive (one time)</summary>
+        <ol>
+          <li>In the Google Cloud console open <b>APIs &amp; Services → Credentials</b>, create an <b>OAuth client ID</b> of type <i>Web application</i>, and add this page's origin (<code id="gOrigin"></code>) as an authorised JavaScript origin.</li>
+          <li>Enable the <b>Google Drive API</b> in the same project and configure the OAuth consent screen.</li>
+          <li>Paste the client ID below (or deploy with <code>./deploy.sh --oauth-client-id …</code> so every user gets it).</li>
+        </ol>
+        <label>OAuth client ID<input id="gClientId" type="text" placeholder="1234-abc.apps.googleusercontent.com" autocomplete="off" spellcheck="false"></label>
+      </details>
+      <p class="hint" id="gStatus" role="status"></p>
+      <div class="dlg-actions"><span class="spacer"></span><button class="btn ghost" id="gClose" type="button">Close</button></div>
+    </form>
+  </dialog>
+
   <dialog id="copyDialog" aria-labelledby="copyTitle">
     <form method="dialog">
       <h2 id="copyTitle">Export</h2>
@@ -253,6 +332,8 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/static/vendor/pptxgen.bundle.js" defer></script>
+  <script src="/static/exports.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

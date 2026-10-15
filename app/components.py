@@ -168,7 +168,17 @@ COMPONENTS = [
         "settings": [
             sel("edition", "Edition", "standard", [("business", "Business"), ("standard", "Standard"), ("plus", "Plus")]),
             num("users", "Users", 100, 10),
+            sel("grounding", "Connects to", "bigquery", [("bigquery", "BigQuery (federated data store)"), ("looker", "Looker semantic layer"),
+                                                        ("both", "BigQuery and Looker"), ("agents", "Data agents only")]),
+            num("questions_per_user_month", "Data questions per user / month", 20, 5),
+            num("gb_per_question", "BigQuery GB scanned per question", 0.5, 0.1),
         ],
+        "modes": {"key": "grounding", "notes": {
+            "bigquery": "Gemini Enterprise queries BigQuery directly through a federated BigQuery data store; answers respect each user's IAM, row and column policies.",
+            "looker": "Gemini Enterprise is grounded on Looker: questions are answered from governed LookML metrics (Looker Conversational Analytics), so numbers match dashboards. Requires Looker in the architecture.",
+            "both": "Structured questions go through the Looker semantic layer for governed metrics; open exploration and Deep Research use the BigQuery data store.",
+            "agents": "Gemini Enterprise is the front door only; data access happens through data agents registered from Agent Platform.",
+        }},
         "steps": [
             "Create a BigQuery data store - federated query (queries data in place, recommended) or data ingestion - so agents in Gemini Enterprise can analyse the tables.",
             "Register data agents built on Agent Platform so employees use them from Gemini Enterprise.",
@@ -275,7 +285,14 @@ COMPONENTS = [
             sel("proxy_type", "Proxy type", "standard", [("standard", "Standard proxy"), ("extensible", "Extensible proxy (custom code / AI policies)")]),
             sel("analytics", "API Analytics add-on", "yes", [("yes", "Yes"), ("no", "No")]),
             sel("advanced_security", "Advanced API Security add-on", "no", [("yes", "Yes"), ("no", "No")]),
+            sel("role", "Used as", "both", [("integration", "Integration layer (apps, SaaS, data APIs)"), ("agents", "AI gateway & tools for agents"),
+                                           ("both", "Integration layer and AI gateway")]),
         ],
+        "modes": {"key": "role", "notes": {
+            "integration": "Integration layer: Apigee fronts source applications, SaaS and partner APIs feeding the platform, and publishes BigQuery / database-backed data products as managed APIs (OAuth, quotas, monetisation).",
+            "agents": "AI gateway: agents reach Gemini and model endpoints through Apigee (token quotas, semantic caching, Model Armor) and discover approved MCP tools in API hub.",
+            "both": "One Apigee estate does both: the integration layer for applications and data products, and the AI gateway / tool registry for agents.",
+        }},
         "steps": [
             "Expose curated data products (Cloud Run / BigQuery-backed services) and agent endpoints as managed APIs with OAuth2, API keys and quotas.",
             "Use Apigee as the AI gateway in front of Gemini and model endpoints: token-based quotas, semantic caching and Model Armor screening of prompts and responses.",
@@ -573,11 +590,15 @@ def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, ad
                 continue
             set_region(s.get("region") or home_region)
             if t == "looker":
-                add(m, "Looker licence (customer quote)", "_ai", float(s.get("annual_quote_usd") or 0) / 12)
+                add(m, "Looker licence (customer quote)", "_ai", float(s.get("annual_quote_usd") or 0) / 12, q=(1, "licence-months"))
             elif t == "looker_studio_pro":
-                add(m, "Looker Studio Pro", "_ai", float(s["users"]) * pricing["looker"]["studio_pro_user_month"])
+                add(m, "Looker Studio Pro", "_ai", float(s["users"]) * pricing["looker"]["studio_pro_user_month"], q=(float(s["users"]), "user-months"))
             elif t == "gemini_enterprise":
-                add(m, "Gemini Enterprise", "_ai", float(s["users"]) * pricing["gemini_enterprise"][f"{s['edition']}_user_month"])
+                add(m, "Gemini Enterprise", "_ai", float(s["users"]) * pricing["gemini_enterprise"][f"{s['edition']}_user_month"], q=(float(s["users"]), "user-months"))
+                if bq_model == "ondemand" and s.get("grounding", "bigquery") != "agents":
+                    tib = float(s["users"]) * float(s.get("questions_per_user_month") or 0) * float(s.get("gb_per_question") or 0) / GIB_PER_TIB
+                    set_region(home_region)
+                    add(m, "BigQuery queries from Gemini Enterprise", "_ai", tib * pricing["bigquery"]["ondemand_tib"] * up("bigquery"), q=(tib, "TiB scanned"))
             elif t == "agent_platform":
                 req = float(s["requests_month"])
                 ae = pricing["agent_engine"]
@@ -586,72 +607,76 @@ def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, ad
                 u = up("agent_engine")
                 add(m, "Agent Engine runtime", "_ai", (vcpu_h * ae["vcpu_hr"] + gib_h * ae["gib_hr"]) * u,
                     cud1=(vcpu_h * ae["cud1_vcpu_hr"] + gib_h * ae["cud1_gib_hr"]) * u,
-                    cud3=(vcpu_h * ae["cud3_vcpu_hr"] + gib_h * ae["cud3_gib_hr"]) * u)
+                    cud3=(vcpu_h * ae["cud3_vcpu_hr"] + gib_h * ae["cud3_gib_hr"]) * u, q=(vcpu_h, "vCPU-hours"))
                 gm = pricing["gemini_models"][s["model"]]
                 add(m, f"{gm['name']} tokens (agents)", "_ai",
-                    req * (float(s["input_tokens"]) * gm["input_mtok"] + float(s["output_tokens"]) * gm["output_mtok"]) / 1e6)
+                    req * (float(s["input_tokens"]) * gm["input_mtok"] + float(s["output_tokens"]) * gm["output_mtok"]) / 1e6,
+                    q=(req * (float(s["input_tokens"]) + float(s["output_tokens"])) / 1e6, "M tokens"))
                 if bq_model == "ondemand":
                     tib = req * float(s["bq_gb_per_request"]) / GIB_PER_TIB
-                    add(m, "BigQuery queries from agents", "_ai", tib * pricing["bigquery"]["ondemand_tib"] * up("bigquery"))
+                    set_region(home_region)
+                    add(m, "BigQuery queries from agents", "_ai", tib * pricing["bigquery"]["ondemand_tib"] * up("bigquery"), q=(tib, "TiB scanned"))
             elif t == "vertex_gpu":
                 node = pricing["vertex_prediction"]["nodes"][s["gpu"]]
                 add(m, f"Vertex AI endpoint ({node['name']})", "_ai",
-                    float(s["replicas"]) * float(s["hours_per_day"]) * 30.4 * node["hr"] * up("vertex_prediction"))
+                    float(s["replicas"]) * float(s["hours_per_day"]) * 30.4 * node["hr"] * up("vertex_prediction"),
+                    q=(float(s["replicas"]) * float(s["hours_per_day"]) * 30.4, "node-hours"))
             elif t == "apigee":
                 ap = pricing["apigee"]
                 calls = float(s["api_calls_million"])
-                add(m, "Apigee (environment)", "_ai", ap["environment_month"][s["environment"]])
-                add(m, "Apigee (API calls)", "_ai", tiered_m(calls, ap["calls_per_million"][s["proxy_type"]]))
+                add(m, "Apigee (environment)", "_ai", ap["environment_month"][s["environment"]], q=(1, "environment-months"))
+                add(m, "Apigee (API calls)", "_ai", tiered_m(calls, ap["calls_per_million"][s["proxy_type"]]), q=(calls, "M API calls"))
                 if s.get("analytics") == "yes" and s["environment"] != "base":
                     add(m, "Apigee (API calls)", "_ai", calls * ap["analytics_per_million"])
                 if s.get("advanced_security") == "yes" and s["environment"] != "base":
-                    add(m, "Apigee (Advanced API Security)", "_ai", calls * ap["advanced_security_per_million"])
+                    add(m, "Apigee (Advanced API Security)", "_ai", calls * ap["advanced_security_per_million"], q=(calls, "M API calls"))
             elif t == "alloydb":
                 a = pricing["alloydb"]
                 nodes = (2 if s.get("ha") == "yes" else 1) + float(s["read_pool_nodes"])
                 v, g = float(s["vcpu"]) * nodes * HOURS, float(s["memory_gib"]) * nodes * HOURS
                 u = up("alloydb")
                 add(m, "AlloyDB", "_db", (v * a["vcpu_hr"] + g * a["mem_gib_hr"]) * u,
-                    cud1=(v * a["cud1_vcpu_hr"] + g * a["cud1_mem_gib_hr"]) * u, cud3=(v * a["cud3_vcpu_hr"] + g * a["cud3_mem_gib_hr"]) * u)
+                    cud1=(v * a["cud1_vcpu_hr"] + g * a["cud1_mem_gib_hr"]) * u, cud3=(v * a["cud3_vcpu_hr"] + g * a["cud3_mem_gib_hr"]) * u, q=(nodes * HOURS, "node-hours"))
                 add(m, "AlloyDB", "_db", float(s["storage_gib"]) * a["storage_gib_month"] * u)
             elif t == "cloudsql":
                 q = pricing["cloudsql"]
                 ha = s.get("ha") == "yes"
                 comp = (float(s["vcpu"]) * (q["ha_vcpu_hr"] if ha else q["vcpu_hr"]) + float(s["memory_gib"]) * (q["ha_mem_gib_hr"] if ha else q["mem_gib_hr"])) * HOURS
                 u = up("cloudsql")
-                add(m, "Cloud SQL", "_db", comp * u, cud1=comp * q["cud1_factor"] * u, cud3=comp * q["cud3_factor"] * u)
+                add(m, "Cloud SQL", "_db", comp * u, cud1=comp * q["cud1_factor"] * u, cud3=comp * q["cud3_factor"] * u, q=(HOURS, "instance-hours"))
                 add(m, "Cloud SQL", "_db", float(s["storage_gib"]) * (q["ha_ssd_gib_month"] if ha else q["ssd_gib_month"]) * u)
             elif t == "spanner":
                 sp = pricing["spanner"]
                 comp = float(s["nodes"]) * sp["node_hr"][s["edition"]] * HOURS
                 u = up("spanner")
-                add(m, "Spanner", "_db", comp * u, cud1=comp * sp["cud1_factor"] * u, cud3=comp * sp["cud3_factor"] * u)
+                add(m, "Spanner", "_db", comp * u, cud1=comp * sp["cud1_factor"] * u, cud3=comp * sp["cud3_factor"] * u, q=(float(s["nodes"]) * HOURS, "node-hours"))
                 add(m, "Spanner", "_db", float(s["storage_gib"]) * sp["ssd_gib_month"] * u)
             elif t == "bigtable":
                 bt = pricing["bigtable"]
                 comp = float(s["nodes"]) * bt["node_hr"][s["edition"]] * HOURS
                 u = up("bigtable")
-                add(m, "Bigtable", "_db", comp * u, cud1=comp * bt["cud1_factor"] * u, cud3=comp * bt["cud3_factor"] * u)
+                add(m, "Bigtable", "_db", comp * u, cud1=comp * bt["cud1_factor"] * u, cud3=comp * bt["cud3_factor"] * u, q=(float(s["nodes"]) * HOURS, "node-hours"))
                 add(m, "Bigtable", "_db", float(s["storage_gib"]) * bt["ssd_gib_month"] * u)
             elif t == "firestore":
                 fs = pricing["firestore"]
                 ops = (max(0.0, float(s["reads_million"]) * 1e6 - fs["free_reads_month"]) / 1e5 * fs["reads_per_100k"]
                        + max(0.0, float(s["writes_million"]) * 1e6 - fs["free_writes_month"]) / 1e5 * fs["writes_per_100k"])
                 u = up("firestore")
-                add(m, "Firestore", "_db", ops * u, cud1=ops * fs["cud1_factor"] * u, cud3=ops * fs["cud3_factor"] * u)
+                add(m, "Firestore", "_db", ops * u, cud1=ops * fs["cud1_factor"] * u, cud3=ops * fs["cud3_factor"] * u,
+                    q=(float(s["reads_million"]) + float(s["writes_million"]), "M operations"))
                 add(m, "Firestore", "_db", max(0.0, float(s["storage_gib"]) - fs["free_storage_gib"]) * fs["storage_gib_month"] * u)
             elif t == "memorystore":
                 ms = pricing["memorystore"]
                 cap = float(s["capacity_gib"])
                 rate = next(p for lim, p in ms["standard_tier_gib_hr"] if lim is None or cap <= lim)
                 c = cap * rate * HOURS * up("memorystore")
-                add(m, "Memorystore", "_db", c, cud1=c * ms["cud1_factor"], cud3=c * ms["cud3_factor"])
+                add(m, "Memorystore", "_db", c, cud1=c * ms["cud1_factor"], cud3=c * ms["cud3_factor"], q=(cap * HOURS, "GiB-hours"))
             elif t == "sdp":
-                add(m, "Sensitive Data Protection (discovery)", "_governance", new_by_month[m] * pricing["sensitive_data_protection"]["discovery_gb"])
+                add(m, "Sensitive Data Protection (discovery)", "_governance", new_by_month[m] * pricing["sensitive_data_protection"]["discovery_gb"], q=(new_by_month[m], "GB profiled"))
             elif t == "cmek":
                 k = pricing["kms"]
                 add(m, "Cloud KMS (CMEK)", "_governance",
-                    float(s["key_versions"]) * k["key_version_month"] + float(s["operations_million"]) * 100 * k["ops_per_10k"])
+                    float(s["key_versions"]) * k["key_version_month"] + float(s["operations_million"]) * 100 * k["ops_per_10k"], q=(float(s["key_versions"]), "key versions"))
             elif t == "knowledge_catalog":
                 dp = pricing["dataplex"]
                 dq_tables = tables * float(s["dq_share_pct"]) / 100
@@ -661,7 +686,7 @@ def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, ad
                 add(m, "Knowledge Catalog (Dataplex) - quality, profiling, lineage", "_governance",
                     (dcu * dp["premium_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u,
                     cud1=(dcu * dp["premium_cud1_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u,
-                    cud3=(dcu * dp["premium_cud3_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u)
+                    cud3=(dcu * dp["premium_cud3_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u, q=(dcu, "DCU-hours"))
         set_region(home_region)
     return int(tables)
 
@@ -686,7 +711,8 @@ def component_view(c):
     meta = COMPONENT_BY_ID[c["type"]]
     return {"id": c["id"], "type": c["type"], "start_month": int(c.get("start_month") or 1), "included": c.get("included") is not False, "name": meta["name"], "category": meta["category"],
             "vendor": meta["vendor"], "costed": meta["costed"], "method": meta["method"],
-            "steps": meta["steps"], "notes": meta["notes"], "doc": meta["doc"], "settings": c["settings"]}
+            "steps": meta["steps"], "notes": meta["notes"], "doc": meta["doc"], "settings": c["settings"],
+            "mode_note": (meta.get("modes") or {}).get("notes", {}).get(c["settings"].get((meta.get("modes") or {}).get("key", ""), ""), "")}
 
 
 def platform_story(comps, sec, sources):
@@ -697,7 +723,7 @@ def platform_story(comps, sec, sources):
         "key": "lakehouse", "title": "BigQuery lakehouse foundation",
         "tools": ["dataform", "bqml", "reverse_etl"],
         "points": [
-            "Raw, curated and mart datasets in BigQuery; open Apache Iceberg tables through BigLake keep data portable across engines.",
+            "Medallion lakehouse: a Cloud Storage raw zone keeps immutable source extracts; BigQuery bronze (as ingested), silver (cleansed, conformed) and gold (curated marts) datasets are built by Dataform; Apache Iceberg tables through BigLake keep data portable across engines.",
             ("Continuous CDC from " + ", ".join(cdc[:4]) + " keeps operational data fresh for analytics and agents."
              if cdc else "Add CDC sources (Datastream) when agents and dashboards need minute-level freshness."),
             "Dataform builds tested, version-controlled SQL models; BigQuery ML and AI functions bring Gemini and vector search into SQL.",

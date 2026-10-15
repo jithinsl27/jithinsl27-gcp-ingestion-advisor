@@ -92,6 +92,17 @@ gcloud beta iap web add-iam-policy-binding --resource-type=cloud-run --service=i
   --member=group:architects@example.com --role=roles/iap.httpsResourceAccessor
 ```
 
+## Google Sheets / Slides export
+
+Exports are built in the browser. **Download** always works. **Create in my Google Drive** uploads the file to the signed-in user's Drive and converts it to Google Sheets / Slides using Google Identity Services with the narrow `drive.file` scope (the app only sees files it creates). To enable it:
+
+1. In the Google Cloud console, open **APIs & Services → OAuth consent screen** and configure it (Internal for Workspace organisations).
+2. Enable the **Google Drive API**.
+3. **Credentials → Create credentials → OAuth client ID → Web application**; add your Cloud Run URL (and `https://jithinsl27.github.io` for the live demo) as **Authorised JavaScript origins**.
+4. Deploy with `./deploy.sh --oauth-client-id CLIENT_ID` (sets `GOOGLE_OAUTH_CLIENT_ID`, served to the page by `/api/config`), or paste the client ID in the export dialog (stored in that browser only).
+
+No tokens or files touch the Cloud Run service.
+
 ## Data residency
 
 The app processes only what the architect types in the browser and keeps no state server-side. Deploying in a local region (for example `me-central2` Dammam) keeps traffic in-country if required.

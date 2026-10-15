@@ -6,6 +6,8 @@
 │  • source list + dialog      • SVG architecture diagram │
 │  • settings & AI layer       • tabs, chart, exports     │
 │  • scenario kept in localStorage, saved/opened as JSON  │
+│ exports.js  xlsx writer with charts, SVG→PNG, Drive     │
+│ vendor/pptxgen.bundle.js  Slides (.pptx) builder        │
 └───────────────┬─────────────────────────────────────────┘
                 │ GET /api/catalog, /api/samples
                 │ POST /api/estimate (scenario JSON)
@@ -15,8 +17,10 @@
 │ recommender.py rules → Recommendation per source,        │
 │                platform components, platform narrative   │
 │ components.py  BI/AI/API/DB/governance library + costs   │
+│ environments.py dev/test/DR sizing factors              │
+│ bom.py         bill of materials (qty, unit price, why)  │
 │ estimator.py   36-month multi-region simulation, CUDs    │
-│ workload.py    workload-based sizing                     │
+│ workload.py    workload-based sizing + BigQuery slots    │
 │ plan.py        ramp-up roadmap + ramped costs            │
 │ data/pricing.json, data/regions.json  (editable)         │
 └──────────────────────────────────────────────────────────┘
@@ -34,6 +38,7 @@ The service is stateless: no database, no secrets, no customer data stored. Scal
 | POST | `/api/estimate` | scenario → totals, by_service, by_group, by_source, by_region, monthly, recommendations, platform (components, story), assumptions |
 | POST | `/api/workload` | scenario with `workload` → ramp/steady monthly, 1/3-year, by category, line items, compute comparison, by region |
 | POST | `/api/plan` | scenario → phases, waves, component rollout, milestones, ramped month-by-month consumption |
+| GET | `/api/config` | front-end settings: `google_client_id` (from `GOOGLE_OAUTH_CLIENT_ID`) for Drive exports |
 | GET | `/docs` | OpenAPI UI (FastAPI) |
 
 Scenario shape (see `app/main.py` for limits and defaults):

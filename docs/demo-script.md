@@ -25,6 +25,13 @@ Oracle → Datastream (ARCHIVELOG/supplemental logging caveat); Kafka → Datafl
 - AlloyDB as the low-latency serving and vector store for agents, fed by reverse ETL.
 - Knowledge Catalog lineage and quality scores as the trust layer.
 
+## 4b. Make it theirs (2 min)
+
+- Drag **Gemini Enterprise** onto Looker: answers now come from governed LookML metrics; drag it back onto BigQuery for open exploration.
+- Drag **Apigee** onto the CRM source to show it as the integration layer, then onto the agent to show the AI gateway.
+- Point out the **Cloud Storage raw zone** and the **bronze / silver / gold** layers inside BigQuery.
+- Set **Environments → Total** to 4 (prod, dev, UAT, DR) and open **Size** to adjust each one.
+
 ## 5. Regions (1 min)
 
 Open the Vertex AI GPU endpoint and set its region to `us-central1` while BigQuery stays in Dammam; the *By region* table splits the cost. Mention data-residency review for anything leaving the Kingdom.
@@ -36,4 +43,4 @@ Open the Vertex AI GPU endpoint and set its region to `us-central1` while BigQue
 
 ## 7. Roadmap (2 min) - *Roadmap* tab
 
-Final architecture, the month-by-month plan, and ramped monthly spend vs steady state. Change squads from 2 to 3 to shorten the programme. Close by exporting the Markdown proposal.
+Final architecture, the month-by-month plan, and ramped monthly spend vs steady state. Change squads from 2 to 3 to shorten the programme. Close with **Export → Google Slides** (the customer deck) and **Export → Google Sheets** (bill of materials, slot sizing and charts).

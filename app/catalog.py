@@ -167,6 +167,36 @@ TOOLS = {
         "summary": "Near real-time replication from SAP (via SLT) into BigQuery; pairs with Google Cloud Cortex Framework data models.",
         "doc": "https://cloud.google.com/solutions/sap/docs/bq-connector/latest/planning",
     },
+    "mqtt_broker": {
+        "name": "MQTT broker (GKE)",
+        "layer": "ingest",
+        "summary": "Self-managed MQTT broker (EMQX, HiveMQ, Mosquitto) on GKE or Compute Engine bridging device telemetry to Pub/Sub.",
+        "doc": "https://cloud.google.com/architecture/connected-devices",
+    },
+    "litmus": {
+        "name": "Litmus Edge",
+        "layer": "ingest",
+        "summary": "Partner industrial edge platform: connects PLCs, SCADA and historians, normalises OT data and publishes to Pub/Sub (Manufacturing Connect).",
+        "doc": "https://litmus.io/litmus-edge",
+    },
+    "clearblade": {
+        "name": "ClearBlade IoT Core",
+        "layer": "ingest",
+        "summary": "Partner IoT device management and MQTT/HTTP bridge - the drop-in replacement for the retired Cloud IoT Core.",
+        "doc": "https://www.clearblade.com/iot-core/",
+    },
+    "mde": {
+        "name": "Manufacturing Data Engine",
+        "layer": "process",
+        "summary": "Google Cloud Manufacturing Data Engine: common manufacturing data model and pipelines to BigQuery, Bigtable and Cloud Storage.",
+        "doc": "https://cloud.google.com/solutions/manufacturing-data-engine",
+    },
+    "gcs_raw": {
+        "name": "Cloud Storage raw zone",
+        "layer": "land",
+        "summary": "Immutable copies of source extracts and files for replay, audit and reprocessing before the BigQuery bronze layer.",
+        "doc": "https://cloud.google.com/storage/docs/storage-classes",
+    },
     "mainframe_connector": {
         "name": "Mainframe Connector",
         "layer": "ingest",
@@ -334,9 +364,26 @@ TOOLS = {
 }
 
 
+IOT_OPTIONS = [
+    {"id": "native", "name": "Google Cloud native - devices publish to Pub/Sub (HTTPS / gRPC)", "vendor": "google"},
+    {"id": "mqtt_broker", "name": "Google Cloud native - MQTT broker on GKE / Compute Engine -> Pub/Sub", "vendor": "google"},
+    {"id": "litmus", "name": "ISV - Litmus Edge (industrial OT) -> Pub/Sub", "vendor": "partner"},
+    {"id": "clearblade", "name": "ISV - ClearBlade IoT Core -> Pub/Sub", "vendor": "partner"},
+    {"id": "mde", "name": "Google Manufacturing Data Engine + Manufacturing Connect (Litmus)", "vendor": "google"},
+]
+
+# Volume units for inputs; stored internally in GB (binary multiples, as billed: GiB / TiB ...).
+VOLUME_UNITS = [
+    {"id": "KB", "gb": 1 / 1024 ** 2}, {"id": "MB", "gb": 1 / 1024}, {"id": "GB", "gb": 1.0},
+    {"id": "TB", "gb": 1024.0}, {"id": "PB", "gb": 1024.0 ** 2}, {"id": "EB", "gb": 1024.0 ** 3}, {"id": "ZB", "gb": 1024.0 ** 4},
+]
+
+
 def catalog_payload(regions):
     from .components import CATEGORIES, COMPONENTS, DEFAULT_COMPONENTS, DEFAULT_SECURITY
     from .workload import DEFAULT_WORKLOAD, FREQ_RUNS
+    from .environments import DEFAULT_ENVIRONMENTS, ENV_PRESETS, FACTOR_LABELS
+    from .estimator import LAKEHOUSE_DEFAULTS
     return {
         "components": COMPONENTS,
         "component_categories": CATEGORIES,
@@ -352,6 +399,14 @@ def catalog_payload(regions):
         "skills": SKILLS,
         "tools": TOOLS,
         "regions": regions,
+        "iot_options": IOT_OPTIONS,
+        "volume_units": VOLUME_UNITS,
+        "environment_presets": ENV_PRESETS,
+        "environment_factors": [{"id": k, "name": v} for k, v in FACTOR_LABELS.items()],
+        "default_environments": DEFAULT_ENVIRONMENTS,
+        "lakehouse_defaults": LAKEHOUSE_DEFAULTS,
+        "storage_classes": [{"id": "standard", "name": "Standard"}, {"id": "nearline", "name": "Nearline (30-day minimum)"},
+                            {"id": "coldline", "name": "Coldline (90-day minimum)"}, {"id": "archive", "name": "Archive (365-day minimum)"}],
         "bq_models": [
             {"id": "ondemand", "name": "On-demand (per TiB scanned)"},
             {"id": "standard", "name": "Editions - Standard"},

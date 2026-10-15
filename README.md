@@ -2,25 +2,29 @@
 
 **From discovery to blueprint on Google Cloud.** A tool for Data & AI architects to use live in customer discovery sessions. Add the customer's source systems and the tools they already use, and Data Cloud Compass:
 
-- **draws the target architecture** live: sources → connectivity → CDC / batch ingestion → BigQuery → BI, AI, APIs and operational databases, with governance and security across every layer;
+- **draws the target architecture** live: sources → connectivity → CDC / batch ingestion → **Cloud Storage raw zone** → BigQuery **bronze / silver / gold** → BI, AI, APIs and operational databases, with governance and security across every layer;
 - **recommends GCP-native ETL / ELT per source** (Datastream, Dataflow templates, Pub/Sub BigQuery subscriptions, BigQuery Data Transfer Service, Data Fusion, Dataproc Serverless, Storage Transfer, BigQuery Connector for SAP, Mainframe Connector …) based on source type, data type, freshness, location, transformation needs and team skills, with rationale, alternatives and discovery caveats;
 - **lets you search and add the consumption, governance and security layers** by product name:
   - *Google Cloud (costed)*: Looker, Looker Studio (Pro), Agent Platform data agents, Gemini Enterprise, Vertex AI GPU endpoints, BigQuery ML, **Apigee** API management & AI gateway, **AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore**, Knowledge Catalog (Dataplex);
   - *Security & compliance*: Sensitive Data Protection, Cloud KMS (CMEK), VPC Service Controls, policy tags & masking, Security Command Center, Assured Workloads;
   - *Partners (shown with their BigQuery integration, never costed)*: Power BI, Tableau, MicroStrategy, Qlik, ThoughtSpot, DataRobot, Dataiku, AWS SageMaker, Azure ML / AI Foundry, Databricks, Collibra, Alation, Atlan, Informatica;
+- **wires Gemini Enterprise and Apigee the way the customer wants**: drag Gemini Enterprise onto Looker or BigQuery (or route it through agents), and Apigee onto the source systems (integration layer) or an agent (AI gateway);
+- **IoT options**: Google Cloud native (Pub/Sub, MQTT broker on GKE, Manufacturing Data Engine) or ISVs such as Litmus Edge and ClearBlade;
+- **sizes every environment**: choose the number of environments (production, development, UAT, pre-production, DR, sandbox …) and size each one per capability;
 - **lets you choose what is priced** - tick sources in or out for a phased estimate, switch individual products or service lines off without removing them from the architecture;
 - **explains every integration** - how each tool connects to BigQuery, step by step, with best practices and documentation links;
 - **prices each service in its own region** - BigQuery in one data centre, ingestion or GPU endpoints in another - and adds cross-region transfer where data moves;
 - **estimates 1-year and 3-year consumption**, pay-as-you-go and with committed-use discounts, by service, capability, region and source, in USD, SAR, AED, EUR, GBP or INR;
-- **sizes from workloads** (Workload sizing tab): pipelines, simple/complex/periodic queries, ad-hoc reports, dashboards, data by type, telemetry and a ramp-up phase;
+- **sizes from workloads** (Workload sizing tab): pipelines, simple/complex/periodic queries, ad-hoc reports, dashboards, data by type (KB … ZB), telemetry and a ramp-up phase - and **sizes BigQuery slots** (baseline, autoscale max, edition, commitment) with recommendations;
+- **itemises the bill of materials**: product, quantity, unit, unit price, cost and why each service is needed, per environment;
 - **builds a month-by-month roadmap** (Roadmap tab): final architecture, phased plan by delivery squads, go-live per source and component, and ramped monthly consumption;
-- **exports** a Markdown proposal, CSV cost breakdown, architecture SVG, scenario JSON or a print-ready PDF.
+- **exports to Google Sheets and Google Slides** (architecture, bill of materials, sizing and native charts) - directly into the user's Google Drive, or as .xlsx / .pptx files - plus a Markdown proposal, CSV, architecture SVG, scenario JSON or a print-ready PDF.
 
 ![Architecture view](docs/images/architecture.png)
 
-| Integrations | Workload sizing | Roadmap |
+| Bill of materials | Slot sizing | Roadmap |
 |---|---|---|
-| ![](docs/images/platform.png) | ![](docs/images/workload.png) | ![](docs/images/roadmap.png) |
+| ![](docs/images/bom.png) | ![](docs/images/workload.png) | ![](docs/images/roadmap.png) |
 
 ---
 
@@ -36,6 +40,7 @@ Or paste into any Cloud Shell:
 git clone https://github.com/jithinsl27/jithinsl27-gcp-ingestion-advisor.git
 cd jithinsl27-gcp-ingestion-advisor
 ./deploy.sh --region us-central1        # add --private to require IAM sign-in
+                                        # add --oauth-client-id ID to enable 'Create in my Google Drive'
 ```
 
 The script enables the required APIs, builds the container with Cloud Build (no local Docker needed) and deploys to Cloud Run. It prints the URL when it finishes (about 3 minutes the first time). Run only one `./deploy.sh` command at a time.
