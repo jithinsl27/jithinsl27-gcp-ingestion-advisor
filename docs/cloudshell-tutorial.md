@@ -22,17 +22,18 @@ You need the **Owner** or **Editor** role (or Cloud Run Admin, Cloud Build Edito
 
 ## Deploy
 
-Run the deployment script. It enables the APIs, builds the container with Cloud Build and deploys it to Cloud Run:
+Run the deployment script. It enables the APIs, creates Firestore (saved scenarios), a runtime service account and a Cloud Billing API key for live prices, builds the container with Cloud Build and deploys it to Cloud Run:
 
 ```sh
-./deploy.sh
+./deploy.sh --project <walkthrough-project-id/>
 ```
 
 Options:
 
 - `--region me-central2` deploys to another region (default `us-central1`).
+- `--oauth-client-id CLIENT_ID` turns on Google sign-in for saving, sharing and the AI assist (create the client under APIs & Services → Credentials; see `docs/deployment.md`).
+- `--allowed-domains yourcompany.com` limits sign-in to your domains.
 - `--private` keeps the service private (IAM authentication required).
-- `--service my-name` changes the Cloud Run service name.
 
 The first build takes about 3 minutes.
 
@@ -54,5 +55,6 @@ and then use the web preview on port 8080 <walkthrough-web-preview-icon></walkth
 
 Data Cloud Compass is running. To update it later, pull the latest code and run `./deploy.sh` again.
 
-- Update list prices in `app/data/pricing.json` and regions in `app/data/regions.json`.
-- Set up continuous deployment with `cloudbuild.yaml` (see `docs/deployment.md`).
+- Prices refresh daily from the Cloud Billing Catalog (`/api/pricing/status`); `app/data/pricing.json` is the reviewed fallback.
+- Deploy automatically on every push to GitHub: `./setup-github-deploy.sh --project <walkthrough-project-id/>` (see `docs/deployment.md`).
+- Point the public demo at this service: set the GitHub repository variable `COMPASS_API_URL` to the URL.

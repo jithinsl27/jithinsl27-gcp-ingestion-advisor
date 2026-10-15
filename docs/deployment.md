@@ -1,118 +1,107 @@
 # Deployment guide
 
-Data Cloud Compass is a single stateless container (FastAPI + static UI) that runs on Cloud Run. It stores no customer data server-side, needs no database and scales to zero when idle, so running cost is typically a few dollars a month or less.
+Data Cloud Compass is one container (FastAPI + a no-build ES-module UI) on Cloud Run, with:
+
+| Piece | Used for | Set up by |
+|---|---|---|
+| Cloud Run | the app and the API | `deploy.sh` |
+| Firestore (native) | saved scenarios, versions, sharing; shared live-price cache | `deploy.sh` |
+| Cloud Billing Catalog API + API key in Secret Manager | live list prices and regional availability, refreshed daily | `deploy.sh` |
+| Vertex AI (Gemini) | AI assist: meeting notes / spreadsheets → sources and products | `deploy.sh` (API + role) |
+| OAuth web client | Google sign-in (saving, sharing, AI assist) and "Create in my Google Drive" | you, once, in the console |
+| Workload Identity Federation | keyless deploys from GitHub on every push | `setup-github-deploy.sh` |
+
+It scales to zero; running cost is typically a few dollars a month plus Gemini calls (cents each).
 
 ## Prerequisites
 
 - A Google Cloud project with billing enabled.
-- Roles: Owner/Editor, or Cloud Run Admin + Cloud Build Editor + Artifact Registry Admin + Service Usage Admin + Service Account User.
-- Organisation policies: if `iam.allowedPolicyMemberDomains` (domain restricted sharing) is enforced, public (`allUsers`) access is blocked. Deploy with `--private` and use IAP or `gcloud run services proxy` instead.
+- Roles for the person running the scripts: Owner, or Editor + Security Admin (to grant the service-account roles) + Secret Manager Admin.
+- Organisation policies: if domain-restricted sharing (`iam.allowedPolicyMemberDomains`) is enforced, public (`allUsers`) access is blocked - deploy with `--private` (see *Restricting access*).
 
-## 1. Cloud Shell (fastest)
-
-Click **Open in Cloud Shell** in the README, or:
+## 1. Deploy from Cloud Shell
 
 ```bash
 git clone https://github.com/jithinsl27/jithinsl27-gcp-ingestion-advisor.git
 cd jithinsl27-gcp-ingestion-advisor
-gcloud config set project YOUR_PROJECT_ID
-./deploy.sh [--region REGION] [--service NAME] [--private]
+./deploy.sh --project YOUR_PROJECT --region us-central1
 ```
 
-`deploy.sh` runs `gcloud services enable run cloudbuild artifactregistry` and `gcloud run deploy --source .`, which builds the `Dockerfile` remotely with Cloud Build and stores the image in Artifact Registry (`cloud-run-source-deploy` repository).
+Options:
 
-## 2. Run on Google Cloud button
+| Option | Default | Meaning |
+|---|---|---|
+| `--project` | current gcloud project | where to deploy |
+| `--region` | `us-central1` | Cloud Run region (e.g. `me-central2` for KSA) |
+| `--service` | `ingestion-advisor` | Cloud Run service name |
+| `--oauth-client-id` | none | turns on Google sign-in (saving, sharing, AI assist, Drive export) |
+| `--allowed-domains` | any Google account | comma-separated e-mail domains allowed to sign in |
+| `--firestore-location` | same as `--region` (falls back to `nam5`) | where saved scenarios are stored |
+| `--cors-origins` | `https://jithinsl27.github.io` | origins allowed to call the API (your GitHub Pages demo) |
+| `--gemini-model` | `gemini-3.8-flash` | Gemini model for the AI assist (falls back to `gemini-2.5-flash`) |
+| `--private` | public | require IAM to invoke the service |
 
-The README button uses [Cloud Run Button](https://github.com/GoogleCloudPlatform/cloud-run-button). It clones the repo in Cloud Shell, reads `app.json` and deploys. The repository must be public for the button to clone it.
+The script is idempotent - re-run it for every release (or let GitHub deploy, section 3). In order it: enables the APIs; creates Firestore; creates the runtime service account `compass-run` with `roles/datastore.user`, `roles/aiplatform.user` and `roles/logging.logWriter`; creates an API key restricted to the Cloud Billing API and stores it in Secret Manager (`compass-billing-api-key`, readable only by `compass-run`); builds the Dockerfile with Cloud Build and deploys.
 
-## 3. Cloud Build CI/CD
+### Turn on Google sign-in
 
-`cloudbuild.yaml` runs the tests, builds and pushes the image to Artifact Registry and deploys to Cloud Run.
+1. Console → **APIs & Services → OAuth consent screen**: configure it (*Internal* for Workspace organisations). Enable the **Google Drive API** if you want Drive exports.
+2. **Credentials → Create credentials → OAuth client ID → Web application**. Authorised JavaScript origins: your Cloud Run URL and your GitHub Pages origin (`https://<owner>.github.io`).
+3. `./deploy.sh --project YOUR_PROJECT --region REGION --oauth-client-id CLIENT_ID --allowed-domains yourcompany.com`
 
-Manual run:
+The browser signs in with Google Identity Services and sends the ID token; the service verifies it against the client ID and the allow-list. Without a client ID the app works fully for estimating - only saving, sharing and the AI assist are off (Export → Save scenario JSON still works).
+
+### Live prices and availability
+
+After the first request the service downloads the public SKUs it needs from the Cloud Billing Catalog in the background, applies them (a live price is only accepted within 3× of the reviewed price, guarding against a wrong SKU match) and caches the result in Firestore for 24 hours. Check `GET /api/pricing/status`: `source`, `fetched_at`, which price points matched and which did not, and any error. Until a refresh succeeds the app uses `app/data/pricing.json` and says so in the summary bar. To tune the SKU mapping, see [pricing-model.md](pricing-model.md#live-prices).
+
+## 2. Public demo on GitHub Pages
+
+The demo is the same front end, calling your Cloud Run service from GitHub Pages:
+
+1. GitHub → Settings → Pages → Deploy from a branch → `gh-pages` / root.
+2. Set the repository variable `COMPASS_API_URL` to the Cloud Run URL (`gh variable set COMPASS_API_URL --body https://...run.app`).
+3. The `pages.yml` workflow rebuilds and publishes on every push to `main`.
+
+The service must allow the Pages origin (`--cors-origins`, default `https://jithinsl27.github.io`). Estimate endpoints are open and store nothing; signed-in endpoints work from the demo too when the Pages origin is an authorised origin of the OAuth client.
+
+## 3. Deploy automatically from GitHub
+
+Run once in Cloud Shell, after `deploy.sh`:
 
 ```bash
-gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=me-central2
+./setup-github-deploy.sh --project YOUR_PROJECT --region us-central1   # --repo owner/name if not detected
 ```
 
-Trigger on every push to `main`:
+It creates a Workload Identity pool and GitHub provider trusting only this repository, a deployer service account (`compass-deployer`: Cloud Run developer, Cloud Build editor, Artifact Registry writer, act-as on the runtime account) and - if the GitHub CLI is signed in - sets the repository variables `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_SERVICE`, `GCP_WIF_PROVIDER`, `GCP_DEPLOY_SA` and `COMPASS_API_URL`. No service-account keys are created.
 
-1. Console → Cloud Build → Repositories → **Connect repository** → GitHub → select `jithinsl27-gcp-ingestion-advisor`.
-2. Grant the Cloud Build service account `roles/run.admin` and `roles/iam.serviceAccountUser` (and `roles/artifactregistry.admin` if the repository does not exist yet).
-3. Create a trigger: event *Push to branch* `^main$`, configuration `cloudbuild.yaml`.
+From then on, `deploy.yml` runs the tests and deploys on every push to `main` (and tags `v*`), then smoke-tests `/healthz` and `/api/estimate`. Environment variables and secrets set by `deploy.sh` are preserved. `ci.yml` runs unit, API and browser (Playwright) tests plus a Docker build on every push and pull request.
 
-Substitutions: `_REGION`, `_SERVICE`, `_REPO`, `_ALLOW_UNAUTH` (set to `--no-allow-unauthenticated` for a private service).
+## 4. Other options
 
-## 4. Terraform
-
-```bash
-cd deploy/terraform
-cp terraform.tfvars.example terraform.tfvars   # edit values
-# build an image first (step 3) and put its URL in `image`
-terraform init
-terraform apply
-```
-
-Creates: required APIs, Artifact Registry repository, a dedicated runtime service account, the Cloud Run v2 service (with startup probe on `/healthz`), invoker IAM (public or a list of groups) and, if `github_owner` is set, a Cloud Build trigger.
-
-## 5. GitHub Actions
-
-- `ci.yml` runs tests and a Docker build on every push and pull request.
-- `pages.yml` rebuilds the static demo on every push to `main` and publishes it to the `gh-pages` branch (GitHub Pages: *Settings → Pages → Deploy from a branch → gh-pages / root*).
-- `deploy.yml` deploys to Cloud Run on tags `v*` or manually. Configure Workload Identity Federation once:
-
-```bash
-PROJECT_ID=your-project; REPO=jithinsl27/jithinsl27-gcp-ingestion-advisor
-gcloud iam service-accounts create gh-deployer
-gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:gh-deployer@$PROJECT_ID.iam.gserviceaccount.com --role=roles/run.admin
-gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:gh-deployer@$PROJECT_ID.iam.gserviceaccount.com --role=roles/cloudbuild.builds.editor
-gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:gh-deployer@$PROJECT_ID.iam.gserviceaccount.com --role=roles/iam.serviceAccountUser
-gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:gh-deployer@$PROJECT_ID.iam.gserviceaccount.com --role=roles/artifactregistry.admin
-gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:gh-deployer@$PROJECT_ID.iam.gserviceaccount.com --role=roles/storage.admin
-gcloud iam workload-identity-pools create github --location=global
-gcloud iam workload-identity-pools providers create-oidc github --location=global --workload-identity-pool=github \
-  --issuer-uri=https://token.actions.githubusercontent.com \
-  --attribute-mapping=google.subject=assertion.sub,attribute.repository=assertion.repository \
-  --attribute-condition="assertion.repository=='$REPO'"
-gcloud iam service-accounts add-iam-policy-binding gh-deployer@$PROJECT_ID.iam.gserviceaccount.com \
-  --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')/locations/global/workloadIdentityPools/github/attribute.repository/$REPO"
-```
-
-Then add repository variables `GCP_PROJECT_ID`, `GCP_REGION` and secrets `GCP_WIF_PROVIDER` (`projects/NUMBER/locations/global/workloadIdentityPools/github/providers/github`) and `GCP_DEPLOY_SA`.
+- **Run on Google Cloud button** (README) - quick trial: deploys the container without Firestore, live prices or sign-in.
+- **Cloud Build** - `gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=me-central2` (tests, build, push, deploy). Run `deploy.sh` once first so the service account, secret and environment exist.
+- **Terraform** - `deploy/terraform/`: APIs, Artifact Registry, Firestore, runtime service account and roles, Cloud Run v2 service with environment, invoker IAM, optional Cloud Build trigger. Build an image first and pass it as `image`; add the Billing API key secret with `deploy.sh` or your own module.
 
 ## Restricting access
 
-- **IAM only**: deploy with `--private`, grant `roles/run.invoker` to a group; users open it with `gcloud run services proxy`.
-- **Identity-Aware Proxy (browser sign-in)**: Cloud Run supports IAP directly:
-
-```bash
-gcloud beta run services update ingestion-advisor --region REGION --iap
-gcloud beta iap web add-iam-policy-binding --resource-type=cloud-run --service=ingestion-advisor --region=REGION \
-  --member=group:architects@example.com --role=roles/iap.httpsResourceAccessor
-```
-
-## Google Sheets / Slides export
-
-Exports are built in the browser. **Download** always works. **Create in my Google Drive** uploads the file to the signed-in user's Drive and converts it to Google Sheets / Slides using Google Identity Services with the narrow `drive.file` scope (the app only sees files it creates). To enable it:
-
-1. In the Google Cloud console, open **APIs & Services → OAuth consent screen** and configure it (Internal for Workspace organisations).
-2. Enable the **Google Drive API**.
-3. **Credentials → Create credentials → OAuth client ID → Web application**; add your Cloud Run URL (and `https://jithinsl27.github.io` for the live demo) as **Authorised JavaScript origins**.
-4. Deploy with `./deploy.sh --oauth-client-id CLIENT_ID` (sets `GOOGLE_OAUTH_CLIENT_ID`, served to the page by `/api/config`), or paste the client ID in the export dialog (stored in that browser only).
-
-No tokens or files touch the Cloud Run service.
+- **Allow-list in the app** (recommended): `--allowed-domains` (or `ALLOWED_EMAILS`) restricts who can sign in, save and use the AI assist; estimates stay open.
+- **IAM only**: `--private`, grant `roles/run.invoker` to a group; users open it with `gcloud run services proxy`. The GitHub Pages demo cannot reach a private service.
+- **Identity-Aware Proxy**: `gcloud beta run services update ingestion-advisor --region REGION --iap` and grant `roles/iap.httpsResourceAccessor`. As with `--private`, the Pages demo cannot reach it.
 
 ## Data residency
 
-The app processes only what the architect types in the browser and keeps no state server-side. Deploying in a local region (for example `me-central2` Dammam) keeps traffic in-country if required.
+Choose `--region` and `--firestore-location` in-country (for example `me-central2`). Saved scenarios stay in Firestore in that location. The AI assist sends the pasted notes to Gemini through Vertex AI in your project (`GEMINI_LOCATION`, default `global`; set a regional endpoint where your model is offered if residency requires it).
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| `PERMISSION_DENIED` enabling services | Ask a project owner to run `deploy.sh` once, or grant Service Usage Admin |
-| Build fails pulling base image | Check egress/VPC-SC on Cloud Build; allow `docker.io` or mirror `python:3.12-slim` to Artifact Registry |
-| `allUsers` binding fails | Domain-restricted sharing policy; redeploy with `--private` and use IAP |
-| Fonts look different | The UI loads Instrument Sans from Google Fonts; offline it falls back to system fonts |
-| 403 opening the URL | Service is private; use `gcloud run services proxy` or grant `roles/run.invoker` |
+| `PERMISSION_DENIED` enabling services or granting roles | Ask a project owner to run `deploy.sh` once |
+| `/api/pricing/status` shows `last_error` | Check the `compass-billing-api-key` secret and that `cloudbilling.googleapis.com` is enabled; the app keeps using the reviewed prices meanwhile |
+| Sign-in button does nothing / `origin_mismatch` | Add the exact page origin (Cloud Run URL or GitHub Pages) to the OAuth client's Authorised JavaScript origins |
+| "not allowed on this deployment" after sign-in | The account's domain is not in `--allowed-domains` |
+| AI assist: model not found | Pass `--gemini-model` with a model available in your project; the service also tries `gemini-2.5-flash` |
+| Demo shows "not connected" | Set the `COMPASS_API_URL` repository variable and re-run the Pages workflow |
+| Demo: requests blocked by CORS | Add the Pages origin with `--cors-origins` and redeploy |
+| `allUsers` binding fails | Domain-restricted sharing policy; use `--private` or IAP |

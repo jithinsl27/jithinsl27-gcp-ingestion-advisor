@@ -16,7 +16,8 @@ from collections import defaultdict
 
 from .components import cost_components, normalized
 from .environments import env_summary, normalized_envs, replicate
-from .estimator import inter_region_rate, load_pricing, load_regions, service_group
+from .estimator import inter_region_rate, load_pricing, load_regions, region_uplift, service_group
+from . import slots as SL
 
 GIB_PER_TIB = 1024
 HOURS = 730
@@ -60,8 +61,6 @@ DEFAULT_WORKLOAD = {
     },
 }
 
-SLOT_STEP = 50                          # baseline and autoscaling move in 50-slot increments
-STANDARD_MAX_SLOTS = 1600
 
 QUERY_LABELS = {"simple": "Simple queries", "complex": "Complex queries", "heavy": "Heavy / periodic queries", "adhoc": "Ad-hoc reports"}
 
@@ -94,7 +93,7 @@ def workload_estimate(scenario: dict) -> dict:
     ctx = {"rid": data_rid}
 
     def up(key):
-        return regions[ctx["rid"]]["uplift"] if pricing[key].get("regional") else 1.0
+        return region_uplift(regions[ctx["rid"]], key) if pricing[key].get("regional") else 1.0
 
     payg, cud1_v, cud3_v = defaultdict(float), defaultdict(float), defaultdict(float)
 
@@ -264,145 +263,71 @@ def workload_estimate(scenario: dict) -> dict:
     out = _summary(payg, cud1_v, cud3_v, W, regions, data_rid, pipe_rid, strm_rid, ramp_months, scan_lines_steady, free_left, pricing, A)
     out["environments"] = env_summary(envs, env_tot, cont, cont_on)
     comp_types = {c["type"] for c in normalized(scenario)[0] if c.get("included") is not False}
-    out["slots"] = slot_sizing(W, scan_lines_steady, A, pricing, regions[data_rid]["uplift"], comp_types, envs)
+    out["slots"] = slot_sizing(W, scan_lines_steady, A, pricing, region_uplift(regions[data_rid], "bigquery"), comp_types, envs)
     return out
 
 
-def _ceil_step(x, step=SLOT_STEP):
-    return int(math.ceil(max(0.0, x) / step - 1e-9) * step)
-
 
 def slot_sizing(W, scan_lines, A, pricing, uplift, comp_types, envs):
-    """Size BigQuery slots from the workload: data volume, job types and frequencies.
-
-    Builds an average 24-hour slot profile (pipelines and heavy jobs in the batch window,
-    dashboards / interactive / ad-hoc in business hours), then picks the baseline that
-    minimises baseline commitment + autoscaling cost for the recommended edition.
-    """
-    S = W["slots"]
+    """Size BigQuery slots from the workload: data volume, job types and frequencies (see app/slots.py)."""
+    S = SL.shape_settings(W["slots"])
     sph = float(A["slot_hours_per_tib"])
-    window = max(1, min(24, int(float(S["batch_window_hours"]))))
-    biz = max(1, min(24, int(float(S["business_hours"]))))
-    peak_f = max(1.0, float(S["peak_concurrency"]))
-    target_min = max(1.0, float(S["heavy_target_minutes"]))
-
-    tib = {i["item"]: i["tib"] for i in scan_lines}
     cls = {"pipelines": 0.0, "interactive": 0.0, "adhoc": 0.0, "heavy": 0.0}
-    for item, t in tib.items():
+    for i in scan_lines:
+        item, t = i["item"], i["tib"]
         if item.endswith("pipelines (ELT)"):
             cls["pipelines"] += t
-        elif item in ("Simple queries", "Complex queries", "Dashboards / reports"):
-            cls["interactive"] += t
         elif item == "Ad-hoc reports":
             cls["adhoc"] += t
         elif item == "Heavy / periodic queries":
             cls["heavy"] += t
-    sh = {k: v * sph for k, v in cls.items()}                 # slot-hours per month
-    total_sh = sum(sh.values())
-
-    profile = [0.0] * 24
-    for h in range(window):                                   # overnight batch window from 00:00
-        profile[h] += (sh["pipelines"] + sh["heavy"]) / 30 / window
-    start = 8
-    for h in range(start, min(24, start + biz)):
-        profile[h] += (sh["interactive"] + sh["adhoc"]) / 30 / biz
-    avg_slots = total_sh / 730
-    peak_profile = [p * (peak_f if start <= h < start + biz else 1.0) for h, p in enumerate(profile)]
-    peak_slots = max(peak_profile) if peak_profile else 0.0
-
-    heavy_q = W["queries"]["heavy"]
-    heavy_run_sh = float(heavy_q["gb"]) / 1024 * sph
-    heavy_burst = heavy_run_sh / (target_min / 60) if float(heavy_q["count"]) else 0.0
-    adhoc_q = W["queries"]["adhoc"]
-    adhoc_burst = float(adhoc_q["gb"]) / 1024 * sph / (target_min / 60) if float(adhoc_q["count"]) else 0.0
-    max_slots = _ceil_step(max(peak_slots, heavy_burst, adhoc_burst, SLOT_STEP))
-
-    # ---- edition
-    reasons, edition = [], "standard"
-    ent = []
-    if "vpc_sc" in comp_types:
-        ent.append("VPC Service Controls")
-    if "cmek" in comp_types:
-        ent.append("customer-managed encryption keys")
-    if "policy_tags" in comp_types:
-        ent.append("column / row-level security and data masking")
-    if comp_types & {"bqml", "agent_platform", "gemini_enterprise"}:
-        ent.append("BigQuery ML and AI functions")
-    if float(W["dashboards"]["count"]) and float(W["dashboards"]["cache_pct"]) > 0:
-        ent.append("BI Engine acceleration for dashboards")
-    if ent:
-        edition = "enterprise"
-        reasons.append("Enterprise edition is needed for " + ", ".join(ent) + " (not available in Standard).")
-    if "assured_workloads" in comp_types:
-        edition = "enterprise_plus"
-        reasons.append("Enterprise Plus is needed for Assured Workloads compliance controls and managed disaster recovery.")
-    if edition == "standard":
-        reasons.append("No Enterprise-only features are in the architecture, so Standard edition (autoscaling only) fits.")
-    if max_slots > STANDARD_MAX_SLOTS and edition == "standard":
-        edition = "enterprise"
-        reasons.append(f"Peak demand of {max_slots} slots exceeds Standard edition's {STANDARD_MAX_SLOTS}-slot reservation limit.")
-    if S.get("edition") in ("standard", "enterprise", "enterprise_plus"):
-        if S["edition"] != edition:
-            reasons.append(f"Edition overridden to {S['edition'].replace('_', ' ').title()} by the architect.")
-        edition = S["edition"]
-
-    ed = pricing["bigquery"]["editions"][edition]
-    payg_p, c1_p, c3_p = ed["payg"] * uplift, ed["cud1"] * uplift, ed["cud3"] * uplift
-    can_commit = edition != "standard"
-
-    def monthly_cost(baseline, commit_price):
-        auto = sum(_ceil_step(max(0.0, p - baseline)) for p in profile) * 30
-        return baseline * 730 * commit_price + auto * payg_p, auto
-
-    candidates = range(0, max_slots + SLOT_STEP, SLOT_STEP) if can_commit else [0]
-    best_b, best_cost, best_auto = 0, None, 0.0
-    for b in candidates:
-        c, auto = monthly_cost(b, c1_p)
-        if best_cost is None or c < best_cost - 1e-9:
-            best_b, best_cost, best_auto = b, c, auto
-    autoscale_only, _ = monthly_cost(0, payg_p)
-    rec3, _ = monthly_cost(best_b, c3_p)
-
-    bq = pricing["bigquery"]
-    total_tib = sum(tib.values())
-    ondemand = max(0.0, total_tib - bq["ondemand_free_tib"]) * bq["ondemand_tib"] * uplift
-    model = "editions" if best_cost < ondemand * 0.9 else "ondemand"
-    r2 = lambda x: round(x + 1e-12, 2)  # noqa: E731
-    ed_name = edition.replace("_", " ").title()
+        elif item in ("Simple queries", "Complex queries", "Dashboards / reports"):
+            cls["interactive"] += t
+    sh = {k: v * sph for k, v in cls.items()}
+    hq, aq = W["queries"]["heavy"], W["queries"]["adhoc"]
+    r = SL.size(sh, S, pricing, uplift, comp_types, edition_choice=W["slots"].get("edition", "auto"),
+                heavy_query_tib=float(hq["gb"]) / 1024 if float(hq["count"]) else 0.0,
+                adhoc_query_tib=float(aq["gb"]) / 1024 if float(aq["count"]) else 0.0,
+                dashboards=bool(float(W["dashboards"]["count"]) and float(W["dashboards"]["cache_pct"]) > 0),
+                ondemand_tib=sum(cls.values()), slot_hours_per_tib=sph)
+    edition, best_b, max_slots = r["edition"], int(r["auto_baseline"]), int(r["auto_max"])
+    prices = SL.edition_prices(pricing, edition, uplift)
+    best_cost = SL.month_cost(SL.profile(sh, S), best_b, max_slots, prices)
+    auto_only = SL.month_cost(SL.profile(sh, S), 0, max_slots, prices)[0]
+    ondemand = r["comparison"][0]["payg"]
+    model = r["recommended_mode"]
+    ed_name = SL.EDITION_NAME[edition]
     recs = []
     if model == "editions":
-        recs.append(f"Use BigQuery {ed_name} edition: {r2(best_cost):,.0f} USD/month vs {r2(ondemand):,.0f} USD on-demand for the same work.")
+        recs.append(f"Use BigQuery {ed_name} edition: {best_cost[1]:,.0f} USD/month vs {ondemand:,.0f} USD on-demand for the same work.")
     else:
-        recs.append(f"Stay on on-demand pricing ({r2(ondemand):,.0f} USD/month): at this volume slots would cost {r2(best_cost):,.0f} USD/month. Revisit when scans grow.")
-    if can_commit and best_b:
-        recs.append(f"Reserve a baseline of {best_b} slots on a 1-year commitment ({r2(rec3):,.0f} USD/month on 3 years) and let autoscaling cover peaks up to {max_slots} slots.")
-    elif can_commit:
+        recs.append(f"Stay on on-demand pricing ({ondemand:,.0f} USD/month): at this volume slots would cost {best_cost[1]:,.0f} USD/month. Revisit when scans grow.")
+    if edition != "standard" and best_b:
+        recs.append(f"Reserve a baseline of {best_b} slots on a 1-year commitment ({best_cost[2]:,.0f} USD/month on 3 years) and let autoscaling cover peaks up to {max_slots} slots.")
+    elif edition != "standard":
         recs.append(f"No baseline is worth committing yet - use an autoscaling reservation with max {max_slots} slots.")
     else:
         recs.append(f"Standard edition has no baseline or commitments: create an autoscaling reservation with max {max_slots} slots.")
-    if heavy_burst > peak_slots:
-        recs.append(f"Heavy / periodic queries need ~{_ceil_step(heavy_burst)} slots to finish within {target_min:g} minutes - schedule them in the batch window or a separate reservation so dashboards are not starved.")
+    if r["heavy_burst_slots"] > r["peak_slots"]:
+        recs.append(f"Heavy / periodic queries need ~{SL.ceil_step(r['heavy_burst_slots'])} slots to finish within {S['heavy_target_minutes']:g} minutes - schedule them in the batch window or a separate reservation so dashboards are not starved.")
     recs.append("Separate reservations (or assignments) for ELT, BI and data science keep workloads isolated; idle slots are shared between reservations automatically.")
     recs.append("Validate after go-live with INFORMATION_SCHEMA.JOBS_TIMELINE and the slot estimator, then right-size the baseline.")
-
     by_env = []
     for e in envs:
         f = e["compute_pct"] / 100.0
-        by_env.append({"id": e["id"], "name": e["name"], "baseline_slots": _ceil_step(best_b * f) if best_b else 0,
-                       "max_slots": _ceil_step(max_slots * f) if f else 0, "bq_slots": e.get("bq_slots")})
-    labels = {"pipelines": "ELT pipelines", "interactive": "Dashboards & interactive queries", "adhoc": "Ad-hoc reports", "heavy": "Heavy / periodic queries"}
+        by_env.append({"id": e["id"], "name": e["name"], "baseline_slots": SL.floor_step(best_b * f) if e.get("runtime_pct", 100) >= 100 else 0,
+                       "max_slots": SL.ceil_step(max_slots * f) if f else 0})
     return {
         "inputs": S, "slot_hours_per_tib": sph,
-        "by_class": [{"class": labels[k], "tib_month": round(cls[k], 3), "slot_hours_month": round(sh[k], 1),
+        "by_class": [{"class": SL.CLASS_LABELS[k], "tib_month": round(cls[k], 3), "slot_hours_month": round(sh[k], 1),
                       "avg_slots": round(sh[k] / 730, 1)} for k in cls],
-        "profile": [round(p, 1) for p in peak_profile],
-        "avg_slots": round(avg_slots, 1), "peak_slots": round(peak_slots, 1),
-        "heavy_burst_slots": round(heavy_burst, 1), "max_slots": max_slots, "baseline_slots": best_b,
-        "edition": edition, "edition_reasons": reasons, "model": model,
-        "costs": {"ondemand_month": r2(ondemand), "autoscale_only_month": r2(autoscale_only),
-                  "recommended_month": r2(best_cost), "recommended_month_3yr": r2(rec3),
-                  "autoscale_slot_hours_month": round(best_auto, 1)},
-        "recommendations": recs, "by_environment": by_env,
+        "profile": r["profile"], "avg_slots": r["avg_slots"], "peak_slots": r["peak_slots"],
+        "heavy_burst_slots": r["heavy_burst_slots"], "max_slots": max_slots, "baseline_slots": best_b,
+        "edition": edition, "edition_reasons": r["edition_reasons"], "model": model,
+        "costs": {"ondemand_month": ondemand, "autoscale_only_month": round(auto_only, 2),
+                  "recommended_month": round(best_cost[1], 2), "recommended_month_3yr": round(best_cost[2], 2),
+                  "autoscale_slot_hours_month": round(best_cost[3] - best_b * 730, 1)},
+        "comparison": r["comparison"], "recommendations": recs, "by_environment": by_env,
     }
 
 
@@ -464,7 +389,7 @@ def _summary(payg, cud1, cud3, W, regions, data_rid, pipe_rid, strm_rid, ramp_mo
     # compute-model comparison for the first steady-state month's scan volume
     tib = scans_by_month.get(steady_m, 0.0)
     bq = pricing["bigquery"]
-    up = regions[data_rid]["uplift"]
+    up = region_uplift(regions[data_rid], "bigquery")
     compare = [{"model": "On-demand", "monthly": r2(max(0.0, tib - bq["ondemand_free_tib"]) * bq["ondemand_tib"] * up), "commit1": None, "commit3": None}]
     for key, label in (("standard", "Standard edition"), ("enterprise", "Enterprise edition"), ("enterprise_plus", "Enterprise Plus edition")):
         ed = bq["editions"][key]

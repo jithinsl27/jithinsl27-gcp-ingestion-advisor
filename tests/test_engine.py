@@ -318,7 +318,8 @@ def test_api_accepts_new_fields():
     r = c.post("/api/estimate", json=body)
     assert r.status_code == 200, r.text
     assert len(r.json()["environments"]) == 2
-    assert c.get("/api/config").json() == {"google_client_id": ""}
+    cfg = c.get("/api/config").json()
+    assert cfg["google_client_id"] == "" and cfg["auth"] is False and cfg["pricing"]["source"] in ("static", "live")
 
 
 def test_nothing_designed_costs_nothing():
@@ -330,16 +331,71 @@ def test_nothing_designed_costs_nothing():
         assert out["bom"] == []
 
 
-def test_env_effective_slots_and_three_year_bom():
+def test_env_slots_auto_sized_and_editable():
     from app.estimator import estimate
-    sc = {"region": "us-central1", "bq_model": "enterprise", "bq_slots": 200, "components": [],
-          "sources": [{"id": "s1", "type": "oracle", "frequency": "near_realtime", "daily_change_gb": 50}],
+    sc = {"region": "us-central1", "bq": {"mode": "editions", "edition": "enterprise"}, "components": [],
+          "sources": [{"id": "s1", "type": "oracle", "frequency": "near_realtime", "daily_change_gb": 500, "initial_volume_gb": 50000}],
           "environments": [{"id": "prod", "preset": "prod"}, {"id": "dev", "preset": "dev"},
-                           {"id": "uat", "preset": "uat", "bq_slots": 75}]}
+                           {"id": "uat", "preset": "uat", "bq_baseline": 100, "bq_max": 300}]}
     out = estimate(sc)
-    slots = {e["id"]: (e["effective_slots"], e["slots_basis"]) for e in out["environments"]}
-    assert slots == {"prod": (200, "primary"), "dev": (20, "compute_pct"), "uat": (75, "manual")}
+    bq = out["bigquery"]
+    assert bq["edition"] == "enterprise" and bq["auto_max"] >= 50
+    assert bq["baseline"] == bq["auto_baseline"] and bq["max"] == bq["auto_max"]
+    s = {e["id"]: e["slots"] for e in out["environments"]}
+    assert s["uat"]["baseline"] == 100 and s["uat"]["max"] == 300 and s["uat"]["baseline_set"]
+    assert s["dev"]["baseline"] == 0          # dev runs part-time -> autoscaling only
+    assert not s["prod"]["baseline_set"]
     for b in out["bom"]:
         if b["unit"]:
             assert b["qty_three_year"] >= b["qty_year1"]
     assert abs(sum(b["three_year"] for b in out["bom"]) - out["totals"]["three_year_payg"]) < 1
+    # architect override wins and commitments only discount the baseline
+    sc["bq"].update({"baseline_slots": 300, "max_slots": 600})
+    out2 = estimate(sc)
+    assert out2["bigquery"]["baseline"] == 300 and out2["bigquery"]["max"] == 600
+    t = out2["by_option"]
+    assert t["cud3"]["totals"]["three_year"] < t["cud1"]["totals"]["three_year"] < t["payg"]["totals"]["three_year"]
+
+
+def test_standard_edition_has_no_baseline():
+    from app.estimator import estimate
+    out = estimate({"bq": {"mode": "editions", "edition": "standard", "baseline_slots": 500}, "components": [],
+                    "sources": [{"id": "s1", "type": "oracle", "frequency": "daily", "daily_change_gb": 100}]})
+    assert out["bigquery"]["baseline"] == 0
+    assert any("no baseline" in w for w in out["bigquery"]["warnings"])
+
+
+def test_runtime_hours_scale_always_on_services():
+    from app.estimator import estimate
+    base = {"region": "us-central1", "components": [],
+            "sources": [{"id": "k", "type": "kafka", "frequency": "realtime", "daily_change_gb": 200, "transform": "heavy"}]}
+    full = estimate({**base, "environments": [{"id": "p", "preset": "prod"}, {"id": "d", "preset": "dev", "runtime_pct": 100}]})
+    part = estimate({**base, "environments": [{"id": "p", "preset": "prod"}, {"id": "d", "preset": "dev", "runtime_pct": 36}]})
+    df = lambda o: next(b["year1"] for b in o["bom"] if b["environment"] == "d" and b["service"] == "Dataflow (streaming)")  # noqa: E731
+    assert abs(df(part) / df(full) - 0.36) < 0.01
+
+
+def test_scan_basis_measured_calibrates_slot_hours():
+    from app.estimator import estimate
+    out = estimate({"bq": {"mode": "editions", "measured_scan_tib_month": 100, "measured_slot_hours_month": 4000}, "components": [],
+                    "sources": [{"id": "s1", "type": "oracle", "frequency": "daily", "daily_change_gb": 10}]})
+    b = out["bigquery"]
+    assert b["scan_basis"] == "measured" and b["slot_hours_per_tib"] == 40
+    assert abs(b["slot_hours_month"] - b["scan_tib_month"] * 40) < 1
+
+
+def test_commercial_discount_support_and_range():
+    from app.estimator import estimate, support_fee, load_pricing
+    base = {"components": [], "sources": [{"id": "s1", "type": "oracle", "frequency": "near_realtime", "daily_change_gb": 300}]}
+    a = estimate(base)
+    b = estimate({**base, "commercial": {"discount_pct": 10, "support_plan": "enhanced", "range_low_pct": -10, "range_high_pct": 20}})
+    ya, yb = a["totals"]["year1_payg"], b["totals"]["year1_payg"]
+    support = next(r["year1"] for r in b["by_service"] if r["service"].startswith("Google Cloud Customer Care"))
+    assert abs(yb - (ya * 0.9 + support)) < 1
+    assert abs(sum(r["year1"] for r in b["bom"]) - yb) < 1
+    assert abs(sum(e["year1"] for e in b["environments"]) - yb) < 1
+    assert b["totals"]["range_high_1y"] == round(yb * 1.2, 2)
+    p = load_pricing()
+    assert support_fee(500, "enhanced", p) == 100            # minimum
+    assert abs(support_fee(20000, "enhanced", p) - (1000 + 700)) < 1e-6
+    assert support_fee(1000, "premium", p) == 15000

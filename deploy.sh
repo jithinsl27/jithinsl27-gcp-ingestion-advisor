@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# One-command deployment of Data Cloud Compass to Cloud Run.
+# One-command deployment of Data Cloud Compass to Cloud Run (run it in Cloud Shell).
 #
-# Usage:  ./deploy.sh [--project PROJECT_ID] [--region REGION] [--service NAME] [--private]
-#                     [--oauth-client-id CLIENT_ID]
+# Usage:
+#   ./deploy.sh --project PROJECT_ID [--region us-central1] [--service ingestion-advisor]
+#               [--oauth-client-id CLIENT_ID] [--allowed-domains example.com,partner.com]
+#               [--firestore-location LOCATION] [--cors-origins https://you.github.io] [--private]
 #
-# * Uses the active gcloud project if --project is not given.
-# * Enables the required APIs, builds the container with Cloud Build
-#   (no local Docker needed) and deploys it to Cloud Run.
-# * --private  : require IAM authentication (no public URL access).
-# * --oauth-client-id : optional OAuth web client ID; enables "Create in my Google Drive"
-#   for the Google Sheets / Slides exports (add the Cloud Run URL as an authorised origin).
+# What it sets up (idempotent - safe to re-run for every release):
+#   * APIs: Cloud Run, Cloud Build, Artifact Registry, Firestore, Vertex AI, Cloud Billing,
+#     Secret Manager, API Keys
+#   * Firestore (native mode) for saved scenarios, versions and sharing
+#   * a runtime service account with only what the app needs (Firestore, Vertex AI, the secret)
+#   * a Cloud Billing API key (in Secret Manager) for live list prices and region availability
+#   * the Cloud Run service, built from this folder
+#
+# Sign-in (needed for saving, sharing and the AI assist): create an OAuth client ID
+# (APIs & Services -> Credentials -> Create credentials -> OAuth client ID -> Web application),
+# add the Cloud Run URL (and your GitHub Pages URL) as Authorised JavaScript origins, then
+# re-run with --oauth-client-id. The same client also enables "Create in my Google Drive".
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
@@ -17,6 +25,10 @@ REGION="${REGION:-us-central1}"
 SERVICE="${SERVICE:-ingestion-advisor}"
 PUBLIC=true
 OAUTH_CLIENT_ID="${GOOGLE_OAUTH_CLIENT_ID:-}"
+ALLOWED_DOMAINS="${ALLOWED_DOMAINS:-}"
+FS_LOCATION=""
+CORS_ORIGINS="${CORS_ORIGINS:-https://jithinsl27.github.io}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,7 +37,11 @@ while [[ $# -gt 0 ]]; do
     --service) SERVICE="$2"; shift 2 ;;
     --private) PUBLIC=false; shift ;;
     --oauth-client-id) OAUTH_CLIENT_ID="$2"; shift 2 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    --allowed-domains) ALLOWED_DOMAINS="$2"; shift 2 ;;
+    --firestore-location) FS_LOCATION="$2"; shift 2 ;;
+    --cors-origins) CORS_ORIGINS="$2"; shift 2 ;;
+    --gemini-model) GEMINI_MODEL="$2"; shift 2 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -34,34 +50,101 @@ if [[ -z "${PROJECT_ID}" ]]; then
   echo "No project set. Run: gcloud config set project YOUR_PROJECT_ID  (or pass --project)" >&2
   exit 1
 fi
+FS_LOCATION="${FS_LOCATION:-${REGION}}"
+SA_NAME="compass-run"
+SA="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+SECRET="compass-billing-api-key"
 
-echo "==> Project: ${PROJECT_ID} | Region: ${REGION} | Service: ${SERVICE} | Public: ${PUBLIC}"
+echo "==> Project ${PROJECT_ID} | region ${REGION} | service ${SERVICE} | public ${PUBLIC}"
 gcloud config set project "${PROJECT_ID}" >/dev/null
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 
-echo "==> Enabling APIs (Cloud Run, Cloud Build, Artifact Registry)..."
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --quiet
+echo "==> Enabling APIs..."
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
+  firestore.googleapis.com aiplatform.googleapis.com cloudbilling.googleapis.com secretmanager.googleapis.com \
+  apikeys.googleapis.com iam.googleapis.com --quiet
+
+echo "==> Firestore (saved scenarios)..."
+if ! gcloud firestore databases describe --database="(default)" >/dev/null 2>&1; then
+  if ! gcloud firestore databases create --database="(default)" --location="${FS_LOCATION}" --type=firestore-native --quiet; then
+    echo "    Firestore is not offered in ${FS_LOCATION}; using nam5 (US multi-region). Pass --firestore-location to choose another."
+    gcloud firestore databases create --database="(default)" --location=nam5 --type=firestore-native --quiet
+  fi
+else
+  echo "    already exists"
+fi
+
+echo "==> Runtime service account ${SA}..."
+gcloud iam service-accounts describe "${SA}" >/dev/null 2>&1 || \
+  gcloud iam service-accounts create "${SA_NAME}" --display-name="Data Cloud Compass (Cloud Run)" --quiet
+for role in roles/datastore.user roles/aiplatform.user roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" --member="serviceAccount:${SA}" --role="${role}" --condition=None --quiet >/dev/null
+done
+
+echo "==> Cloud Billing API key for live prices (Secret Manager: ${SECRET})..."
+SECRET_FLAG=""
+if gcloud secrets describe "${SECRET}" >/dev/null 2>&1; then
+  SECRET_FLAG="--set-secrets=BILLING_API_KEY=${SECRET}:latest"
+else
+  gcloud services api-keys create --display-name="compass-billing-catalog" \
+      --api-target=service=cloudbilling.googleapis.com --quiet >/dev/null 2>&1 || true
+  KEY_NAME="$(gcloud services api-keys list --filter='displayName=compass-billing-catalog' --format='value(name)' --limit=1 2>/dev/null || true)"
+  if [[ -n "${KEY_NAME}" ]]; then
+    KEY="$(gcloud services api-keys get-key-string "${KEY_NAME}" --format='value(keyString)')"
+    printf '%s' "${KEY}" | gcloud secrets create "${SECRET}" --data-file=- --replication-policy=automatic --quiet >/dev/null
+    SECRET_FLAG="--set-secrets=BILLING_API_KEY=${SECRET}:latest"
+  else
+    echo "    Could not create an API key - live prices will use the service account's own token instead."
+  fi
+fi
+if [[ -n "${SECRET_FLAG}" ]]; then
+  gcloud secrets add-iam-policy-binding "${SECRET}" --member="serviceAccount:${SA}" \
+    --role=roles/secretmanager.secretAccessor --quiet >/dev/null
+fi
+
+# Cloud Build (deploy --source) builds with the default compute service account
+CB_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+for role in roles/storage.objectViewer roles/artifactregistry.writer roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" --member="serviceAccount:${CB_SA}" --role="${role}" --condition=None --quiet >/dev/null 2>&1 || true
+done
 
 AUTH_FLAG="--no-allow-unauthenticated"
 ${PUBLIC} && AUTH_FLAG="--allow-unauthenticated"
+VERSION="$(git rev-parse --short HEAD 2>/dev/null || echo 2.0.0)"
+# ^@^ = use @ between variables, so values may contain commas
+ENV_VARS="^@^APP_VERSION=${VERSION}@STORE=firestore@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GEMINI_MODEL=${GEMINI_MODEL}@GEMINI_LOCATION=global@LIVE_PRICING=auto"
+ENV_VARS="${ENV_VARS}@GOOGLE_OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}@ALLOWED_DOMAINS=${ALLOWED_DOMAINS}@CORS_ORIGINS=${CORS_ORIGINS}"
 
-echo "==> Building and deploying (takes ~3 minutes the first time)..."
+echo "==> Building and deploying (about 3 minutes the first time)..."
 gcloud run deploy "${SERVICE}" \
   --source . \
   --region "${REGION}" \
   --platform managed \
   ${AUTH_FLAG} \
-  --memory 512Mi --cpu 1 \
-  --min-instances 0 --max-instances 3 \
-  --set-env-vars "APP_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo 1.0.0),GOOGLE_OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}" \
+  --service-account "${SA}" \
+  --memory 1Gi --cpu 1 \
+  --min-instances 0 --max-instances 5 \
+  --set-env-vars "${ENV_VARS}" \
+  ${SECRET_FLAG} \
   --quiet
 
 URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
 echo ""
 echo "Deployed: ${URL}"
-if [[ -n "${OAUTH_CLIENT_ID}" ]]; then
-  echo "Google Drive export enabled - add ${URL} as an authorised JavaScript origin of the OAuth client."
+echo "Live prices load in the background after the first request: ${URL}/api/pricing/status"
+if [[ -z "${OAUTH_CLIENT_ID}" ]]; then
+  echo ""
+  echo "Sign-in is off (saving, sharing and the AI assist need it). To turn it on:"
+  echo "  1. Console -> APIs & Services -> Credentials -> Create credentials -> OAuth client ID -> Web application"
+  echo "  2. Authorised JavaScript origins: ${URL}  and  ${CORS_ORIGINS}"
+  echo "  3. ./deploy.sh --project ${PROJECT_ID} --region ${REGION} --oauth-client-id <CLIENT_ID> [--allowed-domains yourcompany.com]"
+else
+  echo "Sign-in is on. ${URL} and ${CORS_ORIGINS} must be Authorised JavaScript origins of the OAuth client."
 fi
+echo ""
+echo "Point the public demo (GitHub Pages) at this service, once:"
+echo "  gh variable set COMPASS_API_URL --body '${URL}'   (or GitHub -> Settings -> Secrets and variables -> Actions -> Variables)"
+echo "Automatic deploys from GitHub on every push to main:  ./setup-github-deploy.sh --project ${PROJECT_ID} --region ${REGION}"
 if ! ${PUBLIC}; then
-  echo "The service is private. Open it with:  gcloud run services proxy ${SERVICE} --region ${REGION}"
-  echo "or put it behind Identity-Aware Proxy (see docs/deployment.md)."
+  echo "The service is private: open it with  gcloud run services proxy ${SERVICE} --region ${REGION}"
 fi

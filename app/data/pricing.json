@@ -387,5 +387,59 @@
     "analytics_per_million": 20,
     "advanced_security_per_million": 350,
     "note": "Pay-as-you-go: environment fee per region plus API calls; analytics and Advanced API Security add-ons need Intermediate or Comprehensive environments."
+  },
+  "support": {
+    "_note": "Google Cloud Customer Care, % of monthly list-price spend (tiered) with a monthly minimum - https://cloud.google.com/support",
+    "standard": {
+      "min_month": 29.0,
+      "tiers": [
+        [
+          null,
+          0.03
+        ]
+      ]
+    },
+    "enhanced": {
+      "min_month": 100.0,
+      "tiers": [
+        [
+          10000,
+          0.1
+        ],
+        [
+          80000,
+          0.07
+        ],
+        [
+          250000,
+          0.05
+        ],
+        [
+          null,
+          0.03
+        ]
+      ]
+    },
+    "premium": {
+      "min_month": 15000.0,
+      "tiers": [
+        [
+          150000,
+          0.1
+        ],
+        [
+          500000,
+          0.07
+        ],
+        [
+          1000000,
+          0.05
+        ],
+        [
+          null,
+          0.03
+        ]
+      ]
+    }
   }
 }

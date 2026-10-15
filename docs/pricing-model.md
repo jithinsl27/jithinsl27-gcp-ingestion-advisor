@@ -2,16 +2,26 @@
 
 The estimator (`app/estimator.py`) simulates **36 months**. Each month every source's change volume grows by the scenario's annual growth rate (compounded monthly). Each recommended pattern converts GB into billable units; shared platform services are added once; a contingency percentage is applied on top.
 
-Two views per horizon:
+Every figure exists for three **pricing options**, chosen in the app:
 
 - **Pay-as-you-go** - list prices.
-- **With commitments** - 1-year CUD prices for the 1-year view, 3-year CUD prices for the 3-year view, applied only where Google offers them in this model: BigQuery editions slots, Dataflow streaming, Composer, Agent Engine, Knowledge Catalog premium processing.
+- **1-year commitment** and **3-year commitment** - committed-use prices applied only where Google offers them in this model: BigQuery edition **baseline** slots (autoscaling is always pay-as-you-go), Dataflow streaming, Composer, Agent Engine, AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore and Knowledge Catalog premium processing. In the 3-year view a 1-year commitment is assumed renewed each year.
 
-A **discussion range** is shown as 75% of the committed figure to 130% of the pay-as-you-go figure.
+Then, in order: **contingency** (% of the month's total), the **negotiated discount** (% off everything), and **Google Cloud Customer Care** on the month's list-price spend - Standard 3 % (min $29), Enhanced 10 % / 7 % / 5 % / 3 % by spend tier (min $100), Premium 10 % / 7 % / 5 % / 3 % (min $15,000) per [cloud.google.com/support](https://cloud.google.com/support).
+
+The **discussion range** runs from the cheapest commitment figure × (1 + low %) to pay-as-you-go × (1 + high %); defaults −25 % / +30 %, editable under Commercial terms.
 
 ## Price sources
 
-All prices are USD list prices for `us-central1` in `app/data/pricing.json`, reviewed 2026-10-15 from:
+### Live prices
+
+On Cloud Run the service reads the public **Cloud Billing Catalog API** once a day (`app/live_pricing.py`): the services it needs, their SKUs, each SKU's `serviceRegions` and tiered unit prices. Mapped price points (BigQuery on-demand, storage, Write API and edition slot-hours incl. commitments; Cloud Storage classes; Dataflow vCPU / memory / Streaming Engine; Pub/Sub; Composer and Dataproc Serverless DCU; Cloud Run) are matched by SKU description. A live price replaces the reviewed one only within 3× of it. Per region, the ratio of each SKU's regional price to `us-central1` becomes that service's **regional uplift**, replacing the approximate multiplier. `GET /api/pricing/status` lists what matched, what did not and when it last refreshed; the app shows the source in the summary bar and the Assumptions tab. To adjust a match, edit `PRICE_MAP` in `app/live_pricing.py` (description regular expression, usage type, unit).
+
+**Availability**: a service is treated as offered in a region when one of its SKUs lists that region (global SKUs count everywhere). Without live data only the launch-baseline services (Cloud Storage, Cloud SQL, KMS, Compute Engine) are assumed available and the others are reported as *not verified*.
+
+### Reviewed prices (fallback)
+
+`app/data/pricing.json` holds USD list prices for `us-central1`, reviewed 2026-10-15 from:
 
 - [BigQuery](https://cloud.google.com/bigquery/pricing), [Datastream](https://cloud.google.com/datastream/pricing), [Dataflow](https://cloud.google.com/dataflow/pricing), [Pub/Sub](https://cloud.google.com/pubsub/pricing), [Data Fusion](https://cloud.google.com/data-fusion/pricing), [Composer / Managed Airflow](https://cloud.google.com/composer/pricing), [Dataproc Serverless](https://cloud.google.com/dataproc-serverless/pricing), [Cloud Storage](https://cloud.google.com/storage/pricing), [Storage Transfer](https://cloud.google.com/storage-transfer/pricing), [Integration Connectors](https://cloud.google.com/integration-connectors/pricing)
 - [Vertex AI (prediction, Agent Engine)](https://cloud.google.com/vertex-ai/pricing), [Gemini models](https://cloud.google.com/vertex-ai/generative-ai/pricing), [Dataplex / Knowledge Catalog](https://cloud.google.com/dataplex/pricing), [Sensitive Data Protection](https://cloud.google.com/sensitive-data-protection/pricing), [Cloud KMS](https://cloud.google.com/kms/pricing)
@@ -43,8 +53,12 @@ Entries flagged `"verify": true` are approximations (Composer environment size i
 ## BigQuery
 
 - **Storage**: initial volume + net-new data (30% of CDC change volume, 100% for append-only sources), +50% for curated/mart layers. Data older than 90 days: 70% billed as long-term. Active $0.02, long-term $0.01 per GiB-month; 10 GiB free.
-- **Compute, on-demand**: (ELT scans of 3× monthly ingested data + analytics scans) × $6.25/TiB after 1 TiB free. Analytics scans default to 2× stored data per month, or the TiB/month you enter (grows with the growth rate).
-- **Compute, editions**: average slots × 730 h × edition rate (Standard $0.04, Enterprise $0.06, Enterprise Plus $0.10; CUD rates for commitment views).
+- **Scan volume** (TiB/month), from one of three bases chosen under *Sizing & calibration*:
+  - *Rule of thumb*: ELT scans of 3× the data ingested + analytics scans of 2× the data stored per month (both multipliers editable), or the analytics TiB/month you enter;
+  - *Workload sizing tab*: pipelines, queries, ad-hoc reports and dashboards entered there (steady state, grown by the growth rate);
+  - *Measured*: TiB scanned per month from the customer's `INFORMATION_SCHEMA.JOBS`, grown by the growth rate (the app gives the query).
+- **Compute, on-demand**: scan TiB × $6.25 after 1 TiB free.
+- **Compute, editions** (`app/slots.py`): slot-hours = scan TiB × slot-hours per TiB (60 by default, or measured slot-hours ÷ measured TiB). Demand is laid out as an average day (pipelines and heavy jobs in the batch window, dashboards / interactive / ad-hoc in business hours × the busiest-hour factor). Each month: `baseline × 730 h × rate` (pay-as-you-go, 1-year or 3-year commitment rate) + `Σ hours min(max − baseline, demand − baseline) × 30 × 1.25 × pay-as-you-go rate` (the 1.25 covers 50-slot steps, the 1-minute minimum and scale-down lag). Edition rates in us-central1: Standard $0.04, Enterprise $0.06, Enterprise Plus $0.10 per slot-hour.
 
 ## Platform
 
@@ -84,7 +98,9 @@ Partner components (Power BI, Tableau, MicroStrategy, Qlik, ThoughtSpot, DataRob
 
 ## Environments
 
-The scenario describes the primary environment. Each additional environment adds a copy of every service line scaled by one factor: storage, Cloud Storage and initial loads by *data %*; CDC, pipelines, streaming, Write API and transfer by *ingestion %*; BigQuery query compute by *compute %* (or `bq_slots / baseline slots` with editions); BI, Gemini Enterprise, agents and GPU endpoints by *AI %*; Apigee and operational databases by *apps %*; orchestration, Data Fusion, governance and security by *platform %*. HA VPN / Interconnect and the Looker licence are shared (factor 0). Contingency applies to the total.
+The scenario describes the primary environment. Each additional environment adds a copy of every service line scaled by one factor: storage, Cloud Storage and initial loads by *data %*; CDC, pipelines, streaming, Write API and transfer by *ingestion %*; on-demand BigQuery compute by *compute %*; BI, Gemini Enterprise, agents and GPU endpoints by *AI %*; Apigee and operational databases by *apps %*; orchestration, Data Fusion, governance and security by *platform %*. Services billed while running (streaming Dataflow, Composer, Data Fusion instance, VMs, Integration Connectors nodes, GPU endpoints, Agent Engine, Apigee environment, AlloyDB, Cloud SQL, Spanner, Bigtable, Memorystore) are further multiplied by *running hours %* (hours per week ÷ 168). HA VPN / Interconnect and the Looker licence are shared (factor 0). Contingency applies to the total.
+
+With BigQuery editions each environment has its own reservation: demand = production demand × *compute %*; max = production max × *compute %* (50-slot steps); baseline = production baseline × *compute %* rounded down, or 0 when the environment runs part-time. Any baseline or max can be overridden per environment.
 
 ## Lakehouse layers
 
@@ -101,7 +117,7 @@ Every line item carries a quantity in its billing unit (GiB, TiB scanned, slot-h
 
 ## BigQuery slot sizing
 
-Per job type: monthly TiB × slot-hours per TiB (default 60). Pipelines and heavy jobs fill the batch window; dashboards, interactive and ad-hoc queries fill business hours, multiplied by the busiest-hour factor for the peak. Max autoscale = max(peak hour, heavy-query burst to finish within the target minutes) rounded up to 50 slots. The baseline is chosen from 0 … max in 50-slot steps to minimise `baseline × 730 × 1-yr commit price + Σ autoscaled slots (rounded up to 50) × 30 × PAYG price`. Standard edition: no baseline or commitments, 1,600-slot maximum. Editions recommended only when at least 10 % cheaper than on-demand.
+The same model serves the estimate and the Workload sizing tab (`app/slots.py`). Max (auto) = max(busiest hour, heavy / ad-hoc query burst to finish within the target minutes) rounded up to 50 slots. The baseline (auto) is chosen from 0 … max in 50-slot steps to minimise `baseline × 730 × 1-year commit price + autoscaled slot-hours × pay-as-you-go price`. Standard edition: no baseline or commitments, 1,600-slot maximum. The edition comparison shows on-demand and each edition at its own auto-sized baseline / max for all three pricing options; editions are recommended only when at least 10 % cheaper than on-demand (with a 1-year commitment).
 
 ## Regions
 
@@ -128,7 +144,9 @@ Foundation month 1 (4 weeks); build effort per pattern (DTS 2 weeks, Datastream 
 
 ## Updating prices
 
+Deployed services refresh mapped prices daily on their own. For the reviewed fallback and for items without a live mapping:
+
 1. Edit `app/data/pricing.json` (and `regions.json` for uplifts). Keep the same keys.
 2. Update `_meta.last_reviewed`.
-3. Run `python -m pytest -q` and `python demo/build_demo.py`.
-4. Redeploy (`./deploy.sh` or push to `main` with Cloud Build).
+3. Run `python -m pytest -q`.
+4. Push to `main` (deploys automatically once `setup-github-deploy.sh` has run) or run `./deploy.sh`.

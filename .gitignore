@@ -11,3 +11,4 @@ venv/
 .terraform.lock.hcl
 terraform.tfvars
 .DS_Store
+demo/dist/

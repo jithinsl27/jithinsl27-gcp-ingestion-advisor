@@ -107,4 +107,4 @@ Google Cloud components are costed; partner components are drawn with their inte
 | Knowledge Catalog (Dataplex) | Google | Automatic metadata, lineage, profiling and quality scans |
 | Collibra, Alation, Atlan, Informatica CDGC | Partner | BigQuery scanners / connectors; Dataplex lineage and tag sync where supported |
 
-Change the rules in `app/recommender.py` (and mirror them in `demo/engine.js`; the parity test will tell you if they diverge).
+Change the rules in `app/recommender.py`; the public demo calls the same service, so there is nothing to mirror.

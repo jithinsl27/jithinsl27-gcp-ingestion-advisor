@@ -12,5 +12,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q
+      - run: python -m playwright install --with-deps chromium
+      - name: Unit, API and browser tests
+        run: python -m pytest -q
       - run: docker build -t ingestion-advisor .

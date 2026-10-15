@@ -4,7 +4,6 @@
   "skill": "low_code",
   "orchestration": "auto",
   "environment": "production",
-  "bq_model": "ondemand",
   "annual_growth_pct": 20,
   "contingency_pct": 10,
   "sources": [
@@ -122,5 +121,9 @@
       "name": "Development",
       "preset": "dev"
     }
-  ]
+  ],
+  "bq": {
+    "mode": "ondemand",
+    "edition": "auto"
+  }
 }

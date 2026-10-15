@@ -3,7 +3,7 @@
   "env": {},
   "options": {
     "allow-unauthenticated": true,
-    "memory": "512Mi",
+    "memory": "1Gi",
     "cpu": "1",
     "port": 8080
   }

@@ -4,8 +4,6 @@
   "skill": "spark",
   "orchestration": "auto",
   "environment": "production",
-  "bq_model": "enterprise",
-  "bq_slots": 500,
   "annual_growth_pct": 15,
   "contingency_pct": 10,
   "sources": [
@@ -148,5 +146,9 @@
       "name": "Pre-production",
       "preset": "preprod"
     }
-  ]
+  ],
+  "bq": {
+    "mode": "editions",
+    "edition": "enterprise"
+  }
 }

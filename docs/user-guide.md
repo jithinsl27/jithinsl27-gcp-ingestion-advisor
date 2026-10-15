@@ -8,6 +8,11 @@ Data Cloud Compass is built to be used live in discovery workshops, typically sc
 - **Region**: the BigQuery home region (or US/EU multi-region). Storage, queries and shared security controls are priced here.
 - **Currency**: display currency (fixed conversion rates in `pricing.json`).
 - **Load sample**: three ready-made customers (KSA retail bank, telco DWH modernisation, manufacturing).
+- **Discover**: build the design faster -
+  - **Guided interview**: five short steps (customer & region, source systems as tap-to-add chips with a typical size, consumers such as BI / Gemini Enterprise / agents / APIs / databases, environments & security & pricing preferences, review) that create a complete first design, either as a new scenario or added to the current one;
+  - **Meeting notes (AI)**: paste notes, an RFP extract or an e-mail; Gemini proposes source systems (with volumes, marked *estimated* when guessed), products with a reason each, **questions to ask the customer next** and its assumptions - tick what to add;
+  - **Inventory spreadsheet**: upload a CSV/XLSX in the template layout (download the template from the dialog) and it is imported directly with no AI; any other layout is read by Gemini.
+- **Sign in** (top right, when configured) to save to the cloud.
 
 ## 2. Capture source systems
 
@@ -29,7 +34,7 @@ The colour bar shows the flow: green dashed = streaming/CDC, orange = scheduled 
 
 ## 3. Environments
 
-Choose the **Total** number of environments in the sidebar and press **Size** to open the sizing grid. The first environment (normally production) is the baseline described by your sources, products and workload. Every other environment is sized as a percentage of it per capability: data volume, ingestion & pipelines, BigQuery compute (or a fixed slot count with editions), BI/AI/agent usage, APIs & databases, and platform/governance/security. Presets give sensible starting points (development 10 %, UAT 25 %, pre-production 50 %, DR keeps 100 % of the data with little compute). Network links and the Looker licence are shared and counted once. The Consumption estimate and Workload sizing tabs show cost by environment, and the bill of materials can be filtered by environment.
+Choose the **Total** number of environments in the sidebar and press **Size** to open the sizing grid (or edit inline on the Consumption estimate tab under *How each environment is sized*). The first environment (normally production) is the baseline described by your sources, products and workload. Every other environment is sized as a percentage of it per capability: data volume, ingestion & pipelines, BigQuery compute, BI/AI/agent usage, APIs & databases, and platform/governance/security - plus **running hours % of the week**, which scales always-on services (streaming Dataflow, Composer, Data Fusion instance, VMs, GPU endpoints, agent runtime, Apigee environment, databases): 12 hours on weekdays is 36 %. BigQuery slots are sized per environment (see 3c). Presets give sensible starting points (development 10 %, UAT 25 %, pre-production 50 %, DR keeps 100 % of the data with little compute). Network links and the Looker licence are shared and counted once. The Consumption estimate and Workload sizing tabs show cost by environment, and the bill of materials can be filtered by environment.
 
 ## 3b. Lakehouse layers
 
@@ -37,7 +42,20 @@ The **Lakehouse layers** panel controls the Cloud Storage **raw zone** (on/off, 
 
 ## 3c. Engagement settings
 
-Team skill set (drives batch tool choice), orchestration, BigQuery pricing model and slots, analytics scan volume, growth, contingency, environment, and the **processing region** for shared services (orchestration, Data Fusion, network).
+Team skill set (drives batch tool choice), orchestration, analytics scan volume, growth, contingency, environment, and the **processing region** for shared services (orchestration, Data Fusion, network).
+
+**BigQuery compute** (in Engagement settings):
+
+- **On-demand (per TiB)** or **Editions (slots)**. A hint shows which is cheaper for this design.
+- With editions, pick **Recommend for me** (the edition the architecture needs: Enterprise for VPC-SC, CMEK, column/row security, BigQuery ML, BI Engine; Enterprise Plus for Assured Workloads / managed DR; otherwise Standard) or a specific edition.
+- Slots are **auto-sized per environment** - a **baseline** (always on; the only part a 1- or 3-year commitment discounts) and a **max** (baseline + autoscaling, billed pay-as-you-go while queries run). Grey numbers are the auto values; type over any of them to override, clear it to go back to auto, or **Reset all to auto**. Standard edition has no baseline and stops at 1,600 slots. Part-time non-production environments get autoscaling only.
+- **Sizing & calibration** opens the details: average and busiest-hour demand, the hourly profile with baseline and max, the cost of on-demand and every edition for pay-as-you-go / 1-year / 3-year, why an edition is needed, which data the scan volume is based on (rule of thumb from data volume, the **Workload sizing** tab, or **measured** usage), every sizing assumption (editable), and an `INFORMATION_SCHEMA.JOBS` query to run in the customer's project - enter the measured TiB and slot-hours and the estimate is calibrated to them.
+
+**Commercial terms**: negotiated discount %, Google Cloud **Customer Care** plan (Standard / Enhanced / Premium - tiered % of list spend with a monthly minimum) and the discussion range (low % applied to the cheapest commitment price, high % to pay-as-you-go).
+
+**Consumption pricing** (above the headline figures): pay-as-you-go, 1-year or 3-year commitment. Every figure, breakdown, environment cost, the bill of materials and the exports follow it, with the saving versus pay-as-you-go. Click any headline figure for the products and pricing behind it.
+
+**Availability**: if a service is not offered in the region it is placed in, a warning appears under the headline figures with one-click options to run it in a nearby region. On Cloud Run availability is checked daily against Google's price catalog; otherwise unverified services are listed.
 
 ## 4. Products: BI, AI, APIs, databases, governance and security
 
@@ -95,7 +113,7 @@ Results: ramp-up and steady-state monthly cost, 1-year and 3-year totals, by cat
 
 ### BigQuery slot sizing
 
-From the same inputs the tool sizes slots: each job type's monthly TiB × slot-hours per TiB, placed in an average day (pipelines and heavy periodic jobs in the batch window, dashboards, interactive and ad-hoc queries over business hours, with a busiest-hour factor). It reports average and peak slots, the burst a heavy query needs to finish in the target time, the **max autoscale** reservation (50-slot steps) and the **baseline** that minimises baseline-commitment + autoscaling cost. The **edition** is chosen from the architecture (Enterprise for VPC-SC, CMEK, column/row security, BigQuery ML, BI Engine; Enterprise Plus for Assured Workloads / managed DR; Standard otherwise - Standard has no baseline or commitments and a 1,600-slot limit), and on-demand is recommended when it is cheaper. **Use in the consumption estimate** copies the edition and slots to the Engagement settings.
+From the same inputs the tool sizes slots: each job type's monthly TiB × slot-hours per TiB, placed in an average day (pipelines and heavy periodic jobs in the batch window, dashboards, interactive and ad-hoc queries over business hours, with a busiest-hour factor). It reports average and peak slots, the burst a heavy query needs to finish in the target time, the **max autoscale** reservation (50-slot steps) and the **baseline** that minimises baseline-commitment + autoscaling cost. The **edition** is chosen from the architecture (Enterprise for VPC-SC, CMEK, column/row security, BigQuery ML, BI Engine; Enterprise Plus for Assured Workloads / managed DR; Standard otherwise - Standard has no baseline or commitments and a 1,600-slot limit), and on-demand is recommended when it is cheaper. **Use in the consumption estimate** makes the main estimate size BigQuery from this workload (scan basis *Workload sizing tab*) with the recommended model, so the two views agree.
 
 ## 7. Roadmap
 
@@ -116,6 +134,15 @@ Generated automatically from the sources and components:
 Choose **Create in my Google Drive** to upload and convert to Sheets / Slides (needs an OAuth client ID once - see [deployment](deployment.md#google-sheets--slides-export)), or **Download** the .xlsx / .pptx and open it with Google Sheets / Slides.
 
 Also: Markdown proposal, CSV (includes the bill of materials), scenario JSON, architecture SVG, print/PDF. **Open scenario** reloads a saved JSON.
+
+**Scenarios** (signed in):
+
+- **Save** (Ctrl/⌘ S) stores the scenario in the cloud; every save is a new **version** with an optional note. The menu shows the title, version and whether there are unsaved changes.
+- **Save as a copy** creates an option B to work on separately.
+- **Open saved scenario** lists your scenarios and those shared with you, with year-1 and 3-year totals.
+- **Version history**: view any earlier version (Save then restores it as a new version - nothing is overwritten) or compare it with the current one.
+- **Share** with people (view or edit) or with anyone signed in who has the link; the link opens the scenario directly. If someone else saved meanwhile, you are offered to save a copy instead of overwriting.
+- **Compare scenarios**: any two of - the current scenario, the current one with on-demand or editions BigQuery, production only, saved scenarios, versions and samples - side by side for every pricing option, with BigQuery set-up, capability totals and the products that differ most.
 
 ## Good practice
 

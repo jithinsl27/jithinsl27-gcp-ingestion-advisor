@@ -29,6 +29,8 @@ from .recommender import recommend, platform_components
 from .components import COMPONENT_BY_ID, cost_components, component_view, normalized, platform_story
 from .environments import env_summary, normalized_envs, replicate
 from .bom import build_bom
+from . import slots as SL
+from . import live_pricing as LP
 
 DATA_DIR = Path(__file__).parent / "data"
 GIB_PER_TIB = 1024
@@ -67,6 +69,106 @@ LAKEHOUSE_DEFAULTS = {
 }
 
 
+BQ_DEFAULTS = {
+    "mode": "ondemand",            # ondemand | editions
+    "edition": "auto",             # auto (recommended) | standard | enterprise | enterprise_plus
+    "baseline_slots": None,        # None = auto-sized; number = architect's override (production)
+    "max_slots": None,             # None = auto-sized (busiest hour); number = override
+    "scan_basis": "auto",          # auto | heuristic | workload | measured
+    "elt_scan_multiplier": None,   # None = ASSUMPTIONS value
+    "analytics_scan_multiplier": None,
+    "slot_hours_per_tib": 60.0,
+    "measured_scan_tib_month": None,   # from INFORMATION_SCHEMA.JOBS (customer's current estate)
+    "measured_slot_hours_month": None,
+}
+
+
+def bq_settings(scenario: dict) -> dict:
+    """BigQuery compute settings, accepting the legacy bq_model / bq_slots fields."""
+    raw = scenario.get("bq") or {}
+    b = {**BQ_DEFAULTS, **{k: v for k, v in raw.items() if k in BQ_DEFAULTS and v not in (None, "")}}
+    legacy = scenario.get("bq_model")
+    if not raw.get("mode") and legacy in SL.EDITIONS:
+        b["mode"] = "editions"
+        if not raw.get("edition"):
+            b["edition"] = legacy
+        if not raw and scenario.get("bq_slots") not in (None, ""):
+            # legacy: a flat number of slots, billed around the clock
+            b["baseline_slots"] = b["max_slots"] = float(scenario["bq_slots"])
+    if b["mode"] not in ("ondemand", "editions"):
+        b["mode"] = "ondemand"
+    if b["edition"] not in ("auto",) + SL.EDITIONS:
+        b["edition"] = "auto"
+    if b["scan_basis"] not in ("auto", "heuristic", "workload", "measured"):
+        b["scan_basis"] = "auto"
+    b["slot_hours_per_tib"] = max(0.1, float(b["slot_hours_per_tib"]))
+    b["elt_scan_multiplier"] = float(b["elt_scan_multiplier"]) if b["elt_scan_multiplier"] is not None else ASSUMPTIONS["elt_scan_multiplier"]
+    b["analytics_scan_multiplier"] = (float(b["analytics_scan_multiplier"]) if b["analytics_scan_multiplier"] is not None
+                                      else ASSUMPTIONS["auto_analytics_scan_multiplier"])
+    meas_t, meas_s = b["measured_scan_tib_month"], b["measured_slot_hours_month"]
+    b["calibrated"] = bool(meas_t and float(meas_t) > 0)
+    if b["calibrated"] and meas_s and float(meas_s) > 0:
+        b["slot_hours_per_tib"] = float(meas_s) / float(meas_t)
+    if b["scan_basis"] == "auto":
+        b["scan_basis"] = "measured" if b["calibrated"] else "heuristic"
+    if b["scan_basis"] == "measured" and not b["calibrated"]:
+        b["scan_basis"] = "heuristic"
+    b["shape"] = SL.shape_settings({**(raw.get("shape") or {}), **((scenario.get("workload") or {}).get("slots") or {}),
+                                    **(raw.get("shape") or {})})
+    return b
+
+
+def workload_scan_classes(scenario: dict) -> dict | None:
+    """Steady-state monthly TiB by job class from the Workload sizing tab (None when it is empty)."""
+    from .workload import workload_estimate  # local import: workload imports this module
+    w = workload_estimate(scenario)
+    cls = {"pipelines": 0.0, "interactive": 0.0, "adhoc": 0.0, "heavy": 0.0}
+    for line in w.get("scan_lines_steady_month") or []:
+        item, tib = line["item"], float(line["tib"])
+        if item.endswith("pipelines (ELT)"):
+            cls["pipelines"] += tib
+        elif item == "Ad-hoc reports":
+            cls["adhoc"] += tib
+        elif item == "Heavy / periodic queries":
+            cls["heavy"] += tib
+        else:
+            cls["interactive"] += tib
+    if sum(cls.values()) <= 0:
+        return None
+    W = w.get("workload") or {}
+    q = W.get("queries") or {}
+    cls["_heavy_query_tib"] = float(q.get("heavy", {}).get("gb") or 0) / GIB_PER_TIB if float(q.get("heavy", {}).get("count") or 0) else 0.0
+    cls["_adhoc_query_tib"] = float(q.get("adhoc", {}).get("gb") or 0) / GIB_PER_TIB if float(q.get("adhoc", {}).get("count") or 0) else 0.0
+    cls["_dashboards"] = float((W.get("dashboards") or {}).get("count") or 0) > 0
+    return cls
+
+
+COMMERCIAL_DEFAULTS = {"discount_pct": 0.0, "support_plan": "none", "range_low_pct": -25.0, "range_high_pct": 30.0}
+SUPPORT_PLANS = ("none", "standard", "enhanced", "premium")
+
+
+def commercial_settings(scenario):
+    c = {**COMMERCIAL_DEFAULTS, **{k: v for k, v in (scenario.get("commercial") or {}).items() if v not in (None, "")}}
+    c["discount_pct"] = min(90.0, max(0.0, float(c["discount_pct"])))
+    c["range_low_pct"] = min(0.0, max(-90.0, float(c["range_low_pct"])))
+    c["range_high_pct"] = min(300.0, max(0.0, float(c["range_high_pct"])))
+    if c["support_plan"] not in SUPPORT_PLANS:
+        c["support_plan"] = "none"
+    return c
+
+
+def support_fee(list_spend_month, plan, pricing):
+    """Google Cloud Customer Care: tiered % of monthly list-price spend, with a monthly minimum."""
+    p = pricing["support"][plan]
+    fee, prev = 0.0, 0.0
+    for limit, rate in p["tiers"]:
+        top = list_spend_month if limit is None else min(list_spend_month, limit)
+        if top > prev:
+            fee += (top - prev) * rate
+            prev = top
+    return max(p["min_month"], fee)
+
+
 def lakehouse_settings(scenario):
     lk = {**LAKEHOUSE_DEFAULTS, **{k: v for k, v in (scenario.get("lakehouse") or {}).items() if v is not None}}
     lk["raw_zone"] = lk["raw_zone"] is not False
@@ -84,14 +186,28 @@ CDC_CATEGORIES = {"rdbms", "rdbms_gcp", "rdbms_nocdc", "sap", "nosql", "nosql_gc
 RUNS = {f["id"]: f["runs_per_month"] for f in FREQUENCIES}
 
 
-def load_pricing():
+def load_static_pricing():
     with open(DATA_DIR / "pricing.json") as f:
         return json.load(f)
 
 
-def load_regions():
+def load_static_regions():
     with open(DATA_DIR / "regions.json") as f:
         return json.load(f)["regions"]
+
+
+def load_pricing():
+    """pricing.json with live us-central1 list prices applied when available (see live_pricing.py)."""
+    return LP.apply_pricing(load_static_pricing(), LP.current())
+
+
+def load_regions():
+    """regions.json with live per-service regional uplift when available."""
+    return LP.apply_regions(load_static_regions(), LP.current())
+
+
+def region_uplift(region: dict, service_key: str) -> float:
+    return (region.get("uplift_by_service") or {}).get(service_key, region["uplift"])
 
 
 # --------------------------------------------------------------------------- #
@@ -141,7 +257,8 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         "orchestration": scenario.get("orchestration", "auto"),
         "environment": scenario.get("environment", "production"),
     }
-    bq_model = scenario.get("bq_model", "ondemand")
+    bqs = bq_settings(scenario)
+    bq_model = "ondemand" if bqs["mode"] == "ondemand" else "editions"
     sources = [s for s in scenario.get("sources", []) if s.get("type") and s.get("included", True) is not False]
 
     processing_region = scenario.get("processing_region") or region_id
@@ -153,7 +270,7 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         return r if r in regions else region_id
 
     def up(service_key):
-        return regions[ctx["rid"]]["uplift"] if pricing[service_key].get("regional") else 1.0
+        return region_uplift(regions[ctx["rid"]], service_key) if pricing[service_key].get("regional") else 1.0
 
     recs = [recommend(s, prefs) for s in sources]
     platform = platform_components(sources, recs, prefs)
@@ -359,7 +476,9 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
     new_by_month = defaultdict(float)
     bronze_by_month = {}
     analytics_tib_input = scenario.get("analytics_tib_month")
-    edition_slots = float(scenario.get("bq_slots") or 100)
+    scan_classes = {}                 # month -> {"pipelines": TiB, "interactive": TiB, ...}
+    wl_classes = workload_scan_classes(scenario)
+    heur_month12 = None
     for m in range(1, 37):
         new_by_month[m] = initial_by_month[m] + ingested_net_gib[m]
         history.append(new_by_month[m])
@@ -382,20 +501,78 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
 
         # compute
         stored_tib = stored * mult / GIB_PER_TIB
-        elt_tib = ingested_gib[m] * ASSUMPTIONS["elt_scan_multiplier"] / GIB_PER_TIB
+        elt_tib = ingested_gib[m] * bqs["elt_scan_multiplier"] / GIB_PER_TIB
         if analytics_tib_input not in (None, "", 0, "0"):
             analytics_tib = float(analytics_tib_input) * growth_factor(m, growth)
         else:
-            analytics_tib = stored_tib * ASSUMPTIONS["auto_analytics_scan_multiplier"]
-        scan_tib = elt_tib + analytics_tib
+            analytics_tib = stored_tib * bqs["analytics_scan_multiplier"]
+        heur = {"pipelines": elt_tib, "interactive": analytics_tib, "adhoc": 0.0, "heavy": 0.0}
+        if m == 12:
+            heur_month12 = dict(heur)
+        if not src_start or m < plat_start:
+            cls = {k: 0.0 for k in heur}
+        elif bqs["scan_basis"] == "measured":
+            tot = sum(heur.values())
+            meas = float(bqs["measured_scan_tib_month"]) * growth_factor(m - plat_start + 1, growth)
+            cls = {k: (v / tot * meas if tot else (meas if k == "interactive" else 0.0)) for k, v in heur.items()}
+        elif bqs["scan_basis"] == "workload" and wl_classes:
+            g = growth_factor(m - plat_start + 1, growth)
+            cls = {k: wl_classes[k] * g for k in heur}
+        else:
+            cls = heur
+        scan_classes[m] = cls
+        scan_tib = sum(cls.values())
         if bq_model == "ondemand":
             billable = max(0.0, scan_tib - bq["ondemand_free_tib"])
             add(m, "BigQuery compute", "_platform", billable * bq["ondemand_tib"] * bq_up, q=(billable, "TiB scanned"))
-        elif m >= plat_start and src_start:   # no reservation until a source feeds BigQuery
-            ed = bq["editions"][bq_model]
-            slot_hours = edition_slots * HOURS
-            add(m, "BigQuery compute", "_platform", slot_hours * ed["payg"] * bq_up,
-                cud1=slot_hours * ed["cud1"] * bq_up, cud3=slot_hours * ed["cud3"] * bq_up, q=(slot_hours, "slot-hours"))
+
+    # ------------------------------------------------------------ BigQuery editions: baseline + autoscale per environment
+    comp_types_all = {c["type"] for c in normalized(scenario)[0] if c.get("included") is not False}
+    ref_m = min(36, plat_start + 11)
+    sph = bqs["slot_hours_per_tib"]
+
+    def class_slot_hours(cls, f=1.0):
+        return {k: v * sph * f for k, v in cls.items()}
+
+    ref_cls = scan_classes.get(ref_m) or {}
+    wl_extra = wl_classes if (bqs["scan_basis"] == "workload" and wl_classes) else {}
+    sizing = SL.size(class_slot_hours(ref_cls), bqs["shape"], pricing, bq_up, comp_types_all,
+                     edition_choice=bqs["edition"], baseline_override=bqs["baseline_slots"], max_override=bqs["max_slots"],
+                     heavy_query_tib=wl_extra.get("_heavy_query_tib", 0.0), adhoc_query_tib=wl_extra.get("_adhoc_query_tib", 0.0),
+                     dashboards=bool(wl_extra.get("_dashboards")), ondemand_tib=sum(ref_cls.values()),
+                     slot_hours_per_tib=sph)
+    edition = sizing["edition"]
+    env_bq = []                           # (env, baseline, max, auto_baseline, auto_max)
+    for i, e in enumerate(envs):
+        f = e["compute_pct"] / 100.0
+        if i == 0:
+            b, mx, ab, am = sizing["baseline"], sizing["max"], sizing["auto_baseline"], sizing["auto_max"]
+        else:
+            am = SL.ceil_step(sizing["max"] * f) if f > 0 and sizing["max"] else 0
+            ab = SL.floor_step(sizing["baseline"] * f) if e["runtime_pct"] >= 100 else 0
+            mx = e["bq_max"] if e["bq_max"] is not None else am
+            b = e["bq_baseline"] if e["bq_baseline"] is not None else ab
+            if edition == "standard":
+                b, mx = 0.0, min(mx, SL.STANDARD_MAX_SLOTS)
+            b = min(b, mx)
+        env_bq.append((e, float(b), float(mx), ab, am))
+    env_bq_lines = []                     # (env_id, m, payg, cud1, cud3, slot_hours) for non-primary envs
+    if bq_model == "editions":
+        prices = SL.edition_prices(pricing, edition, bq_up)
+        for m in range(1, 37):
+            cls = scan_classes.get(m)
+            if not cls or not sum(cls.values()):
+                continue
+            for i, (e, b, mx, _ab, _am) in enumerate(env_bq):
+                f = 1.0 if i == 0 else e["compute_pct"] / 100.0
+                if f <= 0 and b <= 0:
+                    continue
+                prof = SL.profile(class_slot_hours(cls, f), bqs["shape"])
+                p_, c1_, c3_, sh_ = SL.month_cost(prof, b, mx, prices)
+                if i == 0:
+                    add(m, "BigQuery compute", "_platform", p_, cud1=c1_, cud3=c3_, q=(sh_, "slot-hours"))
+                elif p_ and "BigQuery compute" not in excluded:
+                    env_bq_lines.append((e["id"], m, p_, c1_, c3_, sh_))
 
     # ------------------------------------------------------------ Shared platform components (processing region)
     ctx["rid"] = processing_region
@@ -473,7 +650,9 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
     }
 
     # ------------------------------------------------------------ Environments (dev / test / DR ...)
-    env_tot = replicate([payg, cud["cud1"], cud["cud3"]], bom, envs, service_group, bq_model, edition_slots)
+    env_tot = replicate([payg, cud["cud1"], cud["cud3"]], bom, envs, service_group, bq_model,
+                        extra_lines=[(eid, m, "BigQuery compute", p_, c1_, c3_, sh_) for eid, m, p_, c1_, c3_, sh_ in env_bq_lines],
+                        extra_key=lambda m, svc: (m, svc, "_platform", region_id))
 
     # ------------------------------------------------------------ Contingency
     cont = float(scenario.get("contingency_pct", ASSUMPTIONS["contingency"] * 100)) / 100.0
@@ -499,9 +678,64 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
                 row[2] += c1 * cont
                 row[3] += c3 * cont
 
+    # ------------------------------------------------------------ Commercial: negotiated discount, Customer Care
+    com = commercial_settings(scenario)
+    support_svc = f"Google Cloud Customer Care ({com['support_plan'].title()})"
+    list_month = defaultdict(float)
+    for (m, *_), v in payg.items():
+        list_month[m] += v
+    if com["discount_pct"]:
+        d = com["discount_pct"] / 100.0
+        for view in (payg, cud["cud1"], cud["cud3"]):
+            mt = defaultdict(float)
+            for (m, *_), v in list(view.items()):
+                mt[m] += v
+            for m, v in mt.items():
+                if v:
+                    view[(m, "Negotiated discount", "_commercial", region_id)] -= v * d
+        mb = defaultdict(lambda: [0.0, 0.0, 0.0])
+        for (m, svc, env_id), (usd, _q, c1, c3) in list(bom.items()):
+            mb[(m, env_id)][0] += usd
+            mb[(m, env_id)][1] += c1
+            mb[(m, env_id)][2] += c3
+        for (m, env_id), (v, c1, c3) in mb.items():
+            if v:
+                row = bom.setdefault((m, "Negotiated discount", env_id), [0.0, 0.0, 0.0, 0.0])
+                row[0] -= v * d
+                row[2] -= c1 * d
+                row[3] -= c3 * d
+    if com["support_plan"] != "none" and support_svc not in excluded:
+        for m, v in list_month.items():
+            if v <= 0:
+                continue
+            fee = support_fee(v, com["support_plan"], pricing)
+            for view in (payg, cud["cud1"], cud["cud3"]):
+                view[(m, support_svc, "_commercial", region_id)] += fee
+            row = bom.setdefault((m, support_svc, primary_env), [0.0, 0.0, 0.0, 0.0])
+            row[0] += fee
+            row[2] += fee
+            row[3] += fee
+
+    # per-environment totals from the bill of materials (includes contingency, discount and support)
+    env_tot = {e["id"]: {n: [0.0] * 37 for n in ("payg", "cud1", "cud3")} for e in envs}
+    for (m, svc, env_id), (usd, _q, c1, c3) in bom.items():
+        if env_id in env_tot:
+            env_tot[env_id]["payg"][m] += usd
+            env_tot[env_id]["cud1"][m] += c1
+            env_tot[env_id]["cud3"][m] += c3
+
     out = _summarise(payg, cud, recs, platform, sources, per_source_meta, region, scenario, pricing)
+    out["commercial"] = com
+    out["availability"] = availability_check(sources, recs, comps, platform, regions, region_id, processing_region)
     out["excluded_services"] = sorted(excluded)
-    out["environments"] = env_summary(envs, env_tot, cont, cont_on, bq_model, edition_slots)
+    slots_by_env = None
+    if bq_model == "editions":
+        slots_by_env = {e["id"]: {"baseline": b, "max": mx, "auto_baseline": ab, "auto_max": am,
+                                  "baseline_set": (bqs["baseline_slots"] is not None) if i == 0 else e["bq_baseline"] is not None,
+                                  "max_set": (bqs["max_slots"] is not None) if i == 0 else e["bq_max"] is not None}
+                        for i, (e, b, mx, ab, am) in enumerate(env_bq)}
+    out["environments"] = env_summary(envs, env_tot, 0.0, False, slots_by_env)
+    out["bigquery"] = _bq_summary(bqs, sizing, scan_classes, ref_m, heur_month12, wl_classes, bq_model, pricing, bq_up, plat_start, src_start)
     drivers = defaultdict(set)
     name_of = {m_["id"]: m_["name"] for m_ in per_source_meta}
     for (m, svc, sid, rid) in payg:
@@ -509,10 +743,88 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
             drivers[svc].add(name_of[sid])
     out["bom"] = build_bom(bom, units, envs, drivers, service_group, GROUP_ORDER,
                            {"bq_model": bq_model, "contingency_pct": round(cont * 100, 1), "lakehouse": lk,
-                            "components": comps, "edition_slots": edition_slots})
+                            "components": comps, "edition": sizing["edition"], "baseline": sizing["baseline"], "max": sizing["max"]})
     if keep_items:
         out["_items"] = payg
     return out
+
+
+def _bq_summary(bqs, sizing, scan_classes, ref_m, heur12, wl_classes, bq_model, pricing, uplift, plat_start, src_start):
+    """What drives BigQuery compute: scan basis, slot sizing, edition comparison, calibration inputs."""
+    ref = scan_classes.get(ref_m) or {}
+    tib = sum(ref.values())
+    heur_tib = sum((heur12 or {}).values())
+    wl_tib = sum(v for k, v in (wl_classes or {}).items() if not k.startswith("_")) if wl_classes else None
+    meas_tib = float(bqs["measured_scan_tib_month"]) if bqs["calibrated"] else None
+    bq = pricing["bigquery"]
+
+    def od(t):
+        return round(max(0.0, t - bq["ondemand_free_tib"]) * bq["ondemand_tib"] * uplift, 2) if t is not None else None
+    return {
+        "mode": bq_model, "scan_basis": bqs["scan_basis"], "reference_month": ref_m, "active": bool(src_start),
+        "slot_hours_per_tib": round(bqs["slot_hours_per_tib"], 2),
+        "elt_scan_multiplier": bqs["elt_scan_multiplier"], "analytics_scan_multiplier": bqs["analytics_scan_multiplier"],
+        "calibrated": bqs["calibrated"],
+        "measured_scan_tib_month": bqs["measured_scan_tib_month"], "measured_slot_hours_month": bqs["measured_slot_hours_month"],
+        "scan_tib_month": round(tib, 3),
+        "scan_by_class": [{"class": SL.CLASS_LABELS[k], "id": k, "tib_month": round(v, 3),
+                           "slot_hours_month": round(v * bqs["slot_hours_per_tib"], 1)} for k, v in ref.items() if k in SL.CLASS_LABELS],
+        "bases": [
+            {"id": "heuristic", "name": "Rule of thumb from data volume", "tib_month": round(heur_tib, 3), "ondemand_month": od(heur_tib),
+             "detail": f"ELT scans {bqs['elt_scan_multiplier']:g}x the data ingested; dashboards and analysis scan {bqs['analytics_scan_multiplier']:g}x the data stored, per month"},
+            {"id": "workload", "name": "Workload sizing tab", "tib_month": round(wl_tib, 3) if wl_tib is not None else None,
+             "ondemand_month": od(wl_tib), "detail": "Pipelines, queries and dashboards entered on the Workload sizing tab"},
+            {"id": "measured", "name": "Measured (INFORMATION_SCHEMA)", "tib_month": round(meas_tib, 3) if meas_tib else None,
+             "ondemand_month": od(meas_tib), "detail": "TiB billed and slot-hours from the customer's INFORMATION_SCHEMA.JOBS"},
+        ],
+        "shape": bqs["shape"],
+        "edition_choice": bqs["edition"],
+        "baseline_override": bqs["baseline_slots"], "max_override": bqs["max_slots"],
+        **{k: sizing[k] for k in ("recommended_mode", "autoscale_overhead", "edition", "recommended_edition", "edition_reasons", "baseline", "max", "auto_baseline",
+                                  "auto_max", "profile", "avg_slots", "peak_slots", "heavy_burst_slots", "slot_hours_month",
+                                  "autoscale_slot_hours_month", "month_cost", "comparison", "warnings")},
+    }
+
+
+def availability_check(sources, recs, comps, platform, regions, home, processing_region):
+    """Which services in the design are not offered (or not verified) in the region they are placed in."""
+    live = LP.current()
+    need = {}                                   # (family, region) -> set of uses
+
+    def want(fam, rid, use):
+        if fam:
+            need.setdefault((fam, rid), set()).add(use)
+    want("bigquery", home, "BigQuery (data platform)")
+    for src, rec in zip(sources, recs):
+        rid = src.get("region") or home
+        name = src.get("name") or src["type"]
+        for eng in rec.engine.split("+"):
+            want(LP.ENGINE_FAMILY.get(eng), rid, name)
+    orch = (platform.get("orchestration") or {}).get("tool")
+    if orch in ("composer", "workflows"):
+        want(orch, processing_region, "Orchestration")
+    if platform.get("datafusion_edition"):
+        want("datafusion", processing_region, "Data Fusion instance")
+    for c in comps:
+        if c.get("included") is False:
+            continue
+        rid = (c.get("settings") or {}).get("region") or home
+        want(LP.COMPONENT_FAMILY.get(c["type"]), rid, COMPONENT_BY_ID.get(c["type"], {}).get("name", c["type"]))
+    unavailable, unverified = [], []
+    for (fam, rid), uses in sorted(need.items()):
+        ok = LP.availability(fam, rid, live)
+        item = {"service": LP.FAMILY_NAMES.get(fam, fam), "family": fam, "region": rid,
+                "region_name": regions.get(rid, {}).get("name", rid), "used_by": sorted(uses)}
+        if ok is False:
+            geo = regions.get(rid, {}).get("geo")
+            alts = [r for r in regions.values() if not r.get("multi") and LP.availability(fam, r["id"], live)]
+            alts.sort(key=lambda r: (r.get("geo") != geo, r.get("uplift", 1)))
+            item["alternatives"] = [{"id": r["id"], "name": r["name"]} for r in alts[:3]]
+            unavailable.append(item)
+        elif ok is None:
+            unverified.append(item)
+    return {"source": "live" if live else "static", "fetched_at": (live or {}).get("fetched_at"),
+            "unavailable": unavailable, "unverified": unverified, "checked": len(need)}
 
 
 def inter_region_rate(regions, a, b, pricing):
@@ -527,7 +839,7 @@ def inter_region_rate(regions, a, b, pricing):
     return n["inter_region_same_geo_gib"] if ra["geo"] == rb["geo"] else n["inter_region_cross_geo_gib"]
 
 
-GROUP_ORDER = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"]
+GROUP_ORDER = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency", "Commercial"]
 
 
 def service_group(name):
@@ -544,6 +856,8 @@ def service_group(name):
         return "Platform & network"
     if "contingency" in n:
         return "Contingency"
+    if "customer care" in n or "negotiated discount" in n:
+        return "Commercial"
     return "Data ingestion & CDC"
 
 
@@ -664,10 +978,12 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
     by_option = {}
     for opt, view in (("payg", payg), ("cud1", cud["cud1"]), ("cud3", cud["cud3"])):
         by_option[opt] = _option_view(view, y, name_of, region_names)
-    totals["range_low_3y"] = round(totals["three_year_cud3"] * 0.75, 2)
-    totals["range_high_3y"] = round(totals["three_year_payg"] * 1.3, 2)
-    totals["range_low_1y"] = round(totals["year1_cud1"] * 0.75, 2)
-    totals["range_high_1y"] = round(totals["year1_payg"] * 1.3, 2)
+    com = commercial_settings(scenario)
+    lo, hi = 1 + com["range_low_pct"] / 100.0, 1 + com["range_high_pct"] / 100.0
+    totals["range_low_3y"] = round(totals["three_year_cud3"] * lo, 2)
+    totals["range_high_3y"] = round(totals["three_year_payg"] * hi, 2)
+    totals["range_low_1y"] = round(totals["year1_cud1"] * lo, 2)
+    totals["range_high_1y"] = round(totals["year1_payg"] * hi, 2)
 
     return {
         "region": region,

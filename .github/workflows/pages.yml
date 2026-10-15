@@ -1,5 +1,5 @@
-# Publishes the static, serverless demo (demo/dist/index.html) to the gh-pages branch.
-# GitHub Pages serves it from Settings -> Pages -> Deploy from a branch: gh-pages / (root).
+# Publishes the public demo (same front end, calling the Cloud Run service) to the gh-pages branch.
+# Set the repository variable COMPASS_API_URL to your Cloud Run URL (deploy.sh prints the command).
 name: Demo on GitHub Pages
 on:
   push:
@@ -18,15 +18,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q
+      - run: python -m pytest -q --ignore=tests/ui
       - run: python demo/build_demo.py
-      - run: mkdir -p _site && cp demo/dist/index.html _site/index.html && touch _site/.nojekyll
+        env:
+          COMPASS_API_URL: ${{ vars.COMPASS_API_URL }}
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
+          publish_dir: ./demo/dist
           publish_branch: gh-pages

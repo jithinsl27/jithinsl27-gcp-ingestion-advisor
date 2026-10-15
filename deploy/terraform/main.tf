@@ -18,7 +18,8 @@ provider "google" {
 }
 
 resource "google_project_service" "apis" {
-  for_each           = toset(["run.googleapis.com", "artifactregistry.googleapis.com", "cloudbuild.googleapis.com"])
+  for_each = toset(["run.googleapis.com", "artifactregistry.googleapis.com", "cloudbuild.googleapis.com", "firestore.googleapis.com",
+  "aiplatform.googleapis.com", "cloudbilling.googleapis.com", "secretmanager.googleapis.com"])
   service            = each.value
   disable_on_destroy = false
 }
@@ -33,6 +34,20 @@ resource "google_artifact_registry_repository" "repo" {
 resource "google_service_account" "run" {
   account_id   = "ingestion-advisor-run"
   display_name = "Data Cloud Compass (Cloud Run runtime)"
+}
+
+resource "google_firestore_database" "db" {
+  name        = "(default)"
+  location_id = var.firestore_location
+  type        = "FIRESTORE_NATIVE"
+  depends_on  = [google_project_service.apis]
+}
+
+resource "google_project_iam_member" "run_roles" {
+  for_each = toset(["roles/datastore.user", "roles/aiplatform.user", "roles/logging.logWriter"])
+  project  = var.project_id
+  role     = each.value
+  member   = "serviceAccount:${google_service_account.run.email}"
 }
 
 resource "google_cloud_run_v2_service" "app" {
@@ -50,14 +65,25 @@ resource "google_cloud_run_v2_service" "app" {
       image = var.image
       ports { container_port = 8080 }
       resources {
-        limits = { cpu = "1", memory = "512Mi" }
+        limits = { cpu = "1", memory = "1Gi" }
+      }
+      dynamic "env" {
+        for_each = {
+          STORE = "firestore", GOOGLE_CLOUD_PROJECT = var.project_id, GEMINI_MODEL = var.gemini_model, GEMINI_LOCATION = "global",
+          LIVE_PRICING = "auto", GOOGLE_OAUTH_CLIENT_ID = var.oauth_client_id, ALLOWED_DOMAINS = var.allowed_domains,
+          CORS_ORIGINS = var.cors_origins
+        }
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
       startup_probe {
         http_get { path = "/healthz" }
       }
     }
   }
-  depends_on = [google_project_service.apis]
+  depends_on = [google_project_service.apis, google_firestore_database.db]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public" {

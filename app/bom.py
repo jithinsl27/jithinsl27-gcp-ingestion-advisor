@@ -47,6 +47,8 @@ WHY = [
     ("Cloud KMS", "Customer-managed encryption keys (CMEK) for BigQuery, Cloud Storage and pipelines."),
     ("Knowledge Catalog", "Data quality scans, profiling and lineage so every consumer can trust the data products."),
     ("Contingency & operations", "Monitoring, logging, support tooling, egress and unknowns."),
+    ("Negotiated discount", "Customer-specific discount negotiated with Google Cloud, applied to all consumption above."),
+    ("Google Cloud Customer Care", "Google Cloud Customer Care plan: a tiered percentage of monthly list-price spend with a monthly minimum."),
 ]
 
 GE_GROUNDING = {
@@ -69,7 +71,8 @@ def why_for(service, ctx):
     comps = ctx.get("components") or []
     if service == "BigQuery compute":
         base += (" Billed per TiB scanned (on-demand)." if ctx["bq_model"] == "ondemand"
-                 else f" {ctx['edition_slots']:.0f} baseline slots on BigQuery {ctx['bq_model'].replace('_', ' ').title()} edition.")
+                 else f" BigQuery {ctx['edition'].replace('_', ' ').title()} edition: {ctx['baseline']:,.0f} baseline slots"
+                      f" (commitment-eligible) plus autoscaling up to {ctx['max']:,.0f} slots, billed per slot-hour.")
     elif service == "Gemini Enterprise":
         ge = next((c for c in comps if c["type"] == "gemini_enterprise"), None)
         if ge:
@@ -113,7 +116,7 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
     env_name = {e["id"]: e["name"] for e in envs}
     rows = []
     for (env_id, svc), a in acc.items():
-        if a["y3"] <= 0:
+        if abs(a["y3"]) < 0.005:
             continue
         unit = units.get(svc)
         group = group_fn(svc)

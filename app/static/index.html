@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="static/styles.css">
 </head>
 <body>
   <header class="topbar">
@@ -37,6 +37,20 @@
       <label class="inline-field">Currency
         <select id="currency"></select>
       </label>
+      <button class="btn ghost" id="discoverBtn" type="button" title="Guided discovery, meeting notes or an inventory spreadsheet">Discover</button>
+      <div class="menu">
+        <button class="btn ghost" id="scenariosBtn" aria-haspopup="true" aria-expanded="false">Scenarios</button>
+        <div class="menu-pop right" id="scenariosMenu" role="menu" hidden>
+          <div class="menu-status" id="saveStatus">Not saved to the cloud</div>
+          <button role="menuitem" data-sc="save">Save <kbd>Ctrl S</kbd></button>
+          <button role="menuitem" data-sc="saveas">Save as a copy…</button>
+          <button role="menuitem" data-sc="open">Open saved scenario…</button>
+          <button role="menuitem" data-sc="history">Version history…</button>
+          <button role="menuitem" data-sc="share">Share…</button>
+          <hr>
+          <button role="menuitem" data-sc="compare">Compare scenarios…</button>
+        </div>
+      </div>
       <div class="menu">
         <button class="btn ghost" id="samplesBtn" aria-haspopup="true" aria-expanded="false">Load sample</button>
         <div class="menu-pop" id="samplesMenu" role="menu" hidden></div>
@@ -57,6 +71,7 @@
           <button role="menuitem" data-export="reset">Start a new scenario</button>
         </div>
       </div>
+      <div class="account" id="account"></div>
     </div>
   </header>
 
@@ -99,13 +114,7 @@
           <label>Orchestration
             <select id="orchestration"></select>
           </label>
-          <label>BigQuery pricing
-            <select id="bq_model"></select>
-          </label>
-          <label id="slotsField">Avg. slots, production (editions)
-            <input id="bq_slots" type="number" min="0" step="50" value="100">
-          </label>
-          <div class="env-slots span2" id="envSlots" hidden aria-live="polite"></div>
+          <div class="span2 bq-panel" id="bqPanel" aria-live="polite"></div>
           <label>Analytics scan, TiB/month
             <input id="analytics_tib_month" type="number" min="0" step="1" placeholder="Auto">
           </label>
@@ -125,6 +134,30 @@
           <label class="span2">Processing region (orchestration, Data Fusion, network)
             <select id="processing_region"></select>
           </label>
+        </div>
+      </details>
+
+      <details class="panel settings" id="commercialPanel">
+        <summary><h2>Commercial terms</h2></summary>
+        <div class="grid2">
+          <label>Negotiated discount %
+            <input id="cm_discount_pct" type="number" min="0" max="90" step="1" placeholder="0">
+          </label>
+          <label>Customer Care plan
+            <select id="cm_support_plan">
+              <option value="none">Not included</option>
+              <option value="standard">Standard (3%, min $29)</option>
+              <option value="enhanced">Enhanced (10%-3%, min $100)</option>
+              <option value="premium">Premium (10%-3%, min $15k)</option>
+            </select>
+          </label>
+          <label>Discussion range, low %
+            <input id="cm_range_low_pct" type="number" min="-90" max="0" step="5">
+          </label>
+          <label>Discussion range, high %
+            <input id="cm_range_high_pct" type="number" min="0" max="300" step="5">
+          </label>
+          <p class="hint span2">The discount applies to all consumption; Customer Care is charged on list-price spend (tiered, with a monthly minimum) per <a href="https://cloud.google.com/support" target="_blank" rel="noopener">cloud.google.com/support</a>. The range brackets the cheapest commitment price (low) and pay-as-you-go (high).</p>
         </div>
       </details>
 
@@ -166,6 +199,7 @@
       </nav>
 
       <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
+      <div class="notices" id="notices" aria-live="polite"></div>
 
       <div class="tabpanel" id="tab-arch" role="tabpanel">
         <section class="picker" aria-labelledby="pickHead">
@@ -292,6 +326,26 @@
     <div id="drillBody"></div>
   </dialog>
 
+  <dialog id="bqDialog" aria-labelledby="bqTitle" class="wide">
+    <div class="drill-head"><h2 id="bqTitle">BigQuery compute - sizing, editions and calibration</h2><button type="button" class="btn ghost small" data-close>Close</button></div>
+    <div id="bqBody"></div>
+  </dialog>
+
+  <dialog id="scDialog" aria-labelledby="scTitle" class="wide">
+    <div class="drill-head"><h2 id="scTitle">Saved scenarios</h2><button type="button" class="btn ghost small" data-close>Close</button></div>
+    <div id="scBody"></div>
+  </dialog>
+
+  <dialog id="cmpDialog" aria-labelledby="cmpTitle" class="wide">
+    <div class="drill-head"><h2 id="cmpTitle">Compare scenarios</h2><button type="button" class="btn ghost small" data-close>Close</button></div>
+    <div id="cmpBody"></div>
+  </dialog>
+
+  <dialog id="discDialog" aria-labelledby="discTitle" class="wide">
+    <div class="drill-head"><h2 id="discTitle">Discover</h2><button type="button" class="btn ghost small" data-close>Close</button></div>
+    <div id="discBody"></div>
+  </dialog>
+
   <dialog id="envDialog" aria-labelledby="envTitle" class="wide">
     <form id="envForm" method="dialog">
       <h2 id="envTitle">Environments and sizing</h2>
@@ -339,8 +393,8 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" hidden></div>
-  <script src="/static/vendor/pptxgen.bundle.js" defer></script>
-  <script src="/static/exports.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="static/vendor/pptxgen.bundle.js" defer></script>
+  <script src="static/exports.js"></script>
+  <script type="module" src="static/js/main.js"></script>
 </body>
 </html>
