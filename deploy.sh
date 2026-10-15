@@ -20,6 +20,9 @@
 # re-run with --oauth-client-id. The same client also enables "Create in my Google Drive".
 set -euo pipefail
 
+# IAM is eventually consistent: a just-created service account can take a minute to be usable.
+retry() { local n=0; until "$@"; do n=$((n+1)); [[ $n -ge 8 ]] && return 1; echo "    waiting for IAM to propagate (retry $n)..."; sleep 10; done; }
+
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 REGION="${REGION:-us-central1}"
 SERVICE="${SERVICE:-ingestion-advisor}"
@@ -78,7 +81,7 @@ echo "==> Runtime service account ${SA}..."
 gcloud iam service-accounts describe "${SA}" >/dev/null 2>&1 || \
   gcloud iam service-accounts create "${SA_NAME}" --display-name="Data Cloud Compass (Cloud Run)" --quiet
 for role in roles/datastore.user roles/aiplatform.user roles/logging.logWriter; do
-  gcloud projects add-iam-policy-binding "${PROJECT_ID}" --member="serviceAccount:${SA}" --role="${role}" --condition=None --quiet >/dev/null
+  retry gcloud projects add-iam-policy-binding "${PROJECT_ID}" --member="serviceAccount:${SA}" --role="${role}" --condition=None --quiet >/dev/null
 done
 
 echo "==> Cloud Billing API key for live prices (Secret Manager: ${SECRET})..."
@@ -98,7 +101,7 @@ else
   fi
 fi
 if [[ -n "${SECRET_FLAG}" ]]; then
-  gcloud secrets add-iam-policy-binding "${SECRET}" --member="serviceAccount:${SA}" \
+  retry gcloud secrets add-iam-policy-binding "${SECRET}" --member="serviceAccount:${SA}" \
     --role=roles/secretmanager.secretAccessor --quiet >/dev/null
 fi
 

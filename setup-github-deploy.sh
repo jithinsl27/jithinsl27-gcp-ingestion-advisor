@@ -9,6 +9,9 @@
 # GitHub CLI is signed in (`gh auth login`) - sets the repository variables the workflow reads.
 set -euo pipefail
 
+# IAM is eventually consistent: a just-created service account can take a minute to be usable.
+retry() { local n=0; until "$@"; do n=$((n+1)); [[ $n -ge 8 ]] && return 1; echo "    waiting for IAM to propagate (retry $n)..."; sleep 10; done; }
+
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 REGION="${REGION:-us-central1}"
 SERVICE="${SERVICE:-ingestion-advisor}"
@@ -47,13 +50,13 @@ echo "==> Deployer service account ${SA}..."
 gcloud iam service-accounts describe "${SA}" >/dev/null 2>&1 || \
   gcloud iam service-accounts create "${SA_NAME}" --display-name="Data Cloud Compass deployer (GitHub Actions)" --quiet
 for role in roles/run.developer roles/cloudbuild.builds.editor roles/artifactregistry.writer roles/storage.admin roles/serviceusage.serviceUsageConsumer roles/logging.viewer; do
-  gcloud projects add-iam-policy-binding "${PROJECT_ID}" --member="serviceAccount:${SA}" --role="${role}" --condition=None --quiet >/dev/null
+  retry gcloud projects add-iam-policy-binding "${PROJECT_ID}" --member="serviceAccount:${SA}" --role="${role}" --condition=None --quiet >/dev/null
 done
 # act as the runtime service account and the Cloud Build service account
-gcloud iam service-accounts add-iam-policy-binding "${RUN_SA}" --member="serviceAccount:${SA}" --role=roles/iam.serviceAccountUser --quiet >/dev/null
-gcloud iam service-accounts add-iam-policy-binding "${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+retry gcloud iam service-accounts add-iam-policy-binding "${RUN_SA}" --member="serviceAccount:${SA}" --role=roles/iam.serviceAccountUser --quiet >/dev/null
+retry gcloud iam service-accounts add-iam-policy-binding "${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --member="serviceAccount:${SA}" --role=roles/iam.serviceAccountUser --quiet >/dev/null
-gcloud iam service-accounts add-iam-policy-binding "${SA}" --role=roles/iam.workloadIdentityUser --quiet >/dev/null \
+retry gcloud iam service-accounts add-iam-policy-binding "${SA}" --role=roles/iam.workloadIdentityUser --quiet >/dev/null \
   --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/attribute.repository/${REPO}"
 
 WIF="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/providers/${PROVIDER}"
