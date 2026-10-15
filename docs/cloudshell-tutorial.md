@@ -1,8 +1,8 @@
-# Deploy GCP Ingestion Advisor
+# Deploy Data Cloud Compass
 
 ## Welcome
 
-This tutorial deploys the Ingestion Advisor to **Cloud Run** in your Google Cloud project. It takes about 5 minutes.
+This tutorial deploys Data Cloud Compass to **Cloud Run** in your Google Cloud project. It takes about 5 minutes.
 
 Click **Start** to begin.
 
@@ -52,7 +52,7 @@ and then use the web preview on port 8080 <walkthrough-web-preview-icon></walkth
 
 <walkthrough-conclusion-trophy></walkthrough-conclusion-trophy>
 
-The advisor is running. To update it later, pull the latest code and run `./deploy.sh` again.
+Data Cloud Compass is running. To update it later, pull the latest code and run `./deploy.sh` again.
 
 - Update list prices in `app/data/pricing.json` and regions in `app/data/regions.json`.
 - Set up continuous deployment with `cloudbuild.yaml` (see `docs/deployment.md`).

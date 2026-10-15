@@ -3,21 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GCP Ingestion Advisor</title>
-  <meta name="description" content="Discovery-phase advisor for BigQuery ingestion: GCP-native ETL/ELT recommendations and 1/3-year ballpark consumption.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314233B'/%3E%3Cpath d='M7 10h8M7 16h12M7 22h6' stroke='%2378B6FF' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='16' r='4' fill='%2338C3A8'/%3E%3C/svg%3E">
+  <title>Data Cloud Compass</title>
+  <meta name="description" content="Data Cloud Compass: discovery-to-blueprint tool for Google Cloud data and AI platforms - architecture, integrations, ramp-up plan and 1/3-year consumption.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23fff' stroke='%23DADCE0' stroke-width='2'/%3E%3Cpath d='M16 4 L19 16 L16 16Z' fill='%23EA4335'/%3E%3Cpath d='M16 4 L13 16 L16 16Z' fill='%23FBBC04'/%3E%3Cpath d='M16 28 L19 16 L16 16Z' fill='%234285F4'/%3E%3Cpath d='M16 28 L13 16 L16 16Z' fill='%2334A853'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" class="brand-bg"/><path d="M7 10h8M7 16h12M7 22h6" class="brand-lines"/><circle cx="24" cy="16" r="4" class="brand-dot"/></svg>
+      <svg viewBox="0 0 32 32" aria-hidden="true" class="brand-mark">
+        <circle cx="16" cy="16" r="14.5" class="brand-ring"/>
+        <path d="M16 3.5 L19.4 16 L16 16Z" fill="#EA4335"/><path d="M16 3.5 L12.6 16 L16 16Z" fill="#FBBC04"/>
+        <path d="M16 28.5 L19.4 16 L16 16Z" fill="#4285F4"/><path d="M16 28.5 L12.6 16 L16 16Z" fill="#34A853"/>
+        <circle cx="16" cy="16" r="1.8" class="brand-hub"/>
+      </svg>
       <div>
-        <strong>Ingestion Advisor</strong>
-        <span>Sources to BigQuery, sized for discovery</span>
+        <strong><span class="b1">Data</span> <span class="b2">Cloud</span> <span class="b3">Compass</span></strong>
+        <span>From discovery to blueprint on Google Cloud</span>
       </div>
     </div>
     <label class="customer">
@@ -95,57 +101,22 @@
           <label>Contingency %
             <input id="contingency_pct" type="number" min="0" max="100" step="5" value="10">
           </label>
+          <label class="span2">Processing region (orchestration, Data Fusion, network)
+            <select id="processing_region"></select>
+          </label>
         </div>
       </details>
-      <details class="panel settings layer" open>
-        <summary><h2>Analytics, AI &amp; governance</h2></summary>
-        <fieldset data-group="bi">
-          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> BI &amp; semantic layer</label></legend>
-          <div class="grid2">
-            <label>Tool<select data-k="tool"></select></label>
-            <label>Users<input type="number" min="0" step="10" data-k="users"></label>
-            <label class="span2" data-show="looker">Looker annual licence quote (USD)<input type="number" min="0" step="1000" data-k="looker_annual_usd" placeholder="0 = not included"></label>
-          </div>
-        </fieldset>
-        <fieldset data-group="gemini_enterprise">
-          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Gemini Enterprise</label></legend>
-          <div class="grid2">
-            <label>Edition<select data-k="edition"></select></label>
-            <label>Users<input type="number" min="0" step="10" data-k="users"></label>
-          </div>
-        </fieldset>
-        <fieldset data-group="agents">
-          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Data agents (Agent Platform)</label></legend>
-          <div class="grid2">
-            <label>Model<select data-k="model"></select></label>
-            <label>Agent requests / month<input type="number" min="0" step="1000" data-k="requests_month"></label>
-            <label>Input tokens / request<input type="number" min="0" step="500" data-k="input_tokens"></label>
-            <label>Output tokens / request<input type="number" min="0" step="100" data-k="output_tokens"></label>
-          </div>
-        </fieldset>
-        <fieldset data-group="gpu">
-          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Model serving on GPU endpoints</label></legend>
-          <div class="grid2">
-            <label>Accelerator<select data-k="gpu"></select></label>
-            <label>Replicas<input type="number" min="0" step="1" data-k="replicas"></label>
-            <label>Hours per day<input type="number" min="0" max="24" step="1" data-k="hours_per_day"></label>
-          </div>
-        </fieldset>
-        <fieldset data-group="governance">
-          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Governance (Knowledge Catalog / Dataplex)</label></legend>
-          <div class="grid2">
-            <label>Tables with quality scans %<input type="number" min="0" max="100" step="5" data-k="dq_share_pct"></label>
-            <label>Scans per month<input type="number" min="0" step="1" data-k="dq_scans_per_month"></label>
-          </div>
-        </fieldset>
-        <fieldset data-group="security">
-          <legend><label class="toggle"><input type="checkbox" data-k="enabled"> Security &amp; compliance</label></legend>
-          <div class="checks">
-            <label class="toggle"><input type="checkbox" data-k="sdp_discovery"> Sensitive Data Protection discovery</label>
-            <label class="toggle"><input type="checkbox" data-k="cmek"> Customer-managed keys (CMEK)</label>
-            <label class="toggle"><input type="checkbox" data-k="vpc_sc"> VPC Service Controls</label>
-          </div>
-        </fieldset>
+      <details class="panel settings" open id="componentsPanel">
+        <summary><h2>BI, AI, APIs, databases &amp; governance</h2></summary>
+        <p class="hint">Drag components from the library onto the architecture, or click them to add. Click a component to configure it.</p>
+        <ul class="comp-list" id="compList"></ul>
+        <h3 class="mini">Security &amp; compliance</h3>
+        <div class="checks" id="securityChecks">
+          <label class="toggle"><input type="checkbox" data-k="enabled"> Include security controls</label>
+          <label class="toggle"><input type="checkbox" data-k="sdp_discovery"> Sensitive Data Protection discovery</label>
+          <label class="toggle"><input type="checkbox" data-k="cmek"> Customer-managed keys (CMEK)</label>
+          <label class="toggle"><input type="checkbox" data-k="vpc_sc"> VPC Service Controls</label>
+        </div>
       </details>
     </aside>
 
@@ -153,14 +124,20 @@
       <nav class="tabs" role="tablist">
         <button role="tab" aria-selected="true" data-tab="arch">Architecture</button>
         <button role="tab" aria-selected="false" data-tab="recs">Ingestion patterns</button>
-        <button role="tab" aria-selected="false" data-tab="platform">AI, governance &amp; security</button>
+        <button role="tab" aria-selected="false" data-tab="platform">Integrations</button>
         <button role="tab" aria-selected="false" data-tab="cost">Consumption estimate</button>
+        <button role="tab" aria-selected="false" data-tab="workload">Workload sizing</button>
+        <button role="tab" aria-selected="false" data-tab="roadmap">Roadmap</button>
         <button role="tab" aria-selected="false" data-tab="assume">Assumptions</button>
       </nav>
 
       <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
 
       <div class="tabpanel" id="tab-arch" role="tabpanel">
+        <section class="library" aria-labelledby="libHead">
+          <div class="lib-head"><h3 id="libHead">Component library</h3><span class="hint">Drag onto the diagram or click to add. Google Cloud components are costed; partner products are drawn with their BigQuery integration but not costed.</span></div>
+          <div id="library"></div>
+        </section>
         <div class="legend">
           <span><i class="ln stream"></i>Streaming / CDC</span>
           <span><i class="ln batch"></i>Scheduled batch</span>
@@ -179,6 +156,14 @@
 
       <div class="tabpanel" id="tab-cost" role="tabpanel" hidden>
         <div id="costBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-workload" role="tabpanel" hidden>
+        <div id="workloadBody"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-roadmap" role="tabpanel" hidden>
+        <div id="roadmapBody"></div>
       </div>
 
       <div class="tabpanel" id="tab-assume" role="tabpanel" hidden>
@@ -209,6 +194,9 @@
         <label>In-flight transformation
           <select id="f_transform"></select>
         </label>
+        <label class="span2">Processing region for this source
+          <select id="f_region"></select>
+        </label>
         <label>Initial / historical volume (GB)
           <input id="f_initial_volume_gb" type="number" min="0" step="any" value="100">
         </label>
@@ -225,6 +213,29 @@
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="f_cancel">Cancel</button>
         <button type="submit" class="btn primary" id="f_save">Add source</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="compDialog" aria-labelledby="compTitle">
+    <form id="compForm" method="dialog">
+      <div class="comp-dlg-head">
+        <h2 id="compTitle">Component</h2>
+        <span class="vendor-badge" id="compVendor"></span>
+      </div>
+      <p class="comp-method" id="compMethod"></p>
+      <div class="grid2" id="compFields"></div>
+      <div class="comp-steps">
+        <h3 class="mini">How it connects to BigQuery</h3>
+        <ol id="compSteps"></ol>
+        <ul class="comp-notes" id="compNotes"></ul>
+        <a id="compDoc" href="#" target="_blank" rel="noopener">Integration documentation</a>
+      </div>
+      <div class="dlg-actions">
+        <button type="button" class="btn ghost danger" id="c_delete">Remove component</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="c_cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="c_save">Save</button>
       </div>
     </form>
   </dialog>

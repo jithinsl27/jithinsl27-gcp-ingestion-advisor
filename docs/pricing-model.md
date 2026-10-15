@@ -68,6 +68,43 @@ Entries flagged `"verify": true` are approximations (Composer environment size i
 | Sensitive Data Protection | $0.03/GB profiled: all stored data in month 1, then new data monthly |
 | Cloud KMS | ~20 key versions + ~3 M operations per month |
 
+## Operational databases and Apigee
+
+| Component | Formula (per month) |
+|---|---|
+| AlloyDB | nodes (2 with HA + read pool) × (vCPU × $0.06608 + GiB × $0.0112) × 730 + storage $0.30/GiB; CUD 25% / 52% |
+| Cloud SQL (Enterprise) | (vCPU × $0.0413 + GiB × $0.007) × 730 (HA rates double) + SSD $0.17/GiB ($0.34 HA); CUD on compute |
+| Spanner | nodes × $0.90 / $1.23 / $1.71 (Standard / Enterprise / Enterprise Plus) × 730 + $0.30/GiB; CUD 20% / 40% |
+| Bigtable | nodes × $0.65 / $0.85 × 730 + SSD $0.17/GiB; CUD 20% / 40% |
+| Firestore | reads $0.03 and writes $0.09 per 100k after free tier + $0.075/GiB |
+| Memorystore | capacity × Standard-tier GiB-hour rate by size band × 730 |
+| Apigee | environment fee (Base $365, Intermediate $1,460, Comprehensive $3,431) + API calls tiered ($20 / $16 / $13 per million standard; $100 / $80 / $64 extensible) + optional analytics ($20/M) and Advanced API Security ($350/M) |
+
+Partner components (Power BI, Tableau, MicroStrategy, Qlik, ThoughtSpot, DataRobot, Dataiku, SageMaker, Azure ML, Databricks, Collibra, Alation, Atlan, Informatica) are never costed.
+
+## Regions
+
+Every line item carries a region. Sources use their own processing region (default: BigQuery region); Google components can each set a region; orchestration, Data Fusion and network use the processing region; BigQuery, storage and security use the home region. When a source (or workload streaming) runs outside the BigQuery region, cross-region transfer is added at ~$0.02/GiB within a continent and ~$0.08/GiB between continents (verify for specific routes).
+
+## Workload sizing
+
+| Item | Formula |
+|---|---|
+| BigQuery storage | (structured + semi-structured TB) × growth + telemetry retained; 60% long-term after month 3 |
+| Cloud Storage | unstructured TB × growth × $0.02/GiB |
+| Queries & reports | count × runs per month (hourly 730, daily 30, weekly 4.3, monthly 1, quarterly ⅓, yearly 1/12) × GB scanned |
+| Dashboards | count × refreshes/day × 30 × queries/refresh × GB/query × (1 − cache %) |
+| Pipelines (ELT) | count × runs × GB scanned per run (simple 5, medium 50, complex 250 GB) |
+| Pipelines (ETL) | count × runs × vCPU-h per run (0.5 / 2 / 8) on Dataflow |
+| Orchestration | Composer when > 10 pipelines, else Workflows |
+| Telemetry | Pub/Sub BigQuery subscription, or Pub/Sub + Dataflow streaming when transformed |
+| Editions | slot-hours = TiB scanned × slot-hours per TiB (default 60, editable) |
+| Ramp-up | first N months use the ramp data volume, ramp pipelines and reports, plus development scans of 5× ramp data |
+
+## Roadmap
+
+Foundation month 1 (4 weeks); build effort per pattern (DTS 2 weeks, Datastream 3, Dataflow 4, Data Fusion 5, Spark 6, SAP 8, warehouse migration 10; +2 for heavy transforms, +4 for 100 TB+, +4 for mainframe/Hadoop); squads build in parallel, quick wins first. Each source's costs start in its go-live month (initial load in that month); BigQuery editions slots and shared platform services start with the first live source; components start per the rollout rules in the user guide.
+
 ## Updating prices
 
 1. Edit `app/data/pricing.json` (and `regions.json` for uplifts). Keep the same keys.

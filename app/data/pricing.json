@@ -22,7 +22,14 @@
       "https://cloud.google.com/sensitive-data-protection/pricing",
       "https://cloud.google.com/kms/pricing",
       "https://cloud.google.com/integration-connectors/pricing",
-      "https://cloud.google.com/gemini-enterprise"
+      "https://cloud.google.com/gemini-enterprise",
+      "https://cloud.google.com/alloydb/pricing",
+      "https://cloud.google.com/sql/pricing",
+      "https://cloud.google.com/spanner/pricing",
+      "https://cloud.google.com/bigtable/pricing",
+      "https://cloud.google.com/firestore/pricing",
+      "https://cloud.google.com/memorystore/docs/redis/pricing",
+      "https://cloud.google.com/apigee/pricing"
     ]
   },
   "bigquery": {
@@ -129,7 +136,10 @@
     "regional": false,
     "ha_vpn_tunnel_hr": 0.05,
     "ha_vpn_tunnels": 2,
-    "interconnect_note": "Dedicated / Partner Interconnect is quoted separately (port + VLAN attachment). Recommended when sustained change volume exceeds ~1 TB/day."
+    "interconnect_note": "Dedicated / Partner Interconnect is quoted separately (port + VLAN attachment). Recommended when sustained change volume exceeds ~1 TB/day.",
+    "inter_region_same_geo_gib": 0.02,
+    "inter_region_cross_geo_gib": 0.08,
+    "inter_region_note": "Data transfer between Google Cloud regions: ~$0.02/GiB within a continent, ~$0.08/GiB between continents (verify; some routes, e.g. to/from Middle East or Oceania, are priced higher)."
   },
   "integration_connectors": {
     "regional": false,
@@ -252,5 +262,126 @@
     "EUR": 0.92,
     "GBP": 0.79,
     "INR": 84.0
+  },
+  "alloydb": {
+    "regional": true,
+    "vcpu_hr": 0.06608,
+    "mem_gib_hr": 0.0112,
+    "cud1_vcpu_hr": 0.04956,
+    "cud1_mem_gib_hr": 0.0084,
+    "cud3_vcpu_hr": 0.0317184,
+    "cud3_mem_gib_hr": 0.005376,
+    "storage_gib_month": 0.3
+  },
+  "cloudsql": {
+    "regional": true,
+    "vcpu_hr": 0.0413,
+    "mem_gib_hr": 0.007,
+    "ha_vcpu_hr": 0.0826,
+    "ha_mem_gib_hr": 0.014,
+    "cud1_factor": 0.75,
+    "cud3_factor": 0.48,
+    "ssd_gib_month": 0.17,
+    "ha_ssd_gib_month": 0.34
+  },
+  "spanner": {
+    "regional": true,
+    "node_hr": {
+      "standard": 0.9,
+      "enterprise": 1.23,
+      "enterprise_plus": 1.71
+    },
+    "cud1_factor": 0.8,
+    "cud3_factor": 0.6,
+    "ssd_gib_month": 0.3
+  },
+  "bigtable": {
+    "regional": true,
+    "node_hr": {
+      "enterprise": 0.65,
+      "enterprise_plus": 0.85
+    },
+    "cud1_factor": 0.8,
+    "cud3_factor": 0.6,
+    "ssd_gib_month": 0.17
+  },
+  "firestore": {
+    "regional": true,
+    "reads_per_100k": 0.03,
+    "writes_per_100k": 0.09,
+    "storage_gib_month": 0.075,
+    "cud1_factor": 0.8,
+    "cud3_factor": 0.6,
+    "free_reads_month": 1500000,
+    "free_writes_month": 600000,
+    "free_storage_gib": 1
+  },
+  "memorystore": {
+    "regional": true,
+    "standard_tier_gib_hr": [
+      [
+        4,
+        0.064
+      ],
+      [
+        10,
+        0.054
+      ],
+      [
+        35,
+        0.046
+      ],
+      [
+        100,
+        0.035
+      ],
+      [
+        null,
+        0.03
+      ]
+    ],
+    "cud1_factor": 0.8,
+    "cud3_factor": 0.6
+  },
+  "apigee": {
+    "regional": false,
+    "environment_month": {
+      "base": 365,
+      "intermediate": 1460,
+      "comprehensive": 3431
+    },
+    "calls_per_million": {
+      "standard": [
+        [
+          50,
+          20
+        ],
+        [
+          500,
+          16
+        ],
+        [
+          null,
+          13
+        ]
+      ],
+      "extensible": [
+        [
+          50,
+          100
+        ],
+        [
+          500,
+          80
+        ],
+        [
+          null,
+          64
+        ]
+      ]
+    },
+    "analytics_per_million": 20,
+    "advanced_security_per_million": 350,
+    "note": "Pay-as-you-go: environment fee per region plus API calls; analytics and Advanced API Security add-ons need Intermediate or Comprehensive environments."
   }
 }

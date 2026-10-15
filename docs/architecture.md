@@ -14,7 +14,10 @@
 │ catalog.py     source types, tools, pick-lists           │
 │ recommender.py rules → Recommendation per source,        │
 │                platform components, platform narrative   │
-│ estimator.py   36-month simulation, CUD views, grouping  │
+│ components.py  BI/AI/API/DB/governance library + costs   │
+│ estimator.py   36-month multi-region simulation, CUDs    │
+│ workload.py    workload-based sizing                     │
+│ plan.py        ramp-up roadmap + ramped costs            │
 │ data/pricing.json, data/regions.json  (editable)         │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -28,7 +31,9 @@ The service is stateless: no database, no secrets, no customer data stored. Scal
 | GET | `/healthz` | `{"status":"ok","version":...}` |
 | GET | `/api/catalog` | source types, tools, frequencies, regions, option lists |
 | GET | `/api/samples` | sample scenarios from `samples/*.json` |
-| POST | `/api/estimate` | scenario → totals, by_service, by_group, by_source, monthly, recommendations, platform (incl. layer story), assumptions, disclaimer |
+| POST | `/api/estimate` | scenario → totals, by_service, by_group, by_source, by_region, monthly, recommendations, platform (components, story), assumptions |
+| POST | `/api/workload` | scenario with `workload` → ramp/steady monthly, 1/3-year, by category, line items, compute comparison, by region |
+| POST | `/api/plan` | scenario → phases, waves, component rollout, milestones, ramped month-by-month consumption |
 | GET | `/docs` | OpenAPI UI (FastAPI) |
 
 Scenario shape (see `app/main.py` for limits and defaults):
@@ -41,14 +46,20 @@ Scenario shape (see `app/main.py` for limits and defaults):
   "sources": [{"id": "s1", "name": "Core banking", "type": "oracle", "data_type": "structured",
                "frequency": "near_realtime", "location": "on_prem", "transform": "light",
                "initial_volume_gb": 8000, "daily_change_gb": 60}],
-  "platform": {"bi": {...}, "gemini_enterprise": {...}, "agents": {...}, "gpu": {...},
-               "governance": {...}, "security": {...}}
+  "processing_region": "me-central2",
+  "components": [{"id": "c1", "type": "power_bi", "settings": {"users": 200}},
+                 {"id": "c2", "type": "vertex_gpu", "settings": {"gpu": "l4", "replicas": 2, "region": "us-central1"}}],
+  "security": {"enabled": true, "sdp_discovery": true, "cmek": true, "vpc_sc": true},
+  "workload": {"data": {"structured_tb": 20}, "queries": {"heavy": {"count": 100, "frequency": "yearly"}}},
+  "plan": {"teams": 2}
 }
 ```
 
 ## Extending
 
 **Add a source type**: add an entry to `SOURCE_TYPES` in `catalog.py` with an existing `category`, or add a new category and a branch in `recommender.recommend()` (and `demo/engine.js`). Add default field values for the dialog in `TYPE_DEFAULTS` in `app.js`.
+
+**Add a component** (BI, AI, API, database, governance): add an entry to `COMPONENTS` in `components.py` (vendor, method, settings, integration steps, docs); for Google components add a cost branch in `cost_components()` and prices in `pricing.json`. It appears in the library, diagram and Integrations tab automatically.
 
 **Add a tool**: add it to `TOOLS` in `catalog.py` (name, layer, summary, doc link). Reference it in a rule's `chain` or `alternatives`.
 

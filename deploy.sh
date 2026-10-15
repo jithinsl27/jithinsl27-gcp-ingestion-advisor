@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command deployment of GCP Ingestion Advisor to Cloud Run.
+# One-command deployment of Data Cloud Compass to Cloud Run.
 #
 # Usage:  ./deploy.sh [--project PROJECT_ID] [--region REGION] [--service NAME] [--private]
 #

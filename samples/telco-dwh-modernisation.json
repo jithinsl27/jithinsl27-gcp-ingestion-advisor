@@ -54,43 +54,62 @@
       "daily_change_gb": 20
     }
   ],
-  "platform": {
-    "bi": {
-      "enabled": true,
-      "tool": "looker",
-      "users": 400,
-      "looker_annual_usd": 0
+  "processing_region": "europe-west1",
+  "components": [
+    {
+      "id": "c1",
+      "type": "power_bi",
+      "settings": {
+        "users": 400
+      }
     },
-    "gemini_enterprise": {
-      "enabled": true,
-      "edition": "plus",
-      "users": 200
+    {
+      "id": "c2",
+      "type": "agent_platform",
+      "settings": {
+        "model": "pro",
+        "requests_month": 40000,
+        "input_tokens": 8000,
+        "output_tokens": 1200,
+        "agent_seconds": 10,
+        "bq_gb_per_request": 1
+      }
     },
-    "agents": {
-      "enabled": true,
-      "model": "pro",
-      "requests_month": 40000,
-      "input_tokens": 8000,
-      "output_tokens": 1200,
-      "agent_seconds": 10,
-      "bq_gb_per_request": 1
+    {
+      "id": "c3",
+      "type": "vertex_gpu",
+      "settings": {
+        "gpu": "a100",
+        "replicas": 1,
+        "hours_per_day": 24,
+        "region": "europe-west4"
+      }
     },
-    "gpu": {
-      "enabled": true,
-      "gpu": "a100",
-      "replicas": 1,
-      "hours_per_day": 24
+    {
+      "id": "c4",
+      "type": "databricks",
+      "settings": {
+        "users": 60
+      }
     },
-    "governance": {
-      "enabled": true,
-      "dq_share_pct": 15,
-      "dq_scans_per_month": 30
+    {
+      "id": "c5",
+      "type": "collibra",
+      "settings": {}
     },
-    "security": {
-      "enabled": true,
-      "sdp_discovery": true,
-      "cmek": true,
-      "vpc_sc": true
+    {
+      "id": "c6",
+      "type": "knowledge_catalog",
+      "settings": {
+        "dq_share_pct": 15,
+        "dq_scans_per_month": 30
+      }
     }
+  ],
+  "security": {
+    "enabled": true,
+    "sdp_discovery": true,
+    "cmek": true,
+    "vpc_sc": true
   }
 }

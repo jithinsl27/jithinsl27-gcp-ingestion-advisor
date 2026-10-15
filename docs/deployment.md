@@ -1,6 +1,6 @@
 # Deployment guide
 
-The advisor is a single stateless container (FastAPI + static UI) that runs on Cloud Run. It stores no customer data server-side, needs no database and scales to zero when idle, so running cost is typically a few dollars a month or less.
+Data Cloud Compass is a single stateless container (FastAPI + static UI) that runs on Cloud Run. It stores no customer data server-side, needs no database and scales to zero when idle, so running cost is typically a few dollars a month or less.
 
 ## Prerequisites
 

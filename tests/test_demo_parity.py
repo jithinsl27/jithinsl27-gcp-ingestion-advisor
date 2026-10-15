@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "demo"))
 
 from app.catalog import SOURCE_TYPES  # noqa: E402
+from app.components import COMPONENTS  # noqa: E402
+from app.plan import build_plan  # noqa: E402
+from app.workload import workload_estimate  # noqa: E402
 from app.estimator import estimate  # noqa: E402
 from build_demo import data_payload  # noqa: E402
 
@@ -33,6 +36,8 @@ def random_scenarios(n=25, seed=7):
                 "transform": rnd.choice(["none", "light", "heavy"]),
                 "initial_volume_gb": rnd.choice([0, 50, 2000, 150000]),
                 "daily_change_gb": rnd.choice([0, 0.5, 10, 300, 1500]),
+                **({"region": rnd.choice(regions)} if rnd.random() > .6 else {}),
+                **({"start_month": rnd.randint(1, 8)} if rnd.random() > .6 else {}),
             })
         out.append({
             "region": rnd.choice(regions), "skill": rnd.choice(["sql", "low_code", "code", "spark"]),
@@ -41,14 +46,23 @@ def random_scenarios(n=25, seed=7):
             "bq_model": rnd.choice(["ondemand", "standard", "enterprise", "enterprise_plus"]),
             "bq_slots": rnd.choice([50, 100, 400]), "analytics_tib_month": rnd.choice([None, 5]),
             "annual_growth_pct": rnd.choice([0, 20, 60]), "contingency_pct": 10,
-            "platform": {
-                "bi": {"enabled": rnd.random() > .3, "tool": rnd.choice(["looker", "looker_studio_pro", "looker_studio"]), "users": 40, "looker_annual_usd": rnd.choice([0, 60000])},
-                "gemini_enterprise": {"enabled": rnd.random() > .3, "edition": rnd.choice(["business", "standard", "plus"]), "users": 120},
-                "agents": {"enabled": rnd.random() > .3, "model": rnd.choice(["flash_lite", "flash", "pro"]), "requests_month": 30000},
-                "gpu": {"enabled": rnd.random() > .5, "gpu": rnd.choice(["l4", "a100", "h100", "cpu"]), "replicas": 2, "hours_per_day": 12},
-                "governance": {"enabled": rnd.random() > .3},
-                "security": {"enabled": rnd.random() > .3, "cmek": rnd.random() > .5},
+            "processing_region": rnd.choice(regions),
+            "components": [
+                {"id": f"c{k}", "type": c["id"],
+                 "settings": ({"region": rnd.choice(regions)} if c["costed"] and rnd.random() > .7 else {}),
+                 **({"start_month": rnd.randint(1, 6)} if rnd.random() > .7 else {})}
+                for k, c in enumerate(rnd.sample(COMPONENTS, rnd.randint(0, 8)))
+            ],
+            "security": {"enabled": rnd.random() > .3, "cmek": rnd.random() > .5, "sdp_discovery": rnd.random() > .5},
+            "workload": {
+                "data_region": rnd.choice([None, "europe-west1"]), "streaming_region": rnd.choice([None, "me-central2"]),
+                "bq_model": rnd.choice(["ondemand", "enterprise"]), "include_components": rnd.random() > .5,
+                "telemetry": {"volume_gb": rnd.choice([0, 100, 3000]), "per": rnd.choice(["day", "month"]), "transform": rnd.random() > .5},
+                "pipelines": {"engine": rnd.choice(["elt", "etl"]), "simple": rnd.randint(0, 80)},
+                "ramp": {"months": rnd.randint(0, 4)},
+                "queries": {"heavy": {"frequency": rnd.choice(["yearly", "quarterly"])}},
             },
+            "plan": {"teams": rnd.randint(1, 4)},
             "sources": srcs,
         })
     return out
@@ -63,12 +77,14 @@ def test_js_engine_matches_python(tmp_path):
         "const fs=require('fs');globalThis.ADVISOR_DATA=JSON.parse(fs.readFileSync(process.argv[2]));"
         f"require({json.dumps(str(ROOT / 'demo' / 'engine.js'))});"
         "const sc=JSON.parse(fs.readFileSync(process.argv[3]));"
-        "process.stdout.write(JSON.stringify(sc.map(s=>globalThis.ADVISOR_ENGINE.estimate(s))));"
+        "const E=globalThis.ADVISOR_ENGINE;"
+        "process.stdout.write(JSON.stringify(sc.map(s=>({e:E.estimate(s),w:E.workloadEstimate(s),p:E.buildPlan(s)}))));"
     )
     out = subprocess.run(["node", str(runner), str(tmp_path / "data.json"), str(tmp_path / "scenarios.json")],
                          capture_output=True, text=True, check=True).stdout
     js_results = json.loads(out)
-    for sc, js in zip(scenarios, js_results):
+    for sc, res in zip(scenarios, js_results):
+        js = res["e"]
         py = estimate(sc)
         for k, v in py["totals"].items():
             assert js["totals"][k] == pytest.approx(v, abs=0.05, rel=1e-6), (k, sc)
@@ -82,3 +98,21 @@ def test_js_engine_matches_python(tmp_path):
             assert js["platform"][f] == py["platform"][f]
         assert js["platform"]["layer"]["story"] == py["platform"]["layer"]["story"]
         assert [m["payg"] for m in js["monthly"]] == pytest.approx([m["payg"] for m in py["monthly"]], abs=0.05)
+        assert {r["region"]: r["three_year"] for r in js["by_region"]} == pytest.approx({r["region"]: r["three_year"] for r in py["by_region"]}, abs=0.05)
+        assert [c["type"] for c in js["platform"]["layer"]["components"]] == [c["type"] for c in py["platform"]["layer"]["components"]]
+        # workload sizing
+        pw, jw = workload_estimate(sc), res["w"]
+        for k, v in pw["totals"].items():
+            assert jw["totals"][k] == pytest.approx(v, abs=0.05, rel=1e-6), ("workload", k)
+        assert [(l["category"], l["service"], l["item"]) for l in jw["lines"]] == [(l["category"], l["service"], l["item"]) for l in pw["lines"]]
+        assert [c["monthly"] for c in jw["compute_comparison"]] == pytest.approx([c["monthly"] for c in pw["compute_comparison"]], abs=0.05)
+        # ramp-up plan
+        pp, jp = build_plan(sc), res["p"]
+        assert jp["horizon"] == pp["horizon"]
+        assert [(w["id"], w["team"], w["build_start_month"], w["go_live_month"]) for w in jp["waves"]] == \
+               [(w["id"], w["team"], w["build_start_month"], w["go_live_month"]) for w in pp["waves"]]
+        assert [c["start_month"] for c in jp["components"]] == [c["start_month"] for c in pp["components"]]
+        assert jp["phases"] == pp["phases"]
+        assert [m["total"] for m in jp["months"]] == pytest.approx([m["total"] for m in pp["months"]], abs=0.05)
+        for k, v in pp["totals"].items():
+            assert jp["totals"][k] == pytest.approx(v, abs=0.05, rel=1e-6), ("plan", k)

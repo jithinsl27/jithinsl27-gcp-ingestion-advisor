@@ -1,9 +1,11 @@
-"""GCP Ingestion Advisor - FastAPI entry point.
+"""Data Cloud Compass - FastAPI entry point.
 
 Serves the single-page UI from /static and a small JSON API:
   GET  /api/catalog    pick-lists, tools, regions
   GET  /api/samples    example discovery scenarios
   POST /api/estimate   recommendations + 1/3-year ballpark
+  POST /api/plan       month-by-month ramp-up plan with ramped consumption
+  POST /api/workload   workload-based sizing (pipelines, queries, dashboards, data volumes)
   GET  /healthz        liveness probe for Cloud Run
 """
 from __future__ import annotations
@@ -19,15 +21,19 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .catalog import SOURCE_BY_ID, catalog_payload
+from .components import COMPONENT_BY_ID
 from .estimator import estimate, load_regions
+from .plan import build_plan
+from .workload import workload_estimate
 
 APP_DIR = Path(__file__).parent
 STATIC_DIR = APP_DIR / "static"
 SAMPLES_DIR = APP_DIR.parent / "samples"
 VERSION = os.environ.get("APP_VERSION", "1.0.0")
 
-app = FastAPI(title="GCP Ingestion Advisor", version=VERSION,
-              description="Discovery-phase advisor: GCP-native ETL/ELT recommendations and ballpark cost for BigQuery ingestion.")
+app = FastAPI(title="Data Cloud Compass", version=VERSION,
+              description="From discovery to blueprint on Google Cloud: ingestion patterns, BI/AI/API/database integrations, "
+                          "per-region consumption estimates, workload sizing and ramp-up roadmap.")
 
 
 class Source(BaseModel):
@@ -42,42 +48,8 @@ class Source(BaseModel):
     daily_change_gb: float = Field(0, ge=0, le=5_000_000)
     tables: Optional[int] = Field(None, ge=0)
     notes: str = Field("", max_length=2000)
-
-
-class BIOpts(BaseModel):
-    enabled: bool = True
-    tool: Literal["looker", "looker_studio_pro", "looker_studio"] = "looker"
-    users: int = Field(50, ge=0, le=1_000_000)
-    looker_annual_usd: float = Field(0, ge=0, le=100_000_000)
-
-
-class GeminiEnterpriseOpts(BaseModel):
-    enabled: bool = True
-    edition: Literal["business", "standard", "plus"] = "standard"
-    users: int = Field(100, ge=0, le=1_000_000)
-
-
-class AgentOpts(BaseModel):
-    enabled: bool = True
-    model: Literal["flash_lite", "flash", "pro"] = "flash"
-    requests_month: float = Field(50_000, ge=0, le=10_000_000_000)
-    input_tokens: float = Field(4000, ge=0, le=2_000_000)
-    output_tokens: float = Field(800, ge=0, le=200_000)
-    agent_seconds: float = Field(6, ge=0, le=3600)
-    bq_gb_per_request: float = Field(0.2, ge=0, le=10_000)
-
-
-class GPUOpts(BaseModel):
-    enabled: bool = False
-    gpu: Literal["l4", "a100", "h100", "cpu"] = "l4"
-    replicas: int = Field(1, ge=0, le=1000)
-    hours_per_day: float = Field(24, ge=0, le=24)
-
-
-class GovernanceOpts(BaseModel):
-    enabled: bool = True
-    dq_share_pct: float = Field(20, ge=0, le=100)
-    dq_scans_per_month: float = Field(30, ge=0, le=10_000)
+    region: Optional[str] = None             # processing region for this source (defaults to scenario region)
+    start_month: Optional[int] = Field(None, ge=1, le=36)
 
 
 class SecurityOpts(BaseModel):
@@ -87,13 +59,71 @@ class SecurityOpts(BaseModel):
     vpc_sc: bool = True
 
 
-class PlatformOpts(BaseModel):
-    bi: BIOpts = Field(default_factory=BIOpts)
-    gemini_enterprise: GeminiEnterpriseOpts = Field(default_factory=GeminiEnterpriseOpts)
-    agents: AgentOpts = Field(default_factory=AgentOpts)
-    gpu: GPUOpts = Field(default_factory=GPUOpts)
-    governance: GovernanceOpts = Field(default_factory=GovernanceOpts)
-    security: SecurityOpts = Field(default_factory=SecurityOpts)
+class Component(BaseModel):
+    id: str = Field(..., max_length=64)
+    type: str
+    start_month: Optional[int] = Field(None, ge=1, le=36)
+    settings: dict[str, float | int | str | bool | None] = Field(default_factory=dict, max_length=20)
+
+
+class QueryLine(BaseModel):
+    count: float = Field(0, ge=0, le=1_000_000)
+    frequency: Literal["hourly", "daily", "weekly", "monthly", "quarterly", "yearly"] = "daily"
+    gb: float = Field(1, ge=0, le=10_000_000)
+
+
+class WorkloadData(BaseModel):
+    structured_tb: float = Field(20, ge=0, le=1_000_000)
+    semi_structured_tb: float = Field(10, ge=0, le=1_000_000)
+    unstructured_tb: float = Field(20, ge=0, le=1_000_000)
+    annual_growth_pct: float = Field(20, ge=-50, le=500)
+    tables: float = Field(500, ge=0, le=10_000_000)
+
+
+class WorkloadTelemetry(BaseModel):
+    volume_gb: float = Field(100, ge=0, le=100_000_000)
+    per: Literal["day", "month"] = "day"
+    transform: bool = False
+    retention_months: int = Field(13, ge=1, le=120)
+
+
+class WorkloadPipelines(BaseModel):
+    simple: float = Field(50, ge=0, le=100_000)
+    medium: float = Field(30, ge=0, le=100_000)
+    complex: float = Field(20, ge=0, le=100_000)
+    runs_per_day: float = Field(1, ge=0, le=1440)
+    engine: Literal["elt", "etl"] = "elt"
+
+
+class WorkloadDashboards(BaseModel):
+    count: float = Field(25, ge=0, le=1_000_000)
+    refreshes_per_day: float = Field(12, ge=0, le=1440)
+    queries_per_refresh: float = Field(8, ge=0, le=1000)
+    gb_per_query: float = Field(0.5, ge=0, le=100_000)
+    cache_pct: float = Field(60, ge=0, le=100)
+
+
+class WorkloadRamp(BaseModel):
+    months: int = Field(2, ge=0, le=24)
+    data_gb: float = Field(110, ge=0, le=100_000_000)
+    pipelines: float = Field(5, ge=0, le=100_000)
+    reports: float = Field(1, ge=0, le=100_000)
+
+
+class Workload(BaseModel):
+    data_region: Optional[str] = None
+    pipelines_region: Optional[str] = None
+    streaming_region: Optional[str] = None
+    bq_model: Literal["ondemand", "standard", "enterprise", "enterprise_plus"] = "ondemand"
+    data: WorkloadData = Field(default_factory=WorkloadData)
+    telemetry: WorkloadTelemetry = Field(default_factory=WorkloadTelemetry)
+    pipelines: WorkloadPipelines = Field(default_factory=WorkloadPipelines)
+    queries: dict[Literal["simple", "complex", "heavy", "adhoc"], QueryLine] = Field(default_factory=dict)
+    dashboards: WorkloadDashboards = Field(default_factory=WorkloadDashboards)
+    ramp: WorkloadRamp = Field(default_factory=WorkloadRamp)
+    slot_hours_per_tib: float = Field(60, gt=0, le=10_000)
+    contingency_pct: float = Field(10, ge=0, le=100)
+    include_components: bool = False
 
 
 class Scenario(BaseModel):
@@ -107,8 +137,13 @@ class Scenario(BaseModel):
     analytics_tib_month: Optional[float] = Field(None, ge=0, le=1_000_000)
     annual_growth_pct: float = Field(20, ge=-50, le=500)
     contingency_pct: float = Field(10, ge=0, le=100)
+    processing_region: Optional[str] = None
     sources: list[Source] = Field(default_factory=list, max_length=200)
-    platform: PlatformOpts = Field(default_factory=PlatformOpts)
+    components: Optional[list[Component]] = Field(None, max_length=60)
+    security: Optional[SecurityOpts] = None
+    platform: Optional[dict] = None          # legacy fixed layer, converted to components
+    workload: Optional[Workload] = None
+    plan: Optional[dict[str, int]] = None    # {"teams": 2}
 
 
 @app.get("/healthz")
@@ -131,15 +166,39 @@ def get_samples():
     return out
 
 
-@app.post("/api/estimate")
-def post_estimate(scenario: Scenario):
+def _validate(scenario: Scenario):
     unknown = [s.type for s in scenario.sources if s.type not in SOURCE_BY_ID]
     if unknown:
         raise HTTPException(status_code=422, detail=f"Unknown source type(s): {', '.join(unknown)}")
     regions = {r["id"] for r in load_regions()}
-    if scenario.region not in regions:
-        raise HTTPException(status_code=422, detail=f"Unknown region: {scenario.region}")
-    return JSONResponse(estimate(scenario.model_dump()))
+    used = [scenario.region, scenario.processing_region] + [s.region for s in scenario.sources]
+    used += [str(c.settings.get("region")) for c in (scenario.components or []) if c.settings.get("region")]
+    if scenario.workload:
+        used += [scenario.workload.data_region, scenario.workload.pipelines_region, scenario.workload.streaming_region]
+    bad = [r for r in used if r and r not in regions]
+    if bad:
+        raise HTTPException(status_code=422, detail=f"Unknown region: {', '.join(sorted(set(bad)))}")
+    bad_c = [c.type for c in (scenario.components or []) if c.type not in COMPONENT_BY_ID]
+    if bad_c:
+        raise HTTPException(status_code=422, detail=f"Unknown component(s): {', '.join(bad_c)}")
+
+
+@app.post("/api/estimate")
+def post_estimate(scenario: Scenario):
+    _validate(scenario)
+    return JSONResponse(estimate(scenario.model_dump(exclude_none=True)))
+
+
+@app.post("/api/plan")
+def post_plan(scenario: Scenario):
+    _validate(scenario)
+    return JSONResponse(build_plan(scenario.model_dump(exclude_none=True)))
+
+
+@app.post("/api/workload")
+def post_workload(scenario: Scenario):
+    _validate(scenario)
+    return JSONResponse(workload_estimate(scenario.model_dump(exclude_none=True)))
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

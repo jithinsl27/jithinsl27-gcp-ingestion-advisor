@@ -4,37 +4,36 @@ Uses the **Retail Bank (KSA)** sample, which opens by default on first visit.
 
 ## 1. Frame the problem (1 min)
 
-"You have core banking on Oracle, cards on SQL Server, Kafka events, regulatory files, Salesforce and app analytics. Let's see how each lands in BigQuery, what you can build on top, and what it costs in Dammam."
+"Core banking on Oracle, cards on SQL Server, Kafka events, regulatory files, Salesforce and app analytics. Your analysts use Power BI today, and you want governed AI agents. Let's see how it all lands on BigQuery in Dammam, what it costs, and how we'd roll it out."
 
-## 2. Architecture walk-through (3 min) - *Architecture* tab
+## 2. Architecture (3 min) - *Architecture* tab
 
-- Dashed green lines: Oracle and Kafka are continuous (CDC / streaming). Amber lines: scheduled batch.
-- On-prem systems share an HA VPN; switch the daily volume of core banking to 1,500 GB/day and show it moving to Interconnect.
-- BigQuery in me-central2, then Dataform, Looker, BigQuery ML, data agents, reverse ETL, and on the right the Agent Platform, Gemini Enterprise and a GPU endpoint.
-- The green band: Knowledge Catalog, Sensitive Data Protection, policy tags, CMEK, VPC-SC, IAM/SCC across every layer.
+- Green dashed lines are CDC/streaming (Oracle, Kafka); orange lines are scheduled batch.
+- On-prem systems share an HA VPN; raise core banking to 1,500 GB/day and it switches to Interconnect.
+- BigQuery in me-central2 with Dataform, orchestration, BigQuery ML and reverse ETL built in.
+- Right column: Looker *and* Power BI (partner, dashed, not costed), agents, Gemini Enterprise, GPU endpoint, Apigee, AlloyDB.
+- **Live**: drag *Tableau* or *AWS SageMaker* from the library onto the diagram; show the new connection and that cost does not change.
 
-## 3. Why these tools (3 min) - *Ingestion patterns* tab
+## 3. Why these tools (2 min) - *Ingestion patterns* tab
 
-- Oracle → Datastream: log-based CDC, backfill included; caveat about ARCHIVELOG and supplemental logging.
-- Kafka → Dataflow Kafka template; alternatives Managed Kafka and Pub/Sub import topics.
-- Salesforce and GA4 → Data Transfer Service at no transfer charge.
-- Live change: open *Cards & payments*, set freshness to **Daily** and transformation to **Heavy**: it moves from CDC to a Dataflow batch pipeline. Then set *Team skill set* to **Low-code**: it moves to Data Fusion and the shared instance cost appears in the estimate.
+Oracle → Datastream (ARCHIVELOG/supplemental logging caveat); Kafka → Dataflow template; Salesforce and GA4 → Data Transfer Service at no transfer charge.
 
-## 4. Agentic data cloud (4 min) - *AI, governance & security* tab
+## 4. Integrations (3 min) - *Integrations* tab
 
-- Looker semantic layer feeding dashboards and Conversational Analytics with the same metrics.
-- Agents on Agent Platform calling BigQuery through MCP tools under the user's own permissions and masking.
-- Gemini Enterprise putting those agents in front of 300 employees.
-- Fraud model on two L4 GPU endpoints, called from BigQuery as a remote model.
-- Knowledge Catalog lineage and quality scores as the trust layer for agent answers.
+- Power BI: BigQuery connector with the Storage Read API, Import vs DirectQuery, BI Engine to control cost.
+- Agents on Agent Platform call BigQuery through MCP tools under the user's own permissions; Apigee in front for quotas, token limits and Model Armor.
+- AlloyDB as the low-latency serving and vector store for agents, fed by reverse ETL.
+- Knowledge Catalog lineage and quality scores as the trust layer.
 
-## 5. Commercials (3 min) - *Consumption estimate* tab
+## 5. Regions (1 min)
 
-- 1-year and 3-year totals, pay-as-you-go versus commitments, and the discussion range.
-- By capability: ingestion versus BigQuery versus AI.
-- Switch currency to SAR. Switch region to `us-central1` to show the regional difference, then back.
-- Switch BigQuery to on-demand to compare with Enterprise edition slots.
+Open the Vertex AI GPU endpoint and set its region to `us-central1` while BigQuery stays in Dammam; the *By region* table splits the cost. Mention data-residency review for anything leaving the Kingdom.
 
-## 6. Close (1 min)
+## 6. Commercials (2 min) - *Consumption estimate* and *Workload sizing*
 
-Export the Markdown proposal and scenario JSON; agree next steps: confirm volumes, CDC prerequisites, licences (Looker quote, SAP SLT), and a Pricing Calculator validation.
+- 1-year and 3-year, pay-as-you-go vs commitments, by capability and region; switch currency to SAR.
+- Workload sizing: walk the customer's own numbers (pipelines, queries, dashboards, 50 TB, telemetry, 2-month ramp) and the on-demand vs editions comparison.
+
+## 7. Roadmap (2 min) - *Roadmap* tab
+
+Final architecture, the month-by-month plan, and ramped monthly spend vs steady state. Change squads from 2 to 3 to shorten the programme. Close by exporting the Markdown proposal.

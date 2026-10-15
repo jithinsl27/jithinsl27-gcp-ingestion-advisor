@@ -53,43 +53,46 @@
       "daily_change_gb": 0.2
     }
   ],
-  "platform": {
-    "bi": {
-      "enabled": true,
-      "tool": "looker_studio_pro",
-      "users": 25,
-      "looker_annual_usd": 0
+  "components": [
+    {
+      "id": "c1",
+      "type": "tableau",
+      "settings": {
+        "users": 80
+      }
     },
-    "gemini_enterprise": {
-      "enabled": true,
-      "edition": "business",
-      "users": 40
+    {
+      "id": "c2",
+      "type": "gemini_enterprise",
+      "settings": {
+        "edition": "business",
+        "users": 40
+      }
     },
-    "agents": {
-      "enabled": true,
-      "model": "flash_lite",
-      "requests_month": 10000,
-      "input_tokens": 3000,
-      "output_tokens": 500,
-      "agent_seconds": 4,
-      "bq_gb_per_request": 0.05
+    {
+      "id": "c3",
+      "type": "dataiku",
+      "settings": {
+        "users": 15
+      }
     },
-    "gpu": {
-      "enabled": false,
-      "gpu": "l4",
-      "replicas": 1,
-      "hours_per_day": 12
+    {
+      "id": "c4",
+      "type": "sagemaker",
+      "settings": {
+        "users": 5
+      }
     },
-    "governance": {
-      "enabled": true,
-      "dq_share_pct": 20,
-      "dq_scans_per_month": 30
-    },
-    "security": {
-      "enabled": true,
-      "sdp_discovery": true,
-      "cmek": false,
-      "vpc_sc": true
+    {
+      "id": "c5",
+      "type": "knowledge_catalog",
+      "settings": {}
     }
+  ],
+  "security": {
+    "enabled": true,
+    "sdp_discovery": true,
+    "cmek": false,
+    "vpc_sc": true
   }
 }

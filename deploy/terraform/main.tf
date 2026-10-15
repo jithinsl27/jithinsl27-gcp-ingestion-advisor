@@ -1,4 +1,4 @@
-# Infrastructure-as-code deployment of GCP Ingestion Advisor.
+# Infrastructure-as-code deployment of Data Cloud Compass.
 #
 # 1. Build the image once:   gcloud builds submit --config cloudbuild.yaml   (or use deploy.sh)
 # 2. terraform init && terraform apply -var project_id=... -var image=REGION-docker.pkg.dev/PROJECT/ingestion-advisor/app:TAG
@@ -32,7 +32,7 @@ resource "google_artifact_registry_repository" "repo" {
 
 resource "google_service_account" "run" {
   account_id   = "ingestion-advisor-run"
-  display_name = "Ingestion Advisor (Cloud Run runtime)"
+  display_name = "Data Cloud Compass (Cloud Run runtime)"
 }
 
 resource "google_cloud_run_v2_service" "app" {

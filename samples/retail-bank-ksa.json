@@ -78,43 +78,150 @@
       "daily_change_gb": 3
     }
   ],
-  "platform": {
-    "bi": {
-      "enabled": true,
-      "tool": "looker",
-      "users": 150,
-      "looker_annual_usd": 0
+  "components": [
+    {
+      "id": "c1",
+      "type": "looker",
+      "settings": {
+        "users": 150,
+        "annual_quote_usd": 0
+      }
     },
-    "gemini_enterprise": {
-      "enabled": true,
-      "edition": "standard",
-      "users": 300
+    {
+      "id": "c8",
+      "type": "power_bi",
+      "settings": {
+        "users": 200
+      }
     },
-    "agents": {
-      "enabled": true,
-      "model": "flash",
-      "requests_month": 120000,
-      "input_tokens": 5000,
-      "output_tokens": 800,
-      "agent_seconds": 6,
-      "bq_gb_per_request": 0.2
+    {
+      "id": "c2",
+      "type": "agent_platform",
+      "settings": {
+        "model": "flash",
+        "requests_month": 120000,
+        "input_tokens": 5000,
+        "output_tokens": 800,
+        "agent_seconds": 6,
+        "bq_gb_per_request": 0.2
+      }
     },
-    "gpu": {
-      "enabled": true,
-      "gpu": "l4",
-      "replicas": 2,
-      "hours_per_day": 24
+    {
+      "id": "c3",
+      "type": "gemini_enterprise",
+      "settings": {
+        "edition": "standard",
+        "users": 300
+      }
     },
-    "governance": {
-      "enabled": true,
-      "dq_share_pct": 25,
-      "dq_scans_per_month": 30
+    {
+      "id": "c4",
+      "type": "vertex_gpu",
+      "settings": {
+        "gpu": "l4",
+        "replicas": 2,
+        "hours_per_day": 24
+      }
     },
-    "security": {
-      "enabled": true,
-      "sdp_discovery": true,
-      "cmek": true,
-      "vpc_sc": true
+    {
+      "id": "c5",
+      "type": "knowledge_catalog",
+      "settings": {
+        "dq_share_pct": 25,
+        "dq_scans_per_month": 30
+      }
+    },
+    {
+      "id": "c6",
+      "type": "apigee",
+      "settings": {
+        "environment": "intermediate",
+        "api_calls_million": 30,
+        "proxy_type": "extensible",
+        "analytics": "yes",
+        "advanced_security": "no"
+      }
+    },
+    {
+      "id": "c7",
+      "type": "alloydb",
+      "settings": {
+        "vcpu": 8,
+        "memory_gib": 64,
+        "ha": "yes",
+        "read_pool_nodes": 1,
+        "storage_gib": 500
+      }
     }
+  ],
+  "security": {
+    "enabled": true,
+    "sdp_discovery": true,
+    "cmek": true,
+    "vpc_sc": true
+  },
+  "workload": {
+    "data_region": null,
+    "pipelines_region": null,
+    "streaming_region": null,
+    "bq_model": "ondemand",
+    "data": {
+      "structured_tb": 20,
+      "semi_structured_tb": 10,
+      "unstructured_tb": 20,
+      "annual_growth_pct": 20,
+      "tables": 500
+    },
+    "telemetry": {
+      "volume_gb": 100,
+      "per": "day",
+      "transform": false,
+      "retention_months": 13
+    },
+    "pipelines": {
+      "simple": 50,
+      "medium": 30,
+      "complex": 20,
+      "runs_per_day": 1,
+      "engine": "elt"
+    },
+    "queries": {
+      "simple": {
+        "count": 20,
+        "frequency": "daily",
+        "gb": 2
+      },
+      "complex": {
+        "count": 25,
+        "frequency": "daily",
+        "gb": 50
+      },
+      "heavy": {
+        "count": 100,
+        "frequency": "yearly",
+        "gb": 1024
+      },
+      "adhoc": {
+        "count": 10,
+        "frequency": "monthly",
+        "gb": 200
+      }
+    },
+    "dashboards": {
+      "count": 25,
+      "refreshes_per_day": 12,
+      "queries_per_refresh": 8,
+      "gb_per_query": 0.5,
+      "cache_pct": 60
+    },
+    "ramp": {
+      "months": 2,
+      "data_gb": 110,
+      "pipelines": 5,
+      "reports": 1
+    },
+    "slot_hours_per_tib": 60,
+    "contingency_pct": 10,
+    "include_components": false
   }
 }

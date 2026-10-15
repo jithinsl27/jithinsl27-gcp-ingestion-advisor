@@ -1,18 +1,24 @@
-# GCP Ingestion Advisor
+# Data Cloud Compass
 
-A discovery-phase tool for Data & AI architects. Sit with a customer, add the source systems they want in BigQuery, and the advisor:
+**From discovery to blueprint on Google Cloud.** A tool for Data & AI architects to use live in customer discovery sessions. Add the customer's source systems and the tools they already use, and Data Cloud Compass:
 
-- **draws the target architecture** live, from source systems through connectivity, CDC / batch ingestion and BigQuery to BI, agents and governance;
-- **recommends GCP-native ETL / ELT tooling per source** (Datastream, Dataflow templates, Pub/Sub BigQuery subscriptions, BigQuery Data Transfer Service, Data Fusion, Dataproc Serverless, Storage Transfer, BigQuery Connector for SAP, Mainframe Connector …) based on source type, data type, freshness, location, transformation needs and team skills, with rationale, alternatives and discovery caveats;
-- **shows the agentic data cloud on top of BigQuery**: Looker semantic layer, Conversational Analytics and BigQuery data agents, Gemini Enterprise Agent Platform (Agent Engine + Gemini), Gemini Enterprise, model serving on Vertex AI GPU endpoints, Knowledge Catalog (Dataplex) governance, Sensitive Data Protection, CMEK, VPC Service Controls;
-- **estimates a ballpark 1-year and 3-year consumption** for the chosen Google Cloud region, pay-as-you-go and with committed-use discounts, by service, capability and source, in USD, SAR, AED, EUR, GBP or INR;
-- **exports** a Markdown proposal, a CSV cost breakdown, the architecture as SVG, or a print-ready PDF.
+- **draws the target architecture** live: sources → connectivity → CDC / batch ingestion → BigQuery → BI, AI, APIs and operational databases, with governance and security across every layer;
+- **recommends GCP-native ETL / ELT per source** (Datastream, Dataflow templates, Pub/Sub BigQuery subscriptions, BigQuery Data Transfer Service, Data Fusion, Dataproc Serverless, Storage Transfer, BigQuery Connector for SAP, Mainframe Connector …) based on source type, data type, freshness, location, transformation needs and team skills, with rationale, alternatives and discovery caveats;
+- **lets you drag and drop the consumption layer** from a component library:
+  - *Google Cloud (costed)*: Looker, Looker Studio (Pro), Agent Platform data agents, Gemini Enterprise, Vertex AI GPU endpoints, BigQuery ML, **Apigee** API management & AI gateway, **AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore**, Knowledge Catalog (Dataplex);
+  - *Partners (shown with their BigQuery integration, never costed)*: Power BI, Tableau, MicroStrategy, Qlik, ThoughtSpot, DataRobot, Dataiku, AWS SageMaker, Azure ML / AI Foundry, Databricks, Collibra, Alation, Atlan, Informatica;
+- **explains every integration** - how each tool connects to BigQuery, step by step, with best practices and documentation links;
+- **prices each service in its own region** - BigQuery in one data centre, ingestion or GPU endpoints in another - and adds cross-region transfer where data moves;
+- **estimates 1-year and 3-year consumption**, pay-as-you-go and with committed-use discounts, by service, capability, region and source, in USD, SAR, AED, EUR, GBP or INR;
+- **sizes from workloads** (Workload sizing tab): pipelines, simple/complex/periodic queries, ad-hoc reports, dashboards, data by type, telemetry and a ramp-up phase;
+- **builds a month-by-month roadmap** (Roadmap tab): final architecture, phased plan by delivery squads, go-live per source and component, and ramped monthly consumption;
+- **exports** a Markdown proposal, CSV cost breakdown, architecture SVG, scenario JSON or a print-ready PDF.
 
 ![Architecture view](docs/images/architecture.png)
 
-| Ingestion patterns | AI, governance & security | Consumption estimate |
+| Integrations | Workload sizing | Roadmap |
 |---|---|---|
-| ![](docs/images/recs.png) | ![](docs/images/platform.png) | ![](docs/images/cost.png) |
+| ![](docs/images/platform.png) | ![](docs/images/workload.png) | ![](docs/images/roadmap.png) |
 
 ---
 
@@ -22,33 +28,31 @@ A discovery-phase tool for Data & AI architects. Sit with a customer, add the so
 
 [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/jithinsl27/jithinsl27-gcp-ingestion-advisor&cloudshell_tutorial=docs/cloudshell-tutorial.md&show=terminal)
 
-Cloud Shell clones this repo and opens a guided tutorial. Pick your project, then run:
+Or paste into any Cloud Shell:
 
 ```bash
-./deploy.sh                      # public URL, us-central1
-./deploy.sh --region me-central2 # e.g. deploy in Dammam
-./deploy.sh --private            # IAM-protected (no public access)
+git clone https://github.com/jithinsl27/jithinsl27-gcp-ingestion-advisor.git
+cd jithinsl27-gcp-ingestion-advisor
+./deploy.sh --region us-central1        # add --private to require IAM sign-in
 ```
 
-The script enables the required APIs, builds the container with Cloud Build (no local Docker needed) and deploys to Cloud Run. It prints the service URL when it finishes (about 3 minutes the first time).
+The script enables the required APIs, builds the container with Cloud Build (no local Docker needed) and deploys to Cloud Run. It prints the URL when it finishes (about 3 minutes the first time). Run only one `./deploy.sh` command at a time.
 
 ### Option 2 - Run on Google Cloud button
 
 [![Run on Google Cloud](https://deploy.cloud.run/button.svg)](https://deploy.cloud.run/?git_repo=https://github.com/jithinsl27/jithinsl27-gcp-ingestion-advisor)
 
-One click builds and deploys to Cloud Run in the project you choose. Requires the repository to be public.
-
 ### Option 3 - CI/CD and infrastructure as code
 
-- `cloudbuild.yaml` - test, build, push to Artifact Registry and deploy. Connect the repo to Cloud Build and add a trigger on `main`.
+- `cloudbuild.yaml` - test, build, push to Artifact Registry and deploy (Cloud Build trigger on `main`).
 - `deploy/terraform/` - Artifact Registry, Cloud Run v2 service, runtime service account, invoker IAM and an optional Cloud Build trigger.
 - `.github/workflows/deploy.yml` - deploy from GitHub Actions with Workload Identity Federation.
 
-Full details, private access with IAP and troubleshooting: [docs/deployment.md](docs/deployment.md).
+Details, private access with IAP and troubleshooting: [docs/deployment.md](docs/deployment.md).
 
 ### Static demo (no Google Cloud project needed)
 
-`python demo/build_demo.py` produces `demo/dist/index.html`: the whole tool in one file, running in the browser with a JavaScript port of the engine. The `pages.yml` workflow publishes it to GitHub Pages; enable **Settings → Pages → Source: GitHub Actions** and it appears at `https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/`. A parity test keeps the JavaScript engine identical to the Python one.
+`python demo/build_demo.py` produces `demo/dist/index.html`: the whole tool in one file, running in the browser with a JavaScript port of the engine. The `pages.yml` workflow publishes it to GitHub Pages (enable **Settings → Pages → Source: GitHub Actions**) at `https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/`. A parity test keeps the JavaScript engine identical to the Python one.
 
 ---
 
@@ -58,58 +62,39 @@ Full details, private access with IAP and troubleshooting: [docs/deployment.md](
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 uvicorn app.main:app --reload --port 8080      # open http://localhost:8080
-python -m pytest -q                            # 150+ tests incl. JS/Python parity (needs node)
+python -m pytest -q                            # engine, API and JS/Python parity tests (parity needs node)
 ```
-
-or with Docker: `docker build -t ingestion-advisor . && docker run -p 8080:8080 ingestion-advisor`.
 
 ## How it works
 
 ```
-Browser (app/static)  ──POST /api/estimate──▶  FastAPI (app/main.py)
-  source canvas, diagram,                         ├─ recommender.py   rules: source → pattern + tools
-  tabs, exports                                   ├─ estimator.py     36-month cost simulation
-                                                  └─ data/*.json      list prices, regions (editable)
+Browser (app/static)  ──/api/estimate · /api/workload · /api/plan──▶  FastAPI (app/main.py)
+  diagram, component library (drag & drop),                          ├─ recommender.py  source → ingestion pattern
+  tabs, exports                                                       ├─ components.py   BI / AI / API / DB / governance library + costs
+                                                                      ├─ estimator.py    36-month, multi-region consumption model
+                                                                      ├─ workload.py     workload-based sizing
+                                                                      ├─ plan.py         ramp-up roadmap + ramped costs
+                                                                      └─ data/*.json     list prices, regions (editable)
 ```
 
-- **Stateless.** Nothing is stored server-side; scenarios live in the browser (local storage) and can be saved/opened as JSON.
-- **Transparent rules.** `app/recommender.py` is plain if/else per source category; tune it to your practice.
-- **Editable prices.** `app/data/pricing.json` and `app/data/regions.json` hold list prices and regional uplifts. Update them without touching code.
-
-See [docs/architecture.md](docs/architecture.md) and [docs/pricing-model.md](docs/pricing-model.md).
+- **Stateless.** Nothing is stored server-side; scenarios live in the browser and can be saved/opened as JSON.
+- **Transparent rules.** Recommendation, sizing and planning rules are plain Python you can tune.
+- **Editable prices.** `app/data/pricing.json` and `app/data/regions.json` hold list prices and regional uplifts.
 
 ## Documentation
 
 | Document | What's in it |
 |---|---|
-| [User guide](docs/user-guide.md) | Running a discovery session with the tool, every field explained |
-| [Demo script](docs/demo-script.md) | A 15-minute customer demo storyline using the samples |
-| [Decision matrix](docs/decision-matrix.md) | Which GCP tool is recommended for which source and why |
-| [Pricing model](docs/pricing-model.md) | Sizing formulas, assumptions, price sources, how to update |
-| [Architecture](docs/architecture.md) | Code structure, API, extending sources and tools |
+| [User guide](docs/user-guide.md) | Running a discovery session, every tab and field explained |
+| [Demo script](docs/demo-script.md) | A 15-minute customer demo storyline |
+| [Decision matrix](docs/decision-matrix.md) | Which GCP tool is recommended for which source, and how each component integrates |
+| [Pricing model](docs/pricing-model.md) | Sizing formulas, regions, workload and roadmap assumptions, price sources |
+| [Architecture](docs/architecture.md) | Code structure, API, extending sources, components and rules |
 | [Deployment](docs/deployment.md) | Cloud Shell, Cloud Run button, Cloud Build, Terraform, GitHub Actions, IAP |
-
-## Project layout
-
-```
-app/
-  main.py             FastAPI app + API models
-  catalog.py          source types, GCP tools, pick-lists
-  recommender.py      ingestion rules + platform narrative
-  estimator.py        1/3-year consumption model
-  data/pricing.json   list prices (USD, us-central1 baseline)
-  data/regions.json   regions and price uplift
-  static/             UI (HTML/CSS/JS, no build step)
-samples/              example customer scenarios
-demo/                 static demo build + JS engine port
-tests/                engine, API and parity tests
-deploy/terraform/     IaC deployment
-deploy.sh, Dockerfile, app.json, cloudbuild.yaml, .github/workflows/
-```
 
 ## Important
 
-Estimates are **ballpark figures for discovery conversations**, based on public list prices (reviewed 2026-10-15) and approximate regional uplifts. They exclude taxes, support, egress from other clouds, partner licences (e.g. SAP SLT, Looker, which is quote-based) and negotiated discounts. Validate with the [Google Cloud Pricing Calculator](https://cloud.google.com/products/calculator) before sharing numbers formally.
+Estimates are **ballpark figures for discovery conversations**, based on public list prices (reviewed 2026-10-15) and approximate regional uplifts. They exclude taxes, support, egress from other clouds, partner licences (Power BI, Tableau, SageMaker and the other partner tools are never costed; Looker is quote-based) and negotiated discounts. Validate with the [Google Cloud Pricing Calculator](https://cloud.google.com/products/calculator) before sharing numbers formally.
 
 ## License
 

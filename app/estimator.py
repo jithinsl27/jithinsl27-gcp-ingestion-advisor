@@ -25,7 +25,8 @@ from collections import defaultdict
 from pathlib import Path
 
 from .catalog import FREQUENCIES, SOURCE_BY_ID, STREAMING_FREQS
-from .recommender import recommend, platform_components, platform_story
+from .recommender import recommend, platform_components
+from .components import COMPONENT_BY_ID, cost_components, component_view, normalized, platform_story
 
 DATA_DIR = Path(__file__).parent / "data"
 GIB_PER_TIB = 1024
@@ -102,7 +103,7 @@ def stream_vcpus(daily_gb, transform):
 # --------------------------------------------------------------------------- #
 # Main entry point
 # --------------------------------------------------------------------------- #
-def estimate(scenario: dict) -> dict:
+def estimate(scenario: dict, keep_items: bool = False) -> dict:
     pricing = load_pricing()
     regions = {r["id"]: r for r in load_regions()}
     region_id = scenario.get("region", "us-central1")
@@ -117,22 +118,31 @@ def estimate(scenario: dict) -> dict:
     bq_model = scenario.get("bq_model", "ondemand")
     sources = [s for s in scenario.get("sources", []) if s.get("type")]
 
+    processing_region = scenario.get("processing_region") or region_id
+    if processing_region not in regions:
+        processing_region = region_id
+    ctx = {"rid": region_id}               # region the next line items are billed in
+
+    def rid_of(r):
+        return r if r in regions else region_id
+
     def up(service_key):
-        return uplift if pricing[service_key].get("regional") else 1.0
+        return regions[ctx["rid"]]["uplift"] if pricing[service_key].get("regional") else 1.0
 
     recs = [recommend(s, prefs) for s in sources]
     platform = platform_components(sources, recs, prefs)
 
     # per-month line items for PAYG; CUD-eligible amounts tracked separately
-    payg = defaultdict(float)          # (m, service, source) -> usd
-    cud = {"cud1": defaultdict(float), "cud3": defaultdict(float)}  # (m, service, source) -> usd under that CUD
+    payg = defaultdict(float)          # (m, service, source, region) -> usd
+    cud = {"cud1": defaultdict(float), "cud3": defaultdict(float)}  # same keys, under that CUD
 
     def add(m, service, source, usd, cud1=None, cud3=None):
         if not usd:
             return
-        payg[(m, service, source)] += usd
-        cud["cud1"][(m, service, source)] += usd if cud1 is None else cud1
-        cud["cud3"][(m, service, source)] += usd if cud3 is None else cud3
+        k = (m, service, source, ctx["rid"])
+        payg[k] += usd
+        cud["cud1"][k] += usd if cud1 is None else cud1
+        cud["cud3"][k] += usd if cud3 is None else cud3
 
     df = pricing["dataflow"]
     ds = pricing["datastream"]
@@ -140,12 +150,13 @@ def estimate(scenario: dict) -> dict:
     bq = pricing["bigquery"]
 
     datastream_cdc_gib = defaultdict(float)   # month -> GiB, priced in aggregate (billing-account tiers)
-    datastream_backfill_gib = 0.0
     write_api_gib = defaultdict(float)
     streaming_insert_gib = defaultdict(float)
     ingested_net_gib = defaultdict(float)     # month -> GiB that grows BQ storage
     ingested_gib = defaultdict(float)
-    initial_total_gib = 0.0
+    initial_by_month = defaultdict(float)    # month -> GiB loaded once (historical data)
+    backfill_by_month = defaultdict(float)   # month -> Datastream backfill GiB
+    src_start = {}
     landing_gib = defaultdict(float)
     per_source_meta = []
 
@@ -162,15 +173,26 @@ def estimate(scenario: dict) -> dict:
         net_ratio = ASSUMPTIONS["net_new_ratio"]["cdc" if cat in CDC_CATEGORIES else "append"]
         engines = rec.engine.split("+")
         on_prem = src.get("location", "on_prem") == "on_prem"
-        initial_total_gib += initial
-        per_source_meta.append({"id": sid, "name": name})
+        start = max(1, min(36, int(src.get("start_month") or 1)))
+        src_start[sid] = start
+        initial_by_month[start] += initial
+        src_rid = rid_of(src.get("region") or region_id)
+        ctx["rid"] = src_rid
+        per_source_meta.append({"id": sid, "name": name, "region": src_rid})
+        xfer_rate = inter_region_rate(regions, src_rid, region_id, pricing)
 
         for m in range(1, 37):
+            if m < start:
+                continue
             g = growth_factor(m, growth)
             daily = 0.0 if one_time else daily0 * g
             monthly = daily * 30
             ingested_gib[m] += monthly
             ingested_net_gib[m] += monthly * net_ratio
+            if xfer_rate:
+                add(m, "Cross-region data transfer", sid, monthly * xfer_rate)
+                if m == start and initial:
+                    add(m, "Cross-region data transfer", sid, initial * xfer_rate)
 
             for eng in engines:
                 if eng == "datastream":
@@ -233,55 +255,63 @@ def estimate(scenario: dict) -> dict:
                     add(m, "Cloud Run jobs", sid, secs * (cr["vcpu_second"] + 2 * cr["gib_second"]) * up("cloud_run"))
                     write_api_gib[m] += monthly
 
-            # ---------------- one-time initial load (month 1)
-            if m == 1 and initial > 0:
+            # ---------------- one-time initial load (go-live month)
+            if m == start and initial > 0:
                 primary_engine = engines[0]
                 if primary_engine == "datastream":
-                    datastream_backfill_gib += initial
+                    backfill_by_month[m] += initial
                 elif primary_engine in ("dataflow_batch", "dataflow_stream"):
                     vh = batch_vcpu_hours(initial, max(1, math.ceil(initial / 2000)), "light")
-                    add(1, "One-time initial load", sid, (vh * df["batch_vcpu_hr"] + vh * ASSUMPTIONS["memory_gib_per_vcpu"] * df["memory_gib_hr"]) * up("dataflow"))
+                    add(m, "One-time initial load", sid, (vh * df["batch_vcpu_hr"] + vh * ASSUMPTIONS["memory_gib_per_vcpu"] * df["memory_gib_hr"]) * up("dataflow"))
                 elif primary_engine == "datafusion":
                     vh = max(ASSUMPTIONS["datafusion_min_vcpu_hr_per_run"], initial / ASSUMPTIONS["datafusion_gb_per_vcpu_hr"])
-                    add(1, "One-time initial load", sid, vh * pricing["datafusion"]["pipeline_vcpu_hr_all_in"] * up("datafusion"))
+                    add(m, "One-time initial load", sid, vh * pricing["datafusion"]["pipeline_vcpu_hr_all_in"] * up("datafusion"))
                 elif primary_engine == "dataproc":
                     dcu = max(ASSUMPTIONS["spark_min_dcu_hr_per_run"], initial / ASSUMPTIONS["spark_gb_per_dcu_hr"]["light"])
-                    add(1, "One-time initial load", sid, dcu * pricing["dataproc_serverless"]["dcu_hr"] * up("dataproc_serverless"))
+                    add(m, "One-time initial load", sid, dcu * pricing["dataproc_serverless"]["dcu_hr"] * up("dataproc_serverless"))
                 elif primary_engine == "files_transfer":
                     if on_prem or cat == "mainframe":
-                        add(1, "One-time initial load", sid, initial * pricing["storage_transfer"]["agent_gib"])
-                    add(1, "One-time initial load", sid, initial * pricing["gcs"]["standard_gib_month"] * up("gcs"))
+                        add(m, "One-time initial load", sid, initial * pricing["storage_transfer"]["agent_gib"])
+                    add(m, "One-time initial load", sid, initial * pricing["gcs"]["standard_gib_month"] * up("gcs"))
                 elif primary_engine == "dts_migration" and src["type"] == "teradata":
                     hrs = initial / ASSUMPTIONS["teradata_agent_gb_per_hr"]
-                    add(1, "One-time initial load", sid, hrs * pricing["compute_engine"]["vm_standard_4vcpu_hr"] * up("compute_engine"))
+                    add(m, "One-time initial load", sid, hrs * pricing["compute_engine"]["vm_standard_4vcpu_hr"] * up("compute_engine"))
                 elif primary_engine == "sap_connector":
-                    write_api_gib[1] += initial
+                    write_api_gib[m] += initial
 
     # ------------------------------------------------------------ Datastream (aggregate tiers)
+    src_region = {m_["id"]: m_["region"] for m_ in per_source_meta}
     for m in range(1, 37):
         gib = datastream_cdc_gib[m]
         if gib:
             total = tiered(gib, ds["cdc_tiers_gib"])
             # allocate to sources proportionally for the per-source view
-            share_by_src = _datastream_shares(sources, recs, m, growth)
+            share_by_src = _datastream_shares(sources, recs, m, src_start)
             for sid, share in share_by_src.items():
+                ctx["rid"] = src_region.get(sid, region_id)
                 add(m, "Datastream (CDC)", sid, total * share)
-    if datastream_backfill_gib:
-        billable = max(0.0, datastream_backfill_gib - ds["backfill_free_gib"])
-        add(1, "One-time initial load", "_datastream_backfill", billable * ds["backfill_gib"])
+    ctx["rid"] = region_id
+    free_backfill = ds["backfill_free_gib"]
+    for m in range(1, 37):
+        if backfill_by_month[m]:
+            billable = max(0.0, backfill_by_month[m] - free_backfill)
+            free_backfill = max(0.0, free_backfill - backfill_by_month[m])
+            add(m, "One-time initial load", "_datastream_backfill", billable * ds["backfill_gib"])
 
-    # ------------------------------------------------------------ BigQuery
+    # ------------------------------------------------------------ BigQuery (home region)
+    plat_start = min(src_start.values()) if src_start else 1
+    ctx["rid"] = region_id
     bq_up = up("bigquery")
-    stored = initial_total_gib
-    history = []  # monthly net ingest for active/long-term split
-    stored_by_month = {}
+    stored = 0.0
+    history = []  # monthly new data (initial loads + net ingest) for active/long-term split
+    new_by_month = defaultdict(float)
     analytics_tib_input = scenario.get("analytics_tib_month")
     edition_slots = float(scenario.get("bq_slots") or 100)
     for m in range(1, 37):
-        history.append(ingested_net_gib[m])
-        stored += ingested_net_gib[m]
-        stored_by_month[m] = stored
-        recent = sum(history[-3:]) + (initial_total_gib if m <= 3 else 0)
+        new_by_month[m] = initial_by_month[m] + ingested_net_gib[m]
+        history.append(new_by_month[m])
+        stored += new_by_month[m]
+        recent = sum(history[-3:])
         older = max(0.0, stored - recent)
         lt = older * ASSUMPTIONS["longterm_share_after_90d"]
         active = (stored - lt)
@@ -305,23 +335,24 @@ def estimate(scenario: dict) -> dict:
         scan_tib = elt_tib + analytics_tib
         if bq_model == "ondemand":
             add(m, "BigQuery compute", "_platform", max(0.0, scan_tib - bq["ondemand_free_tib"]) * bq["ondemand_tib"] * bq_up)
-        else:
+        elif m >= plat_start:
             ed = bq["editions"][bq_model]
             slot_hours = edition_slots * HOURS
             add(m, "BigQuery compute", "_platform", slot_hours * ed["payg"] * bq_up,
                 cud1=slot_hours * ed["cud1"] * bq_up, cud3=slot_hours * ed["cud3"] * bq_up)
 
-    # ------------------------------------------------------------ Shared platform components
+    # ------------------------------------------------------------ Shared platform components (processing region)
+    ctx["rid"] = processing_region
     orch = platform["orchestration"]["tool"]
     if orch == "composer":
         cp = pricing["composer"]
         size = "small_env_avg_dcu" if len(sources) <= 10 else "medium_env_avg_dcu"
         dcu_h = cp[size] * HOURS
-        for m in range(1, 37):
+        for m in range(plat_start, 37):
             add(m, "Composer (Airflow)", "_platform", dcu_h * cp["dcu_hr"] * up("composer"),
                 cud1=dcu_h * cp["cud1_dcu_hr"] * up("composer"), cud3=dcu_h * cp["cud3_dcu_hr"] * up("composer"))
     elif orch == "workflows":
-        for m in range(1, 37):
+        for m in range(plat_start, 37):
             add(m, "Workflows + Scheduler", "_platform", len(sources) * pricing["workflows"]["scheduler_job_month"])
 
     if platform["datafusion_edition"]:
@@ -330,16 +361,16 @@ def estimate(scenario: dict) -> dict:
             inst = HOURS * dfp["enterprise_hr"]
         else:
             inst = max(0, HOURS - dfp["basic_free_hours"]) * dfp["basic_hr"]
-        for m in range(1, 37):
+        for m in range(plat_start, 37):
             add(m, f"Data Fusion instance ({platform['datafusion_edition'].title()})", "_platform", inst * up("datafusion"))
 
     if platform["connectivity"] == "ha_vpn":
         n = pricing["network"]
-        for m in range(1, 37):
+        for m in range(plat_start, 37):
             add(m, "Network (HA VPN)", "_platform", n["ha_vpn_tunnel_hr"] * n["ha_vpn_tunnels"] * HOURS)
     elif platform["connectivity"] == "interconnect":
         ic = pricing["interconnect"]
-        for m in range(1, 37):
+        for m in range(plat_start, 37):
             add(m, "Network (Interconnect)", "_platform",
                 ic["dedicated_10g_port_month"] + ic["vlan_attachment_hr"] * ic["vlan_attachments"] * HOURS)
 
@@ -348,144 +379,84 @@ def estimate(scenario: dict) -> dict:
             add(m, "Cloud Storage (landing zone)", "_platform", landing_gib[m] * pricing["gcs"]["standard_gib_month"] * up("gcs"))
 
     # ------------------------------------------------------------ Analytics, AI, governance, security
-    layer = _platform_layer(scenario, pricing, up, sources, stored_by_month, ingested_net_gib, bq_model, add)
-    platform["layer"] = layer
+    comps, sec = normalized(scenario)
+
+    def set_region(r):
+        ctx["rid"] = rid_of(r or region_id)
+
+    tables = cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, add,
+                             ASSUMPTIONS["curated_layers_overhead"], set_region, region_id)
+    ctx["rid"] = region_id
+    platform["layer"] = {
+        "components": [component_view(c) for c in comps],
+        "security": sec,
+        "tables_estimated": tables,
+        "story": platform_story(comps, sec, sources),
+    }
+    platform["processing_region"] = processing_region
 
     # ------------------------------------------------------------ Contingency
     cont = float(scenario.get("contingency_pct", ASSUMPTIONS["contingency"] * 100)) / 100.0
     for view in (payg, cud["cud1"], cud["cud3"]):
         monthly_tot = defaultdict(float)
-        for (m, svc, sid), v in list(view.items()):
+        for (m, svc, sid, rid), v in list(view.items()):
             monthly_tot[m] += v
         for m, v in monthly_tot.items():
-            view[(m, "Contingency & operations", "_platform")] += v * cont
+            view[(m, "Contingency & operations", "_platform", region_id)] += v * cont
 
-    return _summarise(payg, cud, recs, platform, sources, per_source_meta, region, scenario, pricing)
-
-
-DEFAULT_LAYER = {
-    "bi": {"enabled": True, "tool": "looker", "users": 50, "looker_annual_usd": 0},
-    "gemini_enterprise": {"enabled": True, "edition": "standard", "users": 100},
-    "agents": {"enabled": True, "model": "flash", "requests_month": 50000, "input_tokens": 4000,
-               "output_tokens": 800, "agent_seconds": 6, "bq_gb_per_request": 0.2},
-    "gpu": {"enabled": False, "gpu": "l4", "replicas": 1, "hours_per_day": 24},
-    "governance": {"enabled": True, "dq_share_pct": 20, "dq_scans_per_month": 30},
-    "security": {"enabled": True, "sdp_discovery": True, "cmek": True, "vpc_sc": True},
-}
-
-
-def merged_layer(scenario):
-    raw = scenario.get("platform") or {}
-    out = {}
-    for k, v in DEFAULT_LAYER.items():
-        out[k] = {**v, **{kk: vv for kk, vv in (raw.get(k) or {}).items() if vv is not None}}
+    out = _summarise(payg, cud, recs, platform, sources, per_source_meta, region, scenario, pricing)
+    if keep_items:
+        out["_items"] = payg
     return out
 
 
-def _platform_layer(scenario, pricing, up, sources, stored_by_month, ingested_net_gib, bq_model, add):
-    """Consumption, AI, governance and security services on top of BigQuery."""
-    L = merged_layer(scenario)
-    tables = sum(int(s.get("tables") or 50) for s in sources) * (1 + ASSUMPTIONS["curated_layers_overhead"] * 3)
-    info = {"settings": L, "tables_estimated": int(tables), "story": platform_story(L, sources)}
-
-    for m in range(1, 37):
-        # ---- BI
-        bi = L["bi"]
-        if bi["enabled"]:
-            if bi["tool"] == "looker":
-                add(m, "Looker licence (customer quote)", "_ai", float(bi.get("looker_annual_usd") or 0) / 12)
-            elif bi["tool"] == "looker_studio_pro":
-                add(m, "Looker Studio Pro", "_ai", float(bi["users"]) * pricing["looker"]["studio_pro_user_month"])
-
-        # ---- Gemini Enterprise
-        ge = L["gemini_enterprise"]
-        if ge["enabled"]:
-            price = pricing["gemini_enterprise"][f"{ge['edition']}_user_month"]
-            add(m, "Gemini Enterprise", "_ai", float(ge["users"]) * price)
-
-        # ---- Agents on Agent Platform (Agent Engine runtime + Gemini tokens + BigQuery queries)
-        ag = L["agents"]
-        if ag["enabled"]:
-            req = float(ag["requests_month"])
-            ae = pricing["agent_engine"]
-            vcpu_h = max(0.0, req * float(ag["agent_seconds"]) / 3600 - ae["free_vcpu_hr"])
-            gib_h = max(0.0, req * float(ag["agent_seconds"]) * 2 / 3600 - ae["free_gib_hr"])
-            u = up("agent_engine")
-            add(m, "Agent Engine runtime", "_ai", (vcpu_h * ae["vcpu_hr"] + gib_h * ae["gib_hr"]) * u,
-                cud1=(vcpu_h * ae["cud1_vcpu_hr"] + gib_h * ae["cud1_gib_hr"]) * u,
-                cud3=(vcpu_h * ae["cud3_vcpu_hr"] + gib_h * ae["cud3_gib_hr"]) * u)
-            gm = pricing["gemini_models"][ag["model"]]
-            add(m, f"{gm['name']} tokens (agents)", "_ai",
-                req * (float(ag["input_tokens"]) * gm["input_mtok"] + float(ag["output_tokens"]) * gm["output_mtok"]) / 1e6)
-            if bq_model == "ondemand":
-                tib = req * float(ag["bq_gb_per_request"]) / GIB_PER_TIB
-                add(m, "BigQuery queries from agents", "_ai", tib * pricing["bigquery"]["ondemand_tib"] * up("bigquery"))
-
-        # ---- GPU model serving
-        gp = L["gpu"]
-        if gp["enabled"]:
-            node = pricing["vertex_prediction"]["nodes"][gp["gpu"]]
-            hrs = float(gp["hours_per_day"]) * 30.4
-            add(m, f"Vertex AI endpoint ({node['name']})", "_ai", float(gp["replicas"]) * hrs * node["hr"] * up("vertex_prediction"))
-
-        # ---- Governance: Knowledge Catalog (Dataplex)
-        gv = L["governance"]
-        if gv["enabled"]:
-            dp = pricing["dataplex"]
-            dq_tables = tables * float(gv["dq_share_pct"]) / 100
-            dcu = dq_tables * float(gv["dq_scans_per_month"]) * dp["dq_dcu_hr_per_table_scan"] + tables * dp["lineage_dcu_hr_per_table_month"]
-            u = up("dataplex")
-            meta_gib = max(1.0, tables / 1000)
-            add(m, "Knowledge Catalog (Dataplex) - quality, profiling, lineage", "_governance",
-                (dcu * dp["premium_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u,
-                cud1=(dcu * dp["premium_cud1_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u,
-                cud3=(dcu * dp["premium_cud3_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u)
-
-        # ---- Security
-        sc = L["security"]
-        if sc["enabled"]:
-            sdp = pricing["sensitive_data_protection"]
-            if sc.get("sdp_discovery"):
-                gb = stored_by_month[m] if m == 1 else ingested_net_gib[m]
-                add(m, "Sensitive Data Protection (discovery)", "_governance", gb * sdp["discovery_gb"])
-            if sc.get("cmek"):
-                k = pricing["kms"]
-                add(m, "Cloud KMS (CMEK)", "_governance", 20 * k["key_version_month"] + 300 * k["ops_per_10k"])
-    return info
+def inter_region_rate(regions, a, b, pricing):
+    """Per-GiB price for moving data from region a to region b (0 when co-located)."""
+    if a == b:
+        return 0.0
+    ra, rb = regions[a], regions[b]
+    if ra.get("multi") or rb.get("multi"):
+        if ra["geo"] == rb["geo"]:
+            return 0.0  # multi-region contains its member regions for this estimate
+    n = pricing["network"]
+    return n["inter_region_same_geo_gib"] if ra["geo"] == rb["geo"] else n["inter_region_cross_geo_gib"]
 
 
-GROUP_ORDER = ["Data ingestion & CDC", "BigQuery", "Analytics & AI", "Governance & security", "Platform & network", "Contingency"]
+GROUP_ORDER = ["Data ingestion & CDC", "BigQuery", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"]
 
 
 def service_group(name):
     n = name.lower()
     if n.startswith("bigquery") and "agents" not in n:
         return "BigQuery"
+    if any(k in n for k in ("apigee", "alloydb", "cloud sql", "spanner", "bigtable", "firestore", "memorystore")):
+        return "APIs & databases"
     if any(k in n for k in ("looker", "gemini", "agent", "vertex ai")):
         return "Analytics & AI"
     if any(k in n for k in ("knowledge catalog", "sensitive data", "kms")):
         return "Governance & security"
-    if any(k in n for k in ("composer", "workflows", "network", "landing", "data fusion instance")):
+    if any(k in n for k in ("composer", "workflows", "network", "landing", "data fusion instance", "cross-region")):
         return "Platform & network"
     if "contingency" in n:
         return "Contingency"
     return "Data ingestion & CDC"
 
 
-def _datastream_shares(sources, recs, m, growth):
+def _datastream_shares(sources, recs, m, src_start):
     vols = {}
     for s, r in zip(sources, recs):
-        if "datastream" in r.engine.split("+") and s.get("frequency") != "one_time":
-            vols[s.get("id") or s["type"]] = float(s.get("daily_change_gb") or 0)
+        sid = s.get("id") or s["type"]
+        if "datastream" in r.engine.split("+") and s.get("frequency") != "one_time" and src_start.get(sid, 1) <= m:
+            vols[sid] = float(s.get("daily_change_gb") or 0)
     total = sum(vols.values()) or 1.0
     return {k: v / total for k, v in vols.items()}
 
 
 def _sum(view, months, key=None):
     out = defaultdict(float)
-    for (m, svc, sid), v in view.items():
+    for (m, svc, sid, rid), v in view.items():
         if m in months:
-            out[svc if key == "service" else sid if key == "source" else "total"] += v
+            out[svc if key == "service" else sid if key == "source" else rid if key == "region" else "total"] += v
     return dict(out)
 
 
@@ -496,14 +467,14 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
     yr3 = set(all3)
 
     def tot(view, months):
-        return round(sum(v for (m, _, _), v in view.items() if m in months), 2)
+        return round(sum(v for (m, *_), v in view.items() if m in months), 2)
 
     monthly = []
     for m in all3:
         monthly.append({
             "month": m,
-            "payg": round(sum(v for (mm, _, _), v in payg.items() if mm == m), 2),
-            "cud3": round(sum(v for (mm, _, _), v in cud["cud3"].items() if mm == m), 2),
+            "payg": round(sum(v for (mm, *_), v in payg.items() if mm == m), 2),
+            "cud3": round(sum(v for (mm, *_), v in cud["cud3"].items() if mm == m), 2),
         })
 
     by_service_y1 = _sum(payg, yr1, "service")
@@ -530,11 +501,19 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
     name_of = {m["id"]: m["name"] for m in meta}
     name_of["_platform"] = "Shared platform (BigQuery, orchestration, network, contingency)"
     name_of["_datastream_backfill"] = "Datastream backfill (all CDC sources)"
-    name_of["_ai"] = "Analytics & AI layer (BI, Gemini Enterprise, agents, GPU serving)"
+    name_of["_ai"] = "Analytics, AI & APIs (BI, Gemini Enterprise, agents, GPU serving, Apigee)"
     name_of["_governance"] = "Governance & security (Knowledge Catalog, SDP, KMS)"
+    name_of["_db"] = "Operational databases"
     source_rows = [{"id": k, "name": name_of.get(k, k), "year1": round(by_src_y1.get(k, 0), 2),
                     "three_year": round(by_src_3y.get(k, 0), 2)}
                    for k in sorted(by_src_3y, key=lambda k: (k.startswith("_"), -by_src_3y[k]))]
+
+    reg_y1 = _sum(payg, yr1, "region")
+    reg_3y = _sum(payg, yr3, "region")
+    region_names = {r["id"]: r["name"] for r in load_regions()}
+    region_rows = [{"region": k, "name": region_names.get(k, k), "year1": round(reg_y1.get(k, 0), 2),
+                    "three_year": round(reg_3y.get(k, 0), 2)}
+                   for k in sorted(reg_3y, key=lambda k: -reg_3y[k])]
 
     totals = {
         "year1_payg": tot(payg, yr1),
@@ -558,6 +537,7 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
         "by_service": service_rows,
         "by_group": group_rows,
         "by_source": source_rows,
+        "by_region": region_rows,
         "monthly": monthly,
         "recommendations": [r.to_dict() for r in recs],
         "platform": platform,
@@ -566,5 +546,5 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
         "disclaimer": ("Ballpark estimate for discovery discussions only. Based on public list prices "
                        f"(reviewed {pricing['_meta']['last_reviewed']}) with an approximate regional uplift of "
                        f"x{region['uplift']:.2f} for {region['name']}. Excludes taxes, support, egress from other clouds, "
-                       "partner licences and negotiated discounts. Validate with the Google Cloud Pricing Calculator."),
+                       "partner licences (Power BI, Tableau, SageMaker and other non-Google tools are not costed) and negotiated discounts. Validate with the Google Cloud Pricing Calculator."),
     }

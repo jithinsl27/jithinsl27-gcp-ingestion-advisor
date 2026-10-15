@@ -75,15 +75,36 @@ This is the rule set implemented in `app/recommender.py`. Inputs that drive a de
 | Connectivity | Any private-network source → **HA VPN**; ≥ 1 TB/day from private networks → **Cloud Interconnect** |
 | Data Fusion edition | Basic; Enterprise when SAP is in scope or environment is Production (HA) |
 
-## Agentic data cloud layer
+## Consumption-layer components (drag and drop)
 
-| Capability | Services shown and costed |
-|---|---|
-| BI & semantic layer | Looker (quote input), Looker Studio Pro (per user), Looker Studio |
-| Data agents | Agent Platform (ADK, Agent Engine runtime), Gemini model tokens, BigQuery queries from agents, Conversational Analytics |
-| Workforce AI | Gemini Enterprise (Business / Standard / Plus per user) |
-| Model serving | Vertex AI online endpoints on L4, A100, H100 or CPU |
-| Governance | Knowledge Catalog (Dataplex): profiling, quality scans, lineage, metadata |
-| Security | Sensitive Data Protection discovery, Cloud KMS CMEK, VPC Service Controls, policy tags & masking, Security Command Center |
+Google Cloud components are costed; partner components are drawn with their integration and never costed. Full step-by-step integration content lives in `app/components.py` and appears on the Integrations tab.
+
+| Component | Vendor | How it connects to BigQuery |
+|---|---|---|
+| Looker | Google | Native connection; LookML / BigQuery measures semantic layer; PDTs in BigQuery |
+| Looker Studio (Pro) | Google | Native connector; BI Engine acceleration |
+| Power BI | Partner | Power BI Google BigQuery connector (ADBC, Storage Read API); Import or DirectQuery |
+| Tableau | Partner | Google BigQuery (JDBC) connector; Live or Extract |
+| MicroStrategy (Strategy) | Partner | Native BigQuery gateway; SQL push-down; Storage Read API for cubes |
+| Qlik | Partner | Qlik Google BigQuery connector; load or Direct Query |
+| ThoughtSpot | Partner | Live query connection |
+| Agent Platform data agents | Google | ADK + BigQuery toolset / MCP Toolbox, Agent Engine, Conversational Analytics API |
+| Gemini Enterprise | Google | BigQuery data store (federated query or ingestion) + agents from Agent Platform |
+| Vertex AI GPU endpoint | Google | BigQuery ML remote model → Vertex AI endpoint (L4 / A100 / H100) |
+| BigQuery ML & AI functions | Google | Built in (cost appears under BigQuery) |
+| DataRobot | Partner | BigQuery data connection; batch predictions written back |
+| Dataiku | Partner | BigQuery connection with SQL push-down |
+| AWS SageMaker | Partner | Workload identity federation + Storage Read API, or BigQuery Omni / exports |
+| Azure ML / AI Foundry | Partner | Data Factory / Fabric BigQuery connector, or federated Python client |
+| Databricks | Partner | Spark BigQuery connector / Lakehouse Federation |
+| Apigee | Google | API proxies for data products and agents; AI gateway (token quotas, semantic caching, Model Armor); API hub as tool registry |
+| AlloyDB | Google | Reverse ETL target, AlloyDB AI vector search, federated queries from BigQuery |
+| Cloud SQL | Google | Federated queries; Datastream CDC into BigQuery |
+| Spanner | Google | Data Boost federated queries; change streams; reverse ETL |
+| Bigtable | Google | External tables / Data Boost; reverse ETL for features and time series |
+| Firestore | Google | Change streams / export to BigQuery |
+| Memorystore | Google | Cache in front of APIs and agents |
+| Knowledge Catalog (Dataplex) | Google | Automatic metadata, lineage, profiling and quality scans |
+| Collibra, Alation, Atlan, Informatica CDGC | Partner | BigQuery scanners / connectors; Dataplex lineage and tag sync where supported |
 
 Change the rules in `app/recommender.py` (and mirror them in `demo/engine.js`; the parity test will tell you if they diverge).

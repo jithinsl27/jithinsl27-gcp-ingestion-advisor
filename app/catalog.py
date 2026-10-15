@@ -335,7 +335,15 @@ TOOLS = {
 
 
 def catalog_payload(regions):
+    from .components import CATEGORIES, COMPONENTS, DEFAULT_COMPONENTS, DEFAULT_SECURITY
+    from .workload import DEFAULT_WORKLOAD, FREQ_RUNS
     return {
+        "components": COMPONENTS,
+        "component_categories": CATEGORIES,
+        "default_components": DEFAULT_COMPONENTS,
+        "default_security": DEFAULT_SECURITY,
+        "default_workload": DEFAULT_WORKLOAD,
+        "query_frequencies": [{"id": k, "name": k.title()} for k in FREQ_RUNS],
         "source_types": SOURCE_TYPES,
         "frequencies": FREQUENCIES,
         "data_types": DATA_TYPES,

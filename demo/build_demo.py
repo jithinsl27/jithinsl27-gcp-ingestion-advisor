@@ -1,4 +1,4 @@
-"""Build the static, serverless demo of GCP Ingestion Advisor.
+"""Build the static, serverless demo of Data Cloud Compass.
 
 Outputs (in demo/dist/):
   index.html     standalone page (GitHub Pages, any static host, or open locally)
@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.catalog import catalog_payload  # noqa: E402
-from app.estimator import ASSUMPTIONS, CDC_CATEGORIES, DEFAULT_LAYER, load_pricing, load_regions  # noqa: E402
+from app.estimator import ASSUMPTIONS, CDC_CATEGORIES, load_pricing, load_regions  # noqa: E402
+from app.workload import DEFAULT_WORKLOAD, WORKLOAD_ASSUMPTIONS  # noqa: E402
 
 STATIC = ROOT / "app" / "static"
 DIST = Path(__file__).parent / "dist"
@@ -39,7 +40,8 @@ def data_payload() -> dict:
         "regions": regions,
         "assumptions": ASSUMPTIONS,
         "cdc_categories": sorted(CDC_CATEGORIES),
-        "default_layer": DEFAULT_LAYER,
+        "default_workload": DEFAULT_WORKLOAD,
+        "workload_assumptions": WORKLOAD_ASSUMPTIONS,
         "samples": samples,
     }
 
@@ -57,7 +59,7 @@ def build():
     data_js = "window.ADVISOR_DATA = " + json.dumps(data_payload(), separators=(",", ":")) + ";"
 
     head_extra = '<meta name="claude:viewport-fit-sides" content="cover">'
-    banner = ('<div class="demo-banner">Interactive demo running fully in your browser. '
+    banner = ('<div class="demo-banner">Data Cloud Compass demo - runs entirely in your browser. '
               'Deploy your own copy to Google Cloud in a few clicks - see the project README.</div>')
 
     def page(no_download: bool) -> str:
