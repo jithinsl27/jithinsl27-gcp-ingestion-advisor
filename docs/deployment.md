@@ -58,7 +58,7 @@ Creates: required APIs, Artifact Registry repository, a dedicated runtime servic
 ## 5. GitHub Actions
 
 - `ci.yml` runs tests and a Docker build on every push and pull request.
-- `pages.yml` publishes the static demo to GitHub Pages (enable *Settings → Pages → Source: GitHub Actions*).
+- `pages.yml` rebuilds the static demo on every push to `main` and publishes it to the `gh-pages` branch (GitHub Pages: *Settings → Pages → Deploy from a branch → gh-pages / root*).
 - `deploy.yml` deploys to Cloud Run on tags `v*` or manually. Configure Workload Identity Federation once:
 
 ```bash

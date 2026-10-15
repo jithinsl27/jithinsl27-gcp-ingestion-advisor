@@ -52,7 +52,9 @@ Details, private access with IAP and troubleshooting: [docs/deployment.md](docs/
 
 ### Static demo (no Google Cloud project needed)
 
-`python demo/build_demo.py` produces `demo/dist/index.html`: the whole tool in one file, running in the browser with a JavaScript port of the engine. The `pages.yml` workflow publishes it to GitHub Pages (enable **Settings → Pages → Source: GitHub Actions**) at `https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/`. A parity test keeps the JavaScript engine identical to the Python one.
+**Live demo: https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/**
+
+`python demo/build_demo.py` produces `demo/dist/index.html`: the whole tool in one file, running in the browser with a JavaScript port of the engine. The `pages.yml` workflow rebuilds it on every push to `main` and publishes it to the `gh-pages` branch, which GitHub Pages serves (Settings → Pages → Deploy from a branch → `gh-pages` / root). A parity test keeps the JavaScript engine identical to the Python one.
 
 ---
 
