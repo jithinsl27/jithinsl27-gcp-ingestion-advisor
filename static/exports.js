@@ -221,7 +221,7 @@
       tc.requestAccessToken();
     });
   }
-  const GOOGLE_MIME = { sheets: "application/vnd.google-apps.spreadsheet", slides: "application/vnd.google-apps.presentation" };
+  const GOOGLE_MIME = { sheets: "application/vnd.google-apps.spreadsheet", slides: "application/vnd.google-apps.presentation", docs: "application/vnd.google-apps.document" };
   async function driveUpload(blob, name, kind, clientId) {
     const t = await accessToken(clientId);
     const form = new FormData();

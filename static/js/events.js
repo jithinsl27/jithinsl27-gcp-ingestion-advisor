@@ -13,6 +13,7 @@ import { renderAll, renderSources, renderSummary } from "./render.js";
 import { renderRoadmap } from "./roadmap.js";
 import { markDirty } from "./account.js";
 import { importScenario, inUnit, save, syncForm, unitGb } from "./scenario.js";
+import { bindModules, nav, renderEnvBody, renderHead, renderModules, renderPlans, showModule } from "./modules.js";
 import { applyTypeDefaults, openDialog, saveSource, updateHint } from "./sources.js";
 import { onWorkloadInput, renderWorkloadForm, renderWorkloadResults } from "./workload.js";
 
@@ -37,7 +38,7 @@ export function bindEvents() {
       S.scenario[k] = k === "analytics_tib_month" ? v : (v ?? 0);
       changed();
     }));
-  $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  bindModules(showTab);
   // lakehouse layers
   $("#lk_raw_zone").addEventListener("change", (e) => { S.scenario.lakehouse.raw_zone = e.target.checked; changed(); });
   ["raw_scope", "raw_storage_class"].forEach((k) => $("#lk_" + k).addEventListener("change", (e) => { S.scenario.lakehouse[k] = e.target.value; changed(); }));
@@ -75,7 +76,7 @@ export function bindEvents() {
   const diagram = $("#diagram");
   diagram.addEventListener("click", (e) => {
     if (S.suppressClick) return;
-    if (e.target.closest("[data-lake]")) { const lp = $("#lakePanel"); lp.open = true; lp.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    if (e.target.closest("[data-lake]")) { showTab("settings"); setTimeout(() => $("#lakePanel").scrollIntoView({ behavior: "smooth", block: "center" }), 50); return; }
     const n = e.target.closest("[data-src]");
     if (n) return openDialog(n.dataset.src);
     const c = e.target.closest("[data-comp]");
@@ -200,7 +201,7 @@ export function bindEvents() {
   });
   $("#sourceForm").addEventListener("submit", (e) => { e.preventDefault(); saveSource(); });
   $("#f_type").addEventListener("change", applyTypeDefaults);
-  $("#f_type").addEventListener("change", () => ($("#f_iot_wrap").hidden = $("#f_type").value !== "iot"));
+  $("#f_like_type").addEventListener("change", applyTypeDefaults);
   ["f_frequency", "f_location", "f_transform", "f_type"].forEach((id) => $("#" + id).addEventListener("change", updateHint));
 
   $("#c_cancel").addEventListener("click", () => $("#compDialog").close());
@@ -260,6 +261,8 @@ export function bindEvents() {
   // inline environment sizing (consumption tab); slot inputs are handled in bigquery.js
   $("#costBody").addEventListener("change", onInlineSizing);
   $("#costBody").addEventListener("click", (e) => { if (e.target.closest("#envSizeEdit")) openEnvDialog(); });
+  $("#envBody").addEventListener("change", onInlineSizing);
+  $("#envBody").addEventListener("click", (e) => { if (e.target.closest("#envSizeEdit")) openEnvDialog(); });
 }
 
 export function menu(btnSel, popSel) {
@@ -276,9 +279,7 @@ export function menu(btnSel, popSel) {
 }
 
 export function showTab(id) {
-  $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
-  $$(".tabpanel").forEach((p) => (p.hidden = p.id !== "tab-" + id));
-  $("#summaryStrip").hidden = id === "workload";
+  showModule(id);
 }
 
 export function changed() {
@@ -328,6 +329,7 @@ export async function runWorkload() {
     if (my !== S.wlSeq) return;
     S.wlResult = r;
     renderWorkloadResults();
+    renderModules();
   } catch (e) {
     toast(`Workload sizing failed: ${e.message}`, 6000);
   }
@@ -340,6 +342,7 @@ export async function runPlan() {
     if (my !== S.planSeq) return;
     S.planResult = r;
     renderRoadmap();
+    renderModules();
   } catch (e) {
     toast(`Roadmap failed: ${e.message}`, 6000);
   }

@@ -10,6 +10,7 @@ import { priceSource, renderNotices } from "./notices.js";
 import { renderPlatform, renderRecs } from "./integrations.js";
 import { OPT, OV, hasEstimate, optShort, optionSwitch } from "./pricing.js";
 import { renderAssumptions, renderRoadmap } from "./roadmap.js";
+import { TARGET_SHORT, renderModules } from "./modules.js";
 
 // ------------------------------------------------------------------ rendering
 export function renderAll() {
@@ -26,6 +27,7 @@ export function renderAll() {
   renderCost();
   renderAssumptions();
   renderRoadmap();
+  renderModules();
 }
 
 export function flowClass(freq) { return freq === "one_time" ? "once" : STREAMING.has(freq) ? "stream" : "batch"; }
@@ -46,12 +48,15 @@ export function renderSources() {
     const r = recFor(s.id);
     const on = s.included !== false;
     const reg = s.region && s.region !== S.scenario.region ? ` · ${esc(s.region)}` : "";
+    const typeName = s.type === "custom" ? `${s.custom_name || "Custom source"} (custom)` : S.catalog.source_types.find((t) => t.id === s.type)?.name || s.type;
+    const tgt = r?.target || s.target || "data_platform";
     return `<li class="${on ? "" : "excluded"}"><label class="src-check" title="${on ? "Included" : "Excluded"} - untick to leave out of this phase">
         <input type="checkbox" data-include="${esc(s.id)}" ${on ? "checked" : ""} aria-label="Include ${esc(s.name)} in the estimate"></label>
       <button class="source-item" data-id="${esc(s.id)}" type="button">
       <i class="bar ${flowClass(s.frequency)}"></i>
-      <div><b>${esc(s.name)}</b><span>${esc(freqName(s.frequency))} · ${fmtGB(s.daily_change_gb)}/day${reg}${on ? "" : " · not in this phase"}</span></div>
-      <div class="tool">${r ? esc(tool(r.primary).name) : on ? "" : "Later phase"}</div>
+      <div><b>${esc(s.name)}</b><span>${esc(typeName)} · ${esc(freqName(s.frequency))} · ${fmtGB(s.initial_volume_gb)} + ${fmtGB(s.daily_change_gb)}/day${reg}${on ? "" : " · not in this phase"}</span></div>
+      <div class="src-target t-${esc(tgt)}">${esc(TARGET_SHORT[tgt] || tgt)}</div>
+      <div class="tool">${r ? esc(r.chain.map((t) => tool(t).name).join(" → ")) : on ? "" : "Later phase"}</div>
     </button></li>`;
   }).join("");
 }

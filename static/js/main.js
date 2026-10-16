@@ -10,6 +10,7 @@ import { bindAccount, initAccount, restoreCloudRef } from "./account.js";
 import { bindCompare, openCompare } from "./compare.js";
 import { bindDiscover } from "./discover.js";
 import { loadSamples, restore, syncForm, withDefaults } from "./scenario.js";
+import { showModule } from "./modules.js";
 
 // ------------------------------------------------------------------ boot
 export async function boot() {
@@ -45,6 +46,9 @@ export async function boot() {
   loadServerConfig();
   loadSamples();
   syncForm();
+  let tab = "overview";
+  try { tab = localStorage.getItem("data-cloud-compass:tab") || "overview"; } catch (_) { /* ignore */ }
+  showModule(tab);
   renderAll();
   scheduleEstimate(0);
   initAccount();
@@ -81,6 +85,7 @@ export function fillSelects() {
   S.catalog.source_types.forEach((s) => (groups[cats[s.category] || "Other"] = groups[cats[s.category] || "Other"] || []).push(s));
   $("#f_type").innerHTML = Object.entries(groups).map(([g, ss]) =>
     `<optgroup label="${esc(g)}">${ss.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
+  $("#f_like_type").innerHTML = S.catalog.source_types.filter((s) => s.id !== "custom").map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("");
   $("#f_data_type").innerHTML = opt(S.catalog.data_types);
   $("#f_location").innerHTML = opt(S.catalog.locations);
   $("#f_frequency").innerHTML = opt(S.catalog.frequencies);

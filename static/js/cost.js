@@ -8,7 +8,7 @@ import { OPT, OPTIONS, OPT_NOTE, OV, bomCost, compMeta, envOpt, hasEstimate, opt
 export function fx() { return (S.result || S.wlResult)?.fx?.[S.currency] || 1; }
 
 export const GROUP_COLORS = {
-  "Data ingestion & CDC": "#F9AB00", "BigQuery": "#1A73E8", "Analytics & AI": "#9334E6", "APIs & databases": "#E52592",
+  "Data ingestion & CDC": "#F9AB00", "BigQuery & storage": "#1A73E8", "Analytics & AI": "#9334E6", "APIs & databases": "#E52592",
   "Governance & security": "#12A4AF", "Platform & network": "#34A853", "Contingency": "#9AA0A6",
 };
 
