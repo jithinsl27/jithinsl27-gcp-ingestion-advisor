@@ -5,6 +5,7 @@
 #   ./deploy.sh --project PROJECT_ID [--region us-central1] [--service ingestion-advisor]
 #               [--oauth-client-id CLIENT_ID] [--allowed-domains example.com,partner.com]
 #               [--firestore-location LOCATION] [--cors-origins https://you.github.io] [--private]
+#               [--feedback-url https://forms.gle/...] [--admin-key KEY]
 #
 # What it sets up (idempotent - safe to re-run for every release):
 #   * APIs: Cloud Run, Cloud Build, Artifact Registry, Firestore, Vertex AI, Cloud Billing,
@@ -32,6 +33,8 @@ ALLOWED_DOMAINS="${ALLOWED_DOMAINS:-}"
 FS_LOCATION=""
 CORS_ORIGINS="${CORS_ORIGINS:-https://jithinsl27.github.io}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
+FEEDBACK_URL="${FEEDBACK_URL:-}"
+ADMIN_KEY="${ADMIN_KEY:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +47,8 @@ while [[ $# -gt 0 ]]; do
     --firestore-location) FS_LOCATION="$2"; shift 2 ;;
     --cors-origins) CORS_ORIGINS="$2"; shift 2 ;;
     --gemini-model) GEMINI_MODEL="$2"; shift 2 ;;
+    --feedback-url) FEEDBACK_URL="$2"; shift 2 ;;
+    --admin-key) ADMIN_KEY="$2"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -111,12 +116,28 @@ for role in roles/storage.objectViewer roles/artifactregistry.writer roles/loggi
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" --member="serviceAccount:${CB_SA}" --role="${role}" --condition=None --quiet >/dev/null 2>&1 || true
 done
 
+# Keep the feedback link and admin key from the previous deploy unless new ones are given
+existing_env() {
+  gcloud run services describe "${SERVICE}" --region "${REGION}" --format=json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    env = {e['name']: e.get('value', '') for e in d['spec']['template']['spec']['containers'][0].get('env', [])}
+    print(env.get('$1', ''))
+except Exception:
+    print('')" 2>/dev/null || true
+}
+[[ -z "${FEEDBACK_URL}" ]] && FEEDBACK_URL="$(existing_env FEEDBACK_URL)"
+[[ -z "${ADMIN_KEY}" ]] && ADMIN_KEY="$(existing_env ADMIN_KEY)"
+[[ -z "${ADMIN_KEY}" ]] && ADMIN_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(12))')"
+
 AUTH_FLAG="--no-allow-unauthenticated"
 ${PUBLIC} && AUTH_FLAG="--allow-unauthenticated"
 VERSION="$(git rev-parse --short HEAD 2>/dev/null || echo 2.0.0)"
 # ^@^ = use @ between variables, so values may contain commas
 ENV_VARS="^@^APP_VERSION=${VERSION}@STORE=firestore@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GEMINI_MODEL=${GEMINI_MODEL}@GEMINI_LOCATION=global@LIVE_PRICING=auto"
 ENV_VARS="${ENV_VARS}@GOOGLE_OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}@ALLOWED_DOMAINS=${ALLOWED_DOMAINS}@CORS_ORIGINS=${CORS_ORIGINS}"
+ENV_VARS="${ENV_VARS}@FEEDBACK_URL=${FEEDBACK_URL}@ADMIN_KEY=${ADMIN_KEY}"
 
 echo "==> Building and deploying (about 3 minutes the first time)..."
 gcloud run deploy "${SERVICE}" \
@@ -135,6 +156,11 @@ URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='
 echo ""
 echo "Deployed: ${URL}"
 echo "Live prices load in the background after the first request: ${URL}/api/pricing/status"
+echo ""
+echo "Share this link with business users (no console access needed): ${URL}"
+echo "Usage admin key (open "Usage (admin)" in the app): ${ADMIN_KEY}"
+echo "Request logs: Cloud Logging, filter  jsonPayload.kind=\"compass_request\""
+[[ -z "${FEEDBACK_URL}" ]] && echo "Feedback button: re-run with --feedback-url https://forms.gle/... to show it"
 if [[ -z "${OAUTH_CLIENT_ID}" ]]; then
   echo ""
   echo "Sign-in is off (saving, sharing and the AI assist need it). To turn it on:"

@@ -3,6 +3,7 @@
 
 def test_demo_calls_the_api_cross_origin(browser, demo_url):
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    ctx.add_init_script("try { localStorage.setItem('data-cloud-compass:identity', JSON.stringify({name: 'Demo', email: 'demo@example.com'})); } catch (e) {}")
     pg = ctx.new_page()
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))

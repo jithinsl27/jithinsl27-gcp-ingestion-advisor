@@ -56,6 +56,7 @@ def browser():
 @pytest.fixture()
 def page(browser, base_url):
     ctx = browser.new_context(viewport={"width": 1440, "height": 950})
+    ctx.add_init_script("try { localStorage.setItem('data-cloud-compass:identity', JSON.stringify({name: 'UI Test', email: 'ui@example.com'})); } catch (e) {}")
     pg = ctx.new_page()
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))

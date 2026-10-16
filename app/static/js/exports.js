@@ -402,6 +402,24 @@ export async function workbookSpec() {
         series: gs.map((g, i) => ({ col: i + 1, color: (GROUP_COLORS[g] || "#9AA0A6").slice(1) })), anchor: { col: gs.length + 5, row: 3, cols: 10, rows: 20 } }] });
   }
 
+  // Use cases and BigQuery slots per environment
+  {
+    const ucs = S.scenario.use_cases || [], rec = S.result.use_cases || [];
+    const ur = [[{ v: "Use cases", s: ST.title }], [], H(["#", "Use case", "Source", "Notes / value", "Products"])];
+    (ucs.length ? ucs.map((u) => [u.name, u.source === "recommended" ? "Recommended" : "Customer", u.notes || "", ""]) : rec.map((u) => [u.name, "Recommended", u.value, u.products.join(", ")]))
+      .forEach((x, i) => ur.push([i + 1, x[0], x[1], { v: x[2], s: ST.wrap }, x[3]]));
+    sheets.push({ name: "Use cases", rows: ur, widths: [5, 44, 14, 70, 40] });
+    const b = S.result.bigquery;
+    if (b?.env_specs?.length) {
+      const sr = [[{ v: "BigQuery slots per environment", s: ST.title }],
+        [{ v: `Rules: baseline / commitment starts at ${b.rules?.slot_min || 100} slots, then steps of ${b.rules?.slot_step || 50}; autoscaling is pay as you go. ${b.slot_hours_per_tib} slot-hours per TiB scanned.`, s: ST.sub }], [],
+        H(["Environment", "Avg slots", "Busiest hour", "TiB scanned / month", "Edition", "PAYG baseline", "1-yr committed", "3-yr committed", "Max slots", `PAYG / month (${ccy})`, `1-yr / month (${ccy})`, `3-yr / month (${ccy})`])];
+      b.env_specs.forEach((e) => sr.push([e.name, e.avg_slots, Math.round(e.peak_slots), e.tib_month, e.edition, e.by_option.payg.baseline, e.by_option.cud1.commitment, e.by_option.cud3.commitment, e.by_option.cud1.max,
+        M(e.by_option.payg.monthly), M(e.by_option.cud1.monthly), M(e.by_option.cud3.monthly)]));
+      sheets.push({ name: "BigQuery slots", rows: sr, widths: [22, 10, 12, 16, 16, 13, 13, 13, 10, 16, 16, 16], merges: ["A1:L1", "A2:L2"] });
+    }
+  }
+
   // Kickoff readiness: checklist, milestones, team
   const rd = S.planResult?.readiness;
   if (rd) {

@@ -28,7 +28,8 @@ from .catalog import FREQUENCIES, SOURCE_BY_ID, STREAMING_FREQS
 from .recommender import effective_type, recommend, platform_components
 from .components import COMPONENT_BY_ID, cost_components, component_view, normalized, platform_story
 from .environments import env_summary, normalized_envs, replicate
-from .bom import build_bom, product_months
+from .usecases import recommend_use_cases
+from .bom import apply_overrides, build_bom, product_months
 from . import slots as SL
 from . import live_pricing as LP
 
@@ -580,20 +581,55 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
                      dashboards=bool(wl_extra.get("_dashboards")), ondemand_tib=sum(ref_cls.values()),
                      slot_hours_per_tib=sph)
     edition = sizing["edition"]
-    env_bq = []                           # (env, baseline, max, auto_baseline, auto_max)
+    env_bq = []                           # (env, baseline, max, auto_baseline, auto_max, baseline_by_option)
+    OPTS = ("payg", "cud1", "cud3")
     for i, e in enumerate(envs):
         f = e["compute_pct"] / 100.0
         if i == 0:
             b, mx, ab, am = sizing["baseline"], sizing["max"], sizing["auto_baseline"], sizing["auto_max"]
+            bo = dict(sizing["baseline_by_option"])
         else:
-            am = SL.ceil_step(sizing["max"] * f) if f > 0 and sizing["max"] else 0
-            ab = SL.floor_step(sizing["baseline"] * f) if e["runtime_pct"] >= 100 else 0
-            mx = e["bq_max"] if e["bq_max"] is not None else am
-            b = e["bq_baseline"] if e["bq_baseline"] is not None else ab
+            am = SL.res_max(sizing["max"] * f) if f > 0 and sizing["max"] else 0
+            ab = SL.res_baseline(sizing["baseline"] * f) if e["runtime_pct"] >= 100 else 0
+            mx = float(SL.res_max(float(e["bq_max"]))) if e["bq_max"] is not None else am
+            if e["bq_baseline"] is not None:
+                b = float(SL.snap_baseline(float(e["bq_baseline"])))
+                bo = {o: b for o in OPTS}
+            else:
+                b = ab
+                bo = {o: (SL.res_baseline(sizing["baseline_by_option"][o] * f) if e["runtime_pct"] >= 100 else 0) for o in OPTS}
             if edition == "standard":
                 b, mx = 0.0, min(mx, SL.STANDARD_MAX_SLOTS)
+                bo = {o: 0 for o in OPTS}
             b = min(b, mx)
-        env_bq.append((e, float(b), float(mx), ab, am))
+            bo = {o: float(min(v, mx)) for o, v in bo.items()}
+        env_bq.append((e, float(b), float(mx), ab, am, bo))
+    # per-environment slot specification at the reference month (shown whatever the pricing model)
+    bq_specs = []
+    ed_prices = SL.edition_prices(pricing, edition, bq_up)
+    for i, (e, b, mx, ab, am, bo) in enumerate(env_bq):
+        f = 1.0 if i == 0 else e["compute_pct"] / 100.0
+        prof = SL.profile(class_slot_hours(ref_cls, f), bqs["shape"]) if ref_cls else [0.0] * 24
+        sh = sum(class_slot_hours(ref_cls, f).values()) if ref_cls else 0.0
+        opts = {}
+        for o in ("payg", "cud1", "cud3"):
+            cost = SL.month_cost(prof, bo[o], mx, ed_prices)
+            idx = {"payg": 0, "cud1": 1, "cud3": 2}[o]
+            auto_h = SL.autoscale_slot_hours(prof, bo[o], mx)
+            opts[o] = {"baseline": bo[o], "commitment": bo[o] if o != "payg" else 0, "max": mx, "autoscale_max": max(0.0, mx - bo[o]),
+                       "baseline_slot_hours": round(bo[o] * SL.HOURS, 1), "autoscale_slot_hours": round(auto_h, 1),
+                       "baseline_rate": round(ed_prices[idx], 6), "autoscale_rate": round(ed_prices[0], 6),
+                       "monthly": round(cost[idx], 2),
+                       "with_min_commitment": (round(SL.month_cost(prof, SL.SLOT_MIN, max(mx, SL.SLOT_MIN), ed_prices)[idx], 2)
+                                               if o != "payg" and bo[o] == 0 and edition != "standard" and sh > 0 else None),
+                       "busy_hours": sum(1 for p in prof if p > 0.5)}
+        tib = sum(ref_cls.values()) * f if ref_cls else 0.0
+        bq_specs.append({"id": e["id"], "name": e["name"], "compute_pct": e["compute_pct"] if i else 100.0,
+                         "runtime_pct": e.get("runtime_pct", 100.0), "tib_month": round(tib, 3), "slot_hours_month": round(sh, 1),
+                         "avg_slots": round(sh / SL.HOURS, 1), "peak_slots": round(max(prof) if prof else 0.0, 1),
+                         "edition": edition, "by_option": opts,
+                         "ondemand_month": round(max(0.0, tib - (pricing["bigquery"]["ondemand_free_tib"] if i == 0 else 0)) * pricing["bigquery"]["ondemand_tib"] * bq_up, 2),
+                         "overridden": (bqs["baseline_slots"] is not None or bqs["max_slots"] is not None) if i == 0 else (e["bq_baseline"] is not None or e["bq_max"] is not None)})
     env_bq_lines = []                     # (env_id, m, payg, cud1, cud3, slot_hours) for non-primary envs
     if bq_model == "editions":
         prices = SL.edition_prices(pricing, edition, bq_up)
@@ -601,12 +637,15 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
             cls = scan_classes.get(m)
             if not cls or not sum(cls.values()):
                 continue
-            for i, (e, b, mx, _ab, _am) in enumerate(env_bq):
+            for i, (e, b, mx, _ab, _am, bo) in enumerate(env_bq):
                 f = 1.0 if i == 0 else e["compute_pct"] / 100.0
                 if f <= 0 and b <= 0:
                     continue
                 prof = SL.profile(class_slot_hours(cls, f), bqs["shape"])
-                p_, c1_, c3_, sh_ = SL.month_cost(prof, b, mx, prices)
+                # each pricing option uses its own best baseline (commitment) - autoscaling is always pay as you go
+                p_ = SL.month_cost(prof, bo["payg"], mx, prices)[0]
+                _p, c1_, _c3, sh_ = SL.month_cost(prof, bo["cud1"], mx, prices)
+                c3_ = SL.month_cost(prof, bo["cud3"], mx, prices)[2]
                 if i == 0:
                     add(m, "BigQuery compute", "_platform", p_, cud1=c1_, cud3=c3_, q=(sh_, "slot-hours"))
                 elif p_ and "BigQuery compute" not in excluded:
@@ -701,6 +740,18 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
                         extra_lines=[(eid, m, "BigQuery compute", p_, c1_, c3_, sh_) for eid, m, p_, c1_, c3_, sh_ in env_bq_lines],
                         extra_key=lambda m, svc: (m, svc, "_platform", region_id))
 
+    # ------------------------------------------------------------ Negotiated price book and the architect's BOM edits
+    by_svc_region = defaultdict(float)
+    for (m, svc, sid, rid), v in payg.items():
+        by_svc_region[(svc, rid)] += v
+    region_of = {}
+    for (svc, rid), v in sorted(by_svc_region.items(), key=lambda kv: kv[1]):
+        region_of[svc] = rid                      # the region with the largest spend wins
+    edits = [{"service": k, "environment": "*", "unit_price": v} for k, v in (scenario.get("price_book") or {}).items()
+             if v not in (None, "")]
+    edits += list(scenario.get("bom_overrides") or [])
+    edits_applied = apply_overrides(edits, bom, [payg, cud["cud1"], cud["cud3"]], region_of, region_id)
+
     # ------------------------------------------------------------ Contingency
     cont = float(scenario.get("contingency_pct", ASSUMPTIONS["contingency"] * 100)) / 100.0
     cont_on = "Contingency & operations" not in excluded
@@ -775,14 +826,26 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
     out["commercial"] = com
     out["availability"] = availability_check(sources, recs, comps, platform, regions, region_id, processing_region)
     out["excluded_services"] = sorted(excluded)
+    out["bom_edits"] = edits_applied
+    out["use_cases"] = recommend_use_cases(scenario)
     slots_by_env = None
     if bq_model == "editions":
-        slots_by_env = {e["id"]: {"baseline": b, "max": mx, "auto_baseline": ab, "auto_max": am,
+        slots_by_env = {e["id"]: {"baseline": b, "max": mx, "auto_baseline": ab, "auto_max": am, "edition": sizing["edition"],
+                                  "by_option": {o: {"baseline": bo[o], "commitment": bo[o] if o != "payg" else 0, "max": mx,
+                                                    "autoscale": max(0.0, mx - bo[o])} for o in ("payg", "cud1", "cud3")},
                                   "baseline_set": (bqs["baseline_slots"] is not None) if i == 0 else e["bq_baseline"] is not None,
                                   "max_set": (bqs["max_slots"] is not None) if i == 0 else e["bq_max"] is not None}
-                        for i, (e, b, mx, ab, am) in enumerate(env_bq)}
+                        for i, (e, b, mx, ab, am, bo) in enumerate(env_bq)}
     out["environments"] = env_summary(envs, env_tot, 0.0, False, slots_by_env)
     out["bigquery"] = _bq_summary(bqs, sizing, scan_classes, ref_m, heur_month12, wl_classes, bq_model, pricing, bq_up, plat_start, src_start)
+    out["bigquery"]["env_specs"] = bq_specs
+    out["bigquery"]["project_totals"] = {o: {"commitment": sum(x["by_option"][o]["commitment"] for x in bq_specs),
+                                             "baseline": sum(x["by_option"][o]["baseline"] for x in bq_specs),
+                                             "max": sum(x["by_option"][o]["max"] for x in bq_specs),
+                                             "monthly": round(sum(x["by_option"][o]["monthly"] for x in bq_specs), 2)}
+                                         for o in ("payg", "cud1", "cud3")}
+    out["bigquery"]["rules"] = {"slot_min": SL.SLOT_MIN, "slot_step": SL.SLOT_STEP, "hours_per_month": SL.HOURS,
+                                "autoscale_overhead": SL.AUTOSCALE_OVERHEAD, "standard_max": SL.STANDARD_MAX_SLOTS}
     drivers = defaultdict(set)
     name_of = {m_["id"]: m_["name"] for m_ in per_source_meta}
     for (m, svc, sid, rid) in payg:
@@ -790,7 +853,8 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
             drivers[svc].add(name_of[sid])
     out["bom"] = build_bom(bom, units, envs, drivers, service_group, GROUP_ORDER,
                            {"bq_model": bq_model, "contingency_pct": round(cont * 100, 1), "lakehouse": lk,
-                            "components": comps, "edition": sizing["edition"], "baseline": sizing["baseline"], "max": sizing["max"]})
+                            "components": comps, "edition": sizing["edition"], "baseline": sizing["baseline"], "max": sizing["max"],
+                            "region_of": region_of, "edited": {(a["service"], a["environment"]) for a in edits_applied}})
     if detail:
         out["product_months"] = product_months(bom, units, envs, service_group, GROUP_ORDER)
     if keep_items:

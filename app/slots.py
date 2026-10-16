@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 
 SLOT_STEP = 50
+SLOT_MIN = 100        # a reservation baseline / capacity commitment starts at 100 slots, then grows in steps of 50
 STANDARD_MAX_SLOTS = 1600
 HOURS = 730
 EDITIONS = ("standard", "enterprise", "enterprise_plus")
@@ -41,6 +42,22 @@ def ceil_step(x, step=SLOT_STEP):
 
 def floor_step(x, step=SLOT_STEP):
     return int(math.floor(max(0.0, x) / step + 1e-9) * step)
+
+
+def res_max(x):
+    """Max reservation size: 0, or at least SLOT_MIN in steps of 50."""
+    return 0 if x <= 1e-9 else max(SLOT_MIN, ceil_step(x))
+
+
+def res_baseline(x):
+    """Baseline / commitment: 0, or at least SLOT_MIN in steps of 50 (smaller amounts are left to autoscaling)."""
+    b = floor_step(x)
+    return b if b >= SLOT_MIN else 0
+
+
+def snap_baseline(x):
+    """An architect-entered baseline: 0 stays 0, 1-99 becomes 100, otherwise rounded up to a 50-slot step."""
+    return 0 if x <= 1e-9 else max(SLOT_MIN, ceil_step(x))
 
 
 def shape_settings(s: dict | None) -> dict:
@@ -104,14 +121,20 @@ def edition_prices(pricing, edition, uplift):
     return ed["payg"] * uplift, ed["cud1"] * uplift, ed["cud3"] * uplift
 
 
-def best_baseline(prof, max_slots, prices, edition):
-    """Baseline that minimises (baseline on a 1-year commitment + autoscaling) per month."""
-    payg, c1, _ = prices
+def best_baseline(prof, max_slots, prices, edition, option="cud1"):
+    """Baseline that minimises (baseline at the option's rate + autoscaling) per month.
+
+    option: "payg" (no commitment), "cud1" or "cud3". Candidates are 0 or 100, 150, 200 … up to max.
+    """
+    payg, c1, c3 = prices
+    rate = {"payg": payg, "cud1": c1, "cud3": c3}[option]
     if edition == "standard":
         return 0
     best_b, best = 0, None
-    for b in range(0, int(max_slots) + SLOT_STEP, SLOT_STEP):
-        c = b * HOURS * c1 + autoscale_slot_hours(prof, b, max_slots) * payg
+    for b in [0] + list(range(SLOT_MIN, int(max_slots) + SLOT_STEP, SLOT_STEP)):
+        if b > max_slots:
+            break
+        c = b * HOURS * rate + autoscale_slot_hours(prof, b, max_slots) * payg
         if best is None or c < best - 1e-9:
             best_b, best = b, c
     return best_b
@@ -136,20 +159,23 @@ def size(slot_hours: dict, S: dict, pricing: dict, uplift: float, comp_types: se
     sph_per_tib = float(slot_hours_per_tib)
     heavy_burst = heavy_query_tib * sph_per_tib / target_h if heavy_query_tib else 0.0
     adhoc_burst = adhoc_query_tib * sph_per_tib / target_h if adhoc_query_tib else 0.0
-    auto_max = ceil_step(max(peak, heavy_burst, adhoc_burst, SLOT_STEP if sph_total else 0))
+    auto_max = res_max(max(peak, heavy_burst, adhoc_burst, SLOT_MIN if sph_total else 0))
     rec_edition, reasons = recommend_edition(comp_types, auto_max, dashboards)
     edition = edition_choice if edition_choice in EDITIONS else rec_edition
     if edition != rec_edition:
         reasons = reasons + [f"Edition set to {EDITION_NAME[edition]} by the architect (recommended: {EDITION_NAME[rec_edition]})."]
     prices = edition_prices(pricing, edition, uplift)
-    max_slots = float(max_override) if max_override not in (None, "") else auto_max
+    max_slots = float(res_max(float(max_override))) if max_override not in (None, "") else auto_max
     if edition == "standard":
         max_slots = min(max_slots, STANDARD_MAX_SLOTS)
     auto_baseline = best_baseline(prof, max_slots, prices, edition)
-    baseline = float(baseline_override) if baseline_override not in (None, "") else auto_baseline
+    baseline = float(snap_baseline(float(baseline_override))) if baseline_override not in (None, "") else auto_baseline
+    by_option = {o: (baseline if baseline_override not in (None, "") else best_baseline(prof, max_slots, prices, edition, o))
+                 for o in ("payg", "cud1", "cud3")}
     if edition == "standard":
         baseline = 0.0
     baseline = min(baseline, max_slots) if max_slots else baseline
+    by_option = {o: min(0.0 if edition == "standard" else float(v), max_slots) for o, v in by_option.items()}
     warnings = []
     if baseline_override not in (None, "") and edition == "standard" and float(baseline_override) > 0:
         warnings.append("Standard edition has no baseline - the baseline was set to 0 (autoscaling only).")
@@ -158,6 +184,8 @@ def size(slot_hours: dict, S: dict, pricing: dict, uplift: float, comp_types: se
     if peak > max_slots + 1e-9 and sph_total:
         warnings.append(f"Busiest-hour demand (~{peak:,.0f} slots) is above the max of {max_slots:,.0f}: queries will queue at peak.")
     payg, c1, c3, sh = month_cost(prof, baseline, max_slots, prices)
+    payg = month_cost(prof, by_option["payg"], max_slots, prices)[0]
+    c3 = month_cost(prof, by_option["cud3"], max_slots, prices)[2]
     comparison = []
     for e in EDITIONS:
         pr = edition_prices(pricing, e, uplift)
@@ -182,6 +210,7 @@ def size(slot_hours: dict, S: dict, pricing: dict, uplift: float, comp_types: se
         "recommended_mode": rec_mode,
         "edition": edition, "recommended_edition": rec_edition, "edition_reasons": reasons,
         "baseline": baseline, "max": max_slots, "auto_baseline": auto_baseline, "auto_max": auto_max,
+        "baseline_by_option": by_option, "slot_min": SLOT_MIN, "slot_step": SLOT_STEP,
         "profile": [round(p, 1) for p in prof], "avg_slots": round(sph_total / HOURS, 1), "peak_slots": round(peak, 1),
         "heavy_burst_slots": round(heavy_burst, 1), "slot_hours_month": round(sph_total, 1),
         "autoscale_slot_hours_month": round(sh - baseline * HOURS, 1), "autoscale_overhead": AUTOSCALE_OVERHEAD,

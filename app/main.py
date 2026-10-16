@@ -41,6 +41,8 @@ from .catalog import SOURCE_BY_ID, catalog_payload
 from .components import COMPONENT_BY_ID
 from .estimator import estimate, load_regions, load_static_regions
 from .store import get_store
+from . import usage as US
+from . import chargeback as CB
 from .plan import build_plan
 from .workload import workload_estimate
 
@@ -71,7 +73,22 @@ app = FastAPI(title="Data Cloud Compass", version=VERSION, lifespan=lifespan,
 # The public demo (GitHub Pages) calls this service directly. Bearer tokens, no cookies.
 CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "https://jithinsl27.github.io").split(",") if o.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["GET", "POST", "PUT", "DELETE"],
-                   allow_headers=["Authorization", "Content-Type"], max_age=3600)
+                   allow_headers=["Authorization", "Content-Type", "X-Compass-User", "X-Compass-Email", "X-Admin-Key"], max_age=3600)
+
+
+@app.middleware("http")
+async def _usage_log(request: Request, call_next):
+    """One structured log line per API call (Cloud Logging) and a usage event for meaningful actions."""
+    import time as _t
+    t0 = _t.perf_counter()
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/") and path not in ("/api/usage/event", "/api/admin/usage", "/api/config", "/api/catalog", "/api/pricing/status"):
+        try:
+            US.record(get_store(), request, response.status_code, (_t.perf_counter() - t0) * 1000)
+        except Exception:  # noqa: BLE001 - never fail a request because of logging
+            pass
+    return response
 
 
 @app.middleware("http")
@@ -240,6 +257,22 @@ class Workload(BaseModel):
     slots: Optional[WorkloadSlots] = None
 
 
+class BomOverride(BaseModel):
+    service: str = Field(..., max_length=200)
+    environment: str = Field("*", max_length=60)
+    qty: Optional[float] = Field(None, ge=0)
+    unit_price: Optional[float] = Field(None, ge=0)
+    monthly: Optional[float] = Field(None, ge=0)
+
+
+class UseCase(BaseModel):
+    id: str = Field(..., max_length=60)
+    name: str = Field(..., max_length=200)
+    source: Literal["recommended", "customer"] = "customer"
+    priority: Optional[int] = Field(None, ge=1, le=99)
+    notes: str = Field("", max_length=1000)
+
+
 class Scenario(BaseModel):
     customer: str = Field("", max_length=120)
     region: str = "us-central1"
@@ -265,6 +298,9 @@ class Scenario(BaseModel):
     environments: Optional[list[Environment]] = Field(None, max_length=12)
     lakehouse: Optional[Lakehouse] = None
     readiness_done: list[str] = Field(default_factory=list, max_length=500)  # ticked kickoff-checklist items
+    bom_overrides: list[BomOverride] = Field(default_factory=list, max_length=300)  # architect's edits to the BOM
+    price_book: Optional[dict[str, float]] = None   # negotiated unit price per service (charge-back)
+    use_cases: list[UseCase] = Field(default_factory=list, max_length=50)
 
 
 @app.get("/healthz")
@@ -279,7 +315,9 @@ def get_config():
     return {"google_client_id": auth.client_id(), "auth": auth.enabled(), "store": get_store().kind,
             "assist": os.environ.get("ASSIST", "on") != "off" and auth.enabled(), "version": VERSION,
             "pricing": {"source": st["source"], "fetched_at": st["fetched_at"]},
-            "feedback_url": os.environ.get("FEEDBACK_URL", "")}
+            "feedback_url": os.environ.get("FEEDBACK_URL", ""),
+            "identity_prompt": os.environ.get("IDENTITY_PROMPT", "on") != "off",
+            "admin_key_set": bool(os.environ.get("ADMIN_KEY"))}
 
 
 @app.get("/api/pricing/status")
@@ -476,6 +514,134 @@ async def assist_file(request: Request, file: UploadFile = File(...)):
 def assist_template():
     return PlainTextResponse(AS.template_csv(), media_type="text/csv",
                              headers={"Content-Disposition": 'attachment; filename="compass-source-inventory.csv"'})
+
+
+# ---------------------------------------------------------------- usage: who uses the tool
+class UsageEvent(BaseModel):
+    action: str = Field(..., max_length=80)
+    detail: str = Field("", max_length=300)
+
+
+@app.post("/api/usage/event")
+def usage_event(ev: UsageEvent, request: Request):
+    US.record(get_store(), request, 200, 0.0, action=ev.action, detail=ev.detail)
+    return {"ok": True}
+
+
+@app.get("/api/admin/usage")
+def admin_usage(request: Request, days: int = 30):
+    if not US.admin_ok(request):
+        raise HTTPException(status_code=403, detail="Enter the admin key (ADMIN_KEY on the Cloud Run service) to see usage.")
+    import time as _t
+    events = get_store().list_events(since=_t.time() - max(1, min(days, 365)) * 86400)
+    return US.summary(events)
+
+
+# ---------------------------------------------------------------- charge-back
+class ChargebackRequest(BaseModel):
+    department: str = Field("", max_length=120)
+    title: str = Field("", max_length=160)
+    requester: str = Field("", max_length=120)
+    kind: str = Field("", max_length=40)
+    region: Optional[str] = Field(None, max_length=40)
+    sources: list[dict] = Field(default_factory=list, max_length=20)
+    pipelines: dict = Field(default_factory=dict)
+    reports: dict = Field(default_factory=dict)
+    ai: dict = Field(default_factory=dict)
+    with_dev: bool = False
+    include_shared: bool = False
+    bq_mode: Literal["ondemand", "editions"] = "ondemand"
+    growth_pct: float = Field(20, ge=-50, le=500)
+
+
+class PriceBook(BaseModel):
+    region: str = Field("us-central1", max_length=40)
+    currency: str = Field("USD", max_length=8)
+    items: list[dict] = Field(default_factory=list, max_length=500)
+    note: str = Field("", max_length=300)
+
+
+def _who(request):
+    name, email = US.identity(request)
+    return email or name or "anonymous"
+
+
+@app.get("/api/chargeback/template")
+def cb_template(region: str = "us-central1", format: str = "json"):
+    rows = CB.template_rows(region)
+    if format == "csv":
+        return PlainTextResponse(CB.template_csv(rows), media_type="text/csv",
+                                 headers={"Content-Disposition": "attachment; filename=compass-price-sheet-template.csv"})
+    return {"region": region, "rows": rows}
+
+
+@app.get("/api/chargeback/pricebook")
+def cb_pricebook_get():
+    return get_store().kv_get("pricebook") or {"items": [], "region": "us-central1", "currency": "USD"}
+
+
+@app.put("/api/chargeback/pricebook")
+def cb_pricebook_put(book: PriceBook, request: Request):
+    import time as _t
+    doc = {**book.model_dump(), "updated_at": _t.time(), "updated_by": _who(request)}
+    get_store().kv_put("pricebook", doc)
+    US.record(get_store(), request, 200, 0.0, action="price book saved", detail=f"{len(book.items)} prices")
+    return doc
+
+
+@app.post("/api/chargeback/pricebook/extract")
+async def cb_pricebook_extract(request: Request, file: UploadFile = File(...), region: str = "us-central1"):
+    """Read an uploaded price sheet (Excel, CSV, PDF or scanned image) - returned for review, not saved."""
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="The file is larger than 15 MB")
+    try:
+        out = CB.read_price_file(file.filename or "sheet.csv", data, CB.template_rows(region), AS.read_table)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    US.record(get_store(), request, 200, 0.0, action="price sheet read", detail=f"{file.filename} ({out['method']})")
+    return out
+
+
+class SheetLink(BaseModel):
+    url: str = Field(..., max_length=500)
+    region: str = Field("us-central1", max_length=40)
+
+
+@app.post("/api/chargeback/pricebook/extract-link")
+def cb_pricebook_extract_link(link: SheetLink, request: Request):
+    try:
+        rows = CB.google_sheet_rows(link.url)
+        out = {"items": CB.match_services(CB.parse_price_sheet(rows), CB.template_rows(link.region)), "method": "google_sheet", "file": link.url}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    US.record(get_store(), request, 200, 0.0, action="price sheet read", detail="Google Sheet")
+    return out
+
+
+@app.post("/api/chargeback/price")
+def cb_price(req: ChargebackRequest):
+    return CB.price_request(req.model_dump(), get_store().kv_get("pricebook"))
+
+
+@app.get("/api/chargeback/requests")
+def cb_requests():
+    return get_store().cb_list()
+
+
+@app.post("/api/chargeback/requests")
+def cb_save(req: ChargebackRequest, request: Request):
+    res = CB.price_request(req.model_dump(), get_store().kv_get("pricebook"))
+    doc = CB.new_record(req.model_dump(), res, _who(request))
+    get_store().cb_put(doc)
+    US.record(get_store(), request, 200, 0.0, action="charge-back saved", detail=f"{doc['department']}: {doc['title']}")
+    return doc
+
+
+@app.delete("/api/chargeback/requests/{rid}")
+def cb_delete(rid: str):
+    get_store().cb_delete(rid)
+    return {"ok": True}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -91,31 +91,63 @@ The app is organised as modules in the left-hand navigation. Click a module to o
 | Module | What you see |
 |---|---|
 | **Overview** | One card per module with its key insight - click a card to open that module, or a pricing figure to open that plan |
+| **Use cases** | The top 5 use cases recommended from the customer's data, plus the customer's own list (feeds the proposal and exports) |
 | **Source systems** | Add, edit, import and include / exclude sources; each card shows its target and ingestion chain |
 | **Architecture** | Product picker and the presentation-ready diagram (targets: BigQuery lakehouse, Cloud Storage data lake, AlloyDB / Cloud SQL) |
 | **Ingestion patterns** | Per-source pattern, rationale, alternatives and discovery checks |
 | **Platform & integrations** | How each selected product connects to BigQuery |
-| **Pricing** | Commercial plans (below) and the detailed breakdown |
+| **Workload** | What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms, and what it means for BigQuery |
+| **BigQuery slots** | Slots per environment: demand, recommended baseline / commitment for each plan, max, monthly cost and assumptions |
 | **Environments** | Cost per environment and the per-environment sizing |
-| **Workload sizing**, **Roadmap** | See sections 6 and 7 |
+| **Pricing** | The three commercial plans with the recommended specification per environment and the editable bill of materials (below) |
+| **Roadmap** | See section 7 |
 | **Kickoff** | Pre-kickoff checklist for customer and partner, milestones with exit criteria, team size and skills |
 | **Proposal** | Generate a customer proposal of up to 15 pages |
+| **Charge-back** | Negotiated price book and pricing of department requests (below) |
+| **Usage (admin)** | Who uses the tool and what they do (admin key) |
 | **Settings** | Engagement settings, BigQuery model, commercial terms, lakehouse layers and assumptions |
 
 ### Pricing plans
 
-The **Pricing** module opens on four plan cards for the **whole programme**:
+The **Pricing** module opens on three plan cards for the **whole programme**:
 
-- **Pay as you go - 1 year** - click it to see the **monthly consumption ramp-up** for months 1-12;
-- **1-year commitment** - the same months priced with 1-year committed-use discounts, with the saving;
-- **3-year commitment** - 36 months, with **what you pay in year 1, year 2 and year 3**;
-- **Pay as you go - 3 years** - for comparison.
+1. **Pay as you go - 1 year** - the **monthly consumption ramp-up** for months 1-12, no commitment;
+2. **1-year commitment (all services)** - the same months with 1-year committed-use pricing, with the saving;
+3. **3-year commitment (all services)** - 36 months, with **what you pay in year 1, year 2 and year 3** and the saving against pay as you go over 3 years.
 
-Each plan shows a stacked monthly chart by capability, year tiles, and a **product table** with product name, unit, quantity, unit price, cost and saving. Switch the table to the **month × product matrix** to see cost or quantity per product per month (pick the year for 3-year plans), and **Download CSV**. Toggle **With ramp-up plan** (services start consuming when the roadmap brings them live; BigQuery compute starts at the first data-platform go-live) or **Full scope from month 1**, and filter by environment. **Detailed breakdown** keeps the earlier views (by capability, service, region, source and the bill of materials).
+For the chosen plan you get the **recommended specification per environment**: the monthly cost, the BigQuery edition with the baseline / commitment and max slots *for that plan*, the main products with quantity per month, unit price and monthly cost, and the sizing assumptions (share of production, running hours). Above the cards, the whole-project BigQuery commitment and max are summarised.
+
+**Click the plan total** (or any headline figure) to open the **bill of materials**: every product per environment with region, unit, quantity per month, unit price, monthly cost and the plan total. **Edit a quantity or a unit price** and press **Apply** - the engine recalculates everything (plans, environments, roadmap, exports, proposal); edited lines are marked and can be reset one by one or all at once. Edits are saved with the scenario.
+
+Each plan also shows a stacked monthly chart by capability, year tiles, and a **product table** with product name, unit, quantity, unit price, cost and saving. Switch the table to the **month × product matrix** to see cost or quantity per product per month (pick the year for 3-year plans), and **Download CSV**. Toggle **With ramp-up plan** (services start consuming when the roadmap brings them live; BigQuery compute starts at the first data-platform go-live) or **Full scope from month 1**, and filter by environment. **Detailed breakdown** keeps the earlier views (by capability, service, region, source and the bill of materials).
+
+### Use cases
+
+The **Use cases** module recommends the **top 5 use cases** from the data in scope (for example Customer 360 when CRM and transaction systems are present, predictive maintenance for IoT, warehouse modernisation for Teradata / Hadoop), each with the value, why it was picked (which sources) and the products that deliver it. Add them to the customer's list, type the customer's own use cases with notes, and reorder them; the list appears in the proposal and in the Sheets export.
+
+### Workload and BigQuery slots
+
+**Workload** asks in plain terms what the customer will run: how much data, pipelines, reports and queries, and dashboards. Changing any number switches on **Use these numbers to size BigQuery and pricing**, so BigQuery compute, slots and every plan follow it; *What this means* shows the data scanned per month, the computing power needed and the BigQuery cost. Working hours, regions and the standalone workload-only estimate are under *Advanced*.
+
+**BigQuery slots** explains slots and shows, per environment: average and busiest-hour demand, the recommended **baseline / commitment for pay as you go, 1-year and 3-year**, the max with autoscaling, the monthly cost of each plan and how the environment is sized. Rules: a baseline or commitment starts at **100 slots** and grows in steps of **50**; autoscaling adds slots in steps of 50 and is always pay as you go. Where a commitment does not pay off (demand only part of the day), the page shows what a 100-slot commitment would cost instead. Override any baseline or max per environment, switch on-demand / editions, and read the assumptions (slot-hours per TiB, scan by job type, batch window, business hours, reference month).
+
+### Charge-back
+
+For the CFO / CDO once the customer has bought Google Cloud with its discounts:
+
+1. **Price book** - *Download template (Excel)* lists every service the tool prices with its unit and list price. Enter the negotiated unit prices and upload the file - or upload a **CSV**, paste a **Google Sheets link** (shared as *Anyone with the link can view*), or upload a **PDF quote or a scanned / photographed price sheet** (read with Gemini 3.8 Flash). Review the prices and the matching to the tool's services, then **Save price book** (shared with everyone using Charge-back).
+2. **Price a request** - department, request, the data sources to ingest (kind, how many, new data per day, history), pipelines, dashboards, report users, ad-hoc reports and AI use cases. The services, quantity per month, negotiated unit price (list price struck through) and monthly cost update as you type. Shared platform items (network, encryption keys, data discovery) are paid centrally unless you include them.
+3. **Ledger** - save requests; the ledger totals the monthly charge per department and downloads as CSV.
+
+### Who is using the tool
+
+On the first visit everyone is asked for their **name and work email** (no sign-in); the initials appear in the top bar (click to change). Every API call is logged in Cloud Logging, and visits, module opens, exports and charge-back actions are kept as usage events. **Usage (admin)** shows people, first and last activity, active days, top actions and recent activity - enter the admin key printed by `deploy.sh`.
 
 ### Architecture diagram
 
 The diagram follows the enterprise reference flow left to right: **sources → private connectivity / Apigee → ingestion & CDC → land (Cloud Storage raw zone) → processing → BigQuery lakehouse (bronze / silver / gold) → BI, AI, APIs and operational databases**. Batch and file flows land in the raw zone first; CDC and streaming go straight to bronze. Columns that are not needed disappear, ingestion and processing boxes sit next to the sources they serve so lines do not cross, and labels are fitted to their boxes (hover any box for its full text).
+
+Every box carries an icon for its kind of service; install Google's official product icons with `tools/install_gcp_icons.py` (see [deployment](deployment.md#official-product-icons)) to show them instead. Below the diagram, **Products in this architecture** lists and counts every product - connectivity, ingestion and processing, storage, transformation and orchestration, analytics / AI / APIs / databases, governance and security, and the platform foundation - and *How the bronze, silver and gold sizes are calculated* explains the layer volumes.
 
 Underneath are two bands:
 

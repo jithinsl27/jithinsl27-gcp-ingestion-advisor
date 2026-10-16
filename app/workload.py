@@ -315,8 +315,8 @@ def slot_sizing(W, scan_lines, A, pricing, uplift, comp_types, envs):
     by_env = []
     for e in envs:
         f = e["compute_pct"] / 100.0
-        by_env.append({"id": e["id"], "name": e["name"], "baseline_slots": SL.floor_step(best_b * f) if e.get("runtime_pct", 100) >= 100 else 0,
-                       "max_slots": SL.ceil_step(max_slots * f) if f else 0})
+        by_env.append({"id": e["id"], "name": e["name"], "baseline_slots": SL.res_baseline(best_b * f) if e.get("runtime_pct", 100) >= 100 else 0,
+                       "max_slots": SL.res_max(max_slots * f) if f else 0})
     return {
         "inputs": S, "slot_hours_per_tib": sph,
         "by_class": [{"class": SL.CLASS_LABELS[k], "tib_month": round(cls[k], 3), "slot_hours_month": round(sh[k], 1),

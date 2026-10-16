@@ -31,9 +31,10 @@ def test_drill_down_reconciles_with_headline(page):
     pricing_detail(page)
     headline = money(page.locator('#summaryStrip [data-drill="year1"] b').inner_text())
     page.click('#summaryStrip [data-drill="year1"]')
-    foot = page.locator("#drillBody tfoot td").nth(1).inner_text()
+    foot = page.locator("#drillBody tfoot td").nth(2).inner_text()   # 12-month column of the editable BOM
     assert abs(money(foot) - headline) <= 1.5
     assert page.locator("#drillBody tbody tr").count() > 5
+    assert page.locator("#drillBody [data-bom-f='qty']").count() > 3     # quantities are editable
     page.click("#drillClose")
 
 
@@ -147,3 +148,76 @@ def test_architecture_offers_recommended_controls_and_legend(page):
       return [...g.querySelectorAll('text')].some(t => { const b = t.getBBox(); return b.x + b.width > rb.x + rb.width + 1; });
     }).length""")
     assert over == 0
+
+
+def test_first_visit_asks_name_and_email(browser, base_url):
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    pg = ctx.new_page()
+    pg.goto(base_url + "/")
+    pg.wait_for_selector("#idDialog[open]", timeout=10_000)
+    pg.fill("#id_name", "Ada Lovelace")
+    pg.fill("#id_email", "not-an-email")
+    pg.click("#idForm button[type=submit]")
+    assert "valid email" in pg.inner_text("#id_err")
+    pg.fill("#id_email", "ada@example.com")
+    pg.click("#idForm button[type=submit]")
+    pg.wait_for_selector("#idDialog", state="hidden")
+    assert pg.inner_text("#whoBtn") == "AL"
+    ctx.close()
+
+
+def test_pricing_plans_specs_and_editable_bom(page):
+    page.wait_for_selector("#overviewBody .plan-card", timeout=15_000)
+    goto(page, "pricing")
+    page.wait_for_selector(".plan-cards.three .plan-card")
+    assert page.locator(".plan-cards.three .plan-card").count() == 3
+    page.click('#tab-pricing [data-plan="commit_3y"]')
+    assert page.locator(".spec-card").count() >= 1
+    before = money(page.locator("button.plan-total b").inner_text())
+    page.click("button.plan-total")
+    page.wait_for_selector("#drillBody [data-bom-f='qty']")
+    inp = page.locator("#drillBody [data-bom-f='qty']").first
+    inp.fill(str(float(inp.input_value()) * 3 + 100))
+    page.click("[data-bom-apply]")
+    page.wait_for_selector("#drillBody tr.edited", timeout=15_000)
+    page.click("#drillClose")
+    page.wait_for_function(f"(() => {{ const b = document.querySelector('button.plan-total b'); return b && parseFloat(b.textContent.replace(/[^0-9.]/g, '')) > {before}; }})()", timeout=15_000)
+
+
+def test_bigquery_slots_page_per_environment(page):
+    goto(page, "slots")
+    page.wait_for_selector("#slotsBody .slot-env")
+    page.click('#slotsBody [data-bq-mode="editions"]')
+    page.wait_for_selector("#slotsBody .slot-edit", timeout=15_000)
+    rows = page.locator("#slotsBody .slot-env tbody tr").count()
+    assert rows >= 1
+    assert "100 slots" in page.inner_text("#slotsBody .explain")
+
+
+def test_use_cases_recommend_and_add(page):
+    goto(page, "usecases")
+    page.wait_for_selector("#useCasesBody .uc-card")
+    assert 1 <= page.locator("#useCasesBody .uc-card").count() <= 5
+    page.locator("#useCasesBody [data-uc-toggle]").first.click()
+    page.fill("#ucName", "Branch performance dashboard")
+    page.click("#ucAdd button")
+    assert page.locator("#useCasesBody .uc-list li").count() == 2
+    assert page.inner_text('.modnav [data-badge="usecases"]') == "2"
+
+
+def test_chargeback_prices_a_request(page):
+    goto(page, "chargeback")
+    page.wait_for_selector("#cbBody .cb-result", timeout=20_000)
+    first = money(page.locator("#cbBody .cb-kpis b").first.inner_text())
+    page.fill("[data-cb='reports.users']", "500")
+    page.wait_for_function(f"parseFloat(document.querySelector('#cbBody .cb-kpis b').textContent.replace(/[^0-9.]/g, '')) > {first}", timeout=15_000)
+    page.fill("[data-cb='department']", "Marketing")
+    page.click("[data-cb-save]")
+    page.wait_for_selector("#cbBody .cb-depts", timeout=15_000)
+    assert "Marketing" in page.inner_text("#cbBody .cb-depts")
+
+
+def test_usage_admin_page(page):
+    goto(page, "usage")
+    page.wait_for_selector("#usageBody table", timeout=15_000)      # open locally without an admin key
+    assert "ui@example.com" in page.inner_text("#usageBody")

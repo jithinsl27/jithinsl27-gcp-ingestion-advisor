@@ -5,6 +5,7 @@ import { GROUP_COLORS, money, moneyShort, unitPrice } from "./cost.js";
 import { fmtSpecQty } from "./environments.js";
 import { renderAll } from "./render.js";
 import { save } from "./scenario.js";
+import { ed, openBomEditor, renderBomEditor } from "./bomedit.js";
 
 // ------------------------------------------------------------------ headline drill-down: products and pricing
 export const GROUP_ORDER_UI = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
@@ -26,6 +27,12 @@ export const OPT_NOTE = {
 };
 
 export function openDrill(view) {
+  // every headline figure opens the editable bill of materials for the matching plan
+  const o = OPT();
+  openBomEditor(view === "three" ? (o === "cud3" ? "commit_3y" : "payg_3y") : o === "cud1" ? "commit_1y" : o === "cud3" ? "commit_3y" : "payg_1y");
+}
+
+export function openLegacyDrill(view) {
   drill.view = DRILL[view] ? view : "year1";
   if (drill.env !== "all" && !(S.result.environments || []).some((e) => e.id === drill.env)) drill.env = "all";
   renderDrill();
@@ -127,7 +134,7 @@ export function setOption(id) {
   S.scenario.pricing_option = id;
   save();
   renderAll();
-  if ($("#drillDialog").open) renderDrill();
+  if ($("#drillDialog").open) (ed.open ? renderBomEditor() : renderDrill());
 }
 
 export function emptyWorkload() {

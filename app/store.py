@@ -143,6 +143,31 @@ class MemoryStore:
     def kv_put(self, key, value):
         self.kv[key] = value
 
+    # ------------------------------------------------------------------ usage events (who uses the tool)
+    def log_event(self, ev):
+        with self.lock:
+            ev_ = getattr(self, "events", None)
+            if ev_ is None:
+                self.events = ev_ = []
+            ev_.append(dict(ev))
+            del ev_[:-20000]
+
+    def list_events(self, since=0.0, limit=5000):
+        return [e for e in getattr(self, "events", []) if e.get("ts", 0) >= since][-limit:]
+
+    # ------------------------------------------------------------------ charge-back requests
+    def cb_list(self):
+        return sorted(getattr(self, "cb", {}).values(), key=lambda d: -d.get("created_at", 0))
+
+    def cb_put(self, doc):
+        if not hasattr(self, "cb"):
+            self.cb = {}
+        self.cb[doc["id"]] = doc
+        return doc
+
+    def cb_delete(self, rid):
+        getattr(self, "cb", {}).pop(rid, None)
+
 
 class FirestoreStore(MemoryStore):
     kind = "firestore"
@@ -256,6 +281,27 @@ class FirestoreStore(MemoryStore):
     def kv_put(self, key, value):
         import json
         self.db.collection("system").document(key).set({"json": json.dumps(value), "updated_at": _now()})
+
+    def log_event(self, ev):
+        self.db.collection("usage").add(dict(ev))
+
+    def list_events(self, since=0.0, limit=5000):
+        q = (self.db.collection("usage").where("ts", ">=", since)
+             .order_by("ts", direction=self.fs.Query.DESCENDING).limit(limit))
+        return list(reversed([d.to_dict() for d in q.stream()]))
+
+    def cb_list(self):
+        import json
+        return [json.loads(d.to_dict()["json"]) for d in
+                self.db.collection("chargeback").order_by("created_at", direction=self.fs.Query.DESCENDING).limit(500).stream()]
+
+    def cb_put(self, doc):
+        import json
+        self.db.collection("chargeback").document(doc["id"]).set({"json": json.dumps(doc), "created_at": doc.get("created_at", _now())})
+        return doc
+
+    def cb_delete(self, rid):
+        self.db.collection("chargeback").document(rid).delete()
 
 
 _store = None

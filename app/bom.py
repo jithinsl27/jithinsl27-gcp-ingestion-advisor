@@ -129,6 +129,7 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
         rows.append({
             "environment": env_id, "environment_name": env_name.get(env_id, env_id),
             "service": svc, "group": group, "unit": unit,
+            "region": (ctx.get("region_of") or {}).get(svc), "edited": (svc, env_id) in (ctx.get("edited") or set()),
             "qty_month12": round(a["q12"], 2) if unit else None,
             "qty_year1": round(a["qy1"], 2) if unit else None,
             "unit_price": round(a["y1"] / a["qy1"], 6) if unit and a["qy1"] else None,
@@ -169,3 +170,48 @@ def product_months(bom, units, envs, group_fn, group_order):
         })
     rows.sort(key=lambda r: (env_order.get(r["environment"], 99), group_order.index(r["group"]) if r["group"] in group_order else 99, -abs(sum(r["payg"]))))
     return rows
+
+
+def apply_overrides(overrides, bom, views, region_of, default_region, months_ref=12):
+    """Apply the architect's edits to the bill of materials (in place) and return what was applied.
+
+    overrides: [{"service", "environment" ("*" = every environment), "qty" (per month at month 12),
+                 "unit_price" (list / PAYG price per unit), "monthly" (month-12 cost, for lines without a unit)}]
+    bom:   (m, service, env_id) -> [usd, qty, cud1, cud3]
+    views: [payg, cud1, cud3] ledgers keyed (m, service, item, region) - deltas are booked under item "_edit"
+    Costs scale with quantity x price; commitment discounts keep their ratio to the PAYG cost.
+    """
+    applied = []
+    for o in overrides or []:
+        svc, env = o.get("service"), o.get("environment") or "*"
+        keys = [k for k in bom if k[1] == svc and (env == "*" or k[2] == env)]
+        if not keys:
+            continue
+        envs = sorted({k[2] for k in keys})
+        for env_id in envs:
+            rows = {k[0]: bom[k] for k in keys if k[2] == env_id}
+            y1 = sum(v[0] for m, v in rows.items() if m <= 12)
+            qy1 = sum(v[1] for m, v in rows.items() if m <= 12)
+            q12 = rows.get(months_ref, [0.0, 0.0])[1]
+            u12 = rows.get(months_ref, [0.0])[0]
+            qf = pf = 1.0
+            if o.get("qty") not in (None, "") and q12 > 0:
+                qf = max(0.0, float(o["qty"])) / q12
+            if o.get("unit_price") not in (None, "") and qy1 > 0 and y1 > 0:
+                pf = max(0.0, float(o["unit_price"])) / (y1 / qy1)
+            if o.get("monthly") not in (None, "") and u12 > 0 and not (qy1 > 0):
+                pf = max(0.0, float(o["monthly"])) / u12
+            f = qf * pf
+            if abs(f - 1) < 1e-12:
+                continue
+            rid = region_of.get(svc, default_region)
+            for m, v in rows.items():
+                deltas = (v[0] * (f - 1), v[2] * (f - 1), v[3] * (f - 1))
+                v[0] += deltas[0]
+                v[1] *= qf
+                v[2] += deltas[1]
+                v[3] += deltas[2]
+                for view, d in zip(views, deltas):
+                    view[(m, svc, "_edit", rid)] += d
+            applied.append({"service": svc, "environment": env_id, "qty_factor": round(qf, 6), "price_factor": round(pf, 6)})
+    return applied

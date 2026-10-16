@@ -6,6 +6,7 @@ import { fmtGB } from "./cost.js";
 import { changed } from "./events.js";
 import { compMeta } from "./pricing.js";
 import { flowClass, freqName, recFor, tool } from "./render.js";
+import { iconSvg, productIcon, sourceIconKey } from "./icons.js";
 
 // ---------------- architecture diagram
 export const INTEGRATION_CATS = new Set(["api", "saas_other", "saas_salesforce", "sap"]);
@@ -181,15 +182,20 @@ export function renderDiagram() {
 
   const curve = (x1, y1, x2, y2) => { const dx = (x2 - x1) / 2; return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`; };
   let edges = "", nodes = "", over = "";
-  const node = (x, y, w, title, sub, cls = "", attrs = "", tag = "", h = nodeH) => {
-    const ft = fitText(title, w - 24 - (tag ? 56 : 0), 12.5, 11, 500);
-    const fs = sub ? fitText(sub, w - 24, 11, 10, 400) : null;
+  const node = (x, y, w, title, sub, cls = "", attrs = "", tag = "", h = nodeH, icon = "") => {
+    const ix = icon ? 30 : 0;
+    const ft = fitText(title, w - 24 - ix - (tag ? 56 : 0), 12.5, 11, 500);
+    const fs = sub ? fitText(sub, w - 24 - ix, 11, 10, 400) : null;
     const full = sub ? `${title} - ${sub}` : title;
     return `<g class="dg-node ${cls}" ${attrs}><title>${esc(full)}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"/>
-      <text x="${x + 12}" y="${y + (sub ? 20 : 29)}"${ft.fs !== 12.5 ? ` style="font-size:${ft.fs}px"` : ""}>${esc(ft.t)}</text>
-      ${fs ? `<text class="sub" x="${x + 12}" y="${y + 37}"${fs.fs !== 11 ? ` style="font-size:${fs.fs}px"` : ""}>${esc(fs.t)}</text>` : ""}
+      ${icon ? `<g class="dg-ico">${icon(x + 10, y + h / 2 - 10)}</g>` : ""}
+      <text x="${x + 12 + ix}" y="${y + (sub ? 20 : 29)}"${ft.fs !== 12.5 ? ` style="font-size:${ft.fs}px"` : ""}>${esc(ft.t)}</text>
+      ${fs ? `<text class="sub" x="${x + 12 + ix}" y="${y + 37}"${fs.fs !== 11 ? ` style="font-size:${fs.fs}px"` : ""}>${esc(fs.t)}</text>` : ""}
       ${tag ? `<text class="tag" x="${x + w - 10}" y="${y + 17}" text-anchor="end">${esc(tag)}</text>` : ""}</g>`;
   };
+  const pi = (id) => (X, Y) => productIcon(X, Y, 20, id);
+  const si = (glyph) => (X, Y) => iconSvg(X, Y, 20, glyph, "");
+  const srcCat = (s) => S.catalog.source_types.find((t) => t.id === (s.type === "custom" ? s.like_type : s.type))?.category || "custom";
   const crossesRaw = (y1, y2) => rawPos && Math.max(y1, y2) > rawPos.y - 4 && Math.min(y1, y2) < rawPos.y + rawPos.h + 4;
 
   // 6. sources and their flows
@@ -200,7 +206,7 @@ export function renderDiagram() {
     const iotOpt = o.s.type === "iot" ? S.catalog.iot_options.find((x) => x.id === (o.s.iot_option || "native")) : null;
     const sub = off ? "Later phase - not in this estimate" : `${freqName(o.s.frequency)} · ${fmtGB(o.s.daily_change_gb)}/day${reg}`;
     nodes += node(o.x, o.y, cw.src, o.s.name, iotOpt && !off ? `${iotOpt.vendor === "partner" ? "ISV" : "Native"} IoT · ${fmtGB(o.s.daily_change_gb)}/day` : sub,
-      `src clickable${off ? " excluded" : ""}`, `data-src="${esc(o.s.id)}" data-drop="sources" tabindex="0" role="button" aria-label="Edit ${esc(o.s.name)}"`);
+      `src clickable${off ? " excluded" : ""}`, `data-src="${esc(o.s.id)}" data-drop="sources" tabindex="0" role="button" aria-label="Edit ${esc(o.s.name)}"`, "", nodeH, si(sourceIconKey(srcCat(o.s))));
     if (!o.r) return;
     let x = o.x + cw.src, y = o.my;
     const seg = (x2, y2, cls = fc) => { edges += `<path class="dg-edge ${cls}" d="${curve(x, y, x2, y2)}"/>`; };
@@ -221,22 +227,23 @@ export function renderDiagram() {
     const d = `<path class="dg-edge ${fc}" d="${curve(x, y, tx, ty)}"/>`;
     if (!o.raw && !o.proc && crossesRaw(y, ty)) over += d; else edges += d;  // CDC / streaming bypass the raw zone
   });
-  if (connSrc.length) nodes += node(col.conn, hopY.conn, cw.conn, tool(plat.connectivity).name.replace("Cloud ", ""), "Private link", "");
-  if (apiSrc.length) nodes += node(col.conn, hopY.api, cw.conn, "Apigee", "Integration layer", "comp clickable google integration", `data-comp="${esc(apigee.c.id)}" data-dragmode="apigee" tabindex="0" role="button" aria-label="Configure Apigee"`);
+  if (connSrc.length) nodes += node(col.conn, hopY.conn, cw.conn, tool(plat.connectivity).name.replace("Cloud ", ""), "Private link", "", "", "", nodeH, pi(plat.connectivity));
+  if (apiSrc.length) nodes += node(col.conn, hopY.api, cw.conn, "Apigee", "Integration layer", "comp clickable google integration", `data-comp="${esc(apigee.c.id)}" data-dragmode="apigee" tabindex="0" role="button" aria-label="Configure Apigee"`, "", nodeH, pi("apigee"));
   ingKeys.forEach((k) => {
     const [t, sub] = short(k);
     const partner = ["litmus", "clearblade"].includes(k);
-    nodes += node(col.ing, ingY[k], cw.ing, t, sub || "Ingest", partner ? "partner" : "ing", `data-drop="sources"`);
+    nodes += node(col.ing, ingY[k], cw.ing, t, sub || "Ingest", partner ? "partner" : "ing", `data-drop="sources"`, "", nodeH, pi(k));
   });
   procKeys.forEach((k) => {
     const ids = k.split(">");
     const [t, sub] = short(ids[ids.length - 1]);
-    nodes += node(procX, procY[k], cw.proc, t, ids.length > 1 ? "after " + ids.slice(0, -1).map((i) => short(i)[0]).join(", ") : sub || "Process", "proc");
+    nodes += node(procX, procY[k], cw.proc, t, ids.length > 1 ? "after " + ids.slice(0, -1).map((i) => short(i)[0]).join(", ") : sub || "Process", "proc", "", "", nodeH, pi(ids[ids.length - 1]));
   });
   if (rawPos) {
     const cls = S.catalog.storage_classes.find((c) => c.id === lake.raw_storage_class)?.name.split(" (")[0] || lake.raw_storage_class;
     const lines = [`${cls} · ${lake.raw_retention_months} months`, `${fmtGB(lake.raw_gib_month12)} at M12`, "Immutable source extracts"];
     nodes += `<g class="dg-node raw clickable" data-lake="1" tabindex="0" role="button" aria-label="Configure the raw zone"><title>Cloud Storage raw zone - immutable copies of batch extracts and files, replayable into BigQuery</title><rect x="${rawPos.x}" y="${rawPos.y}" width="${cw.raw}" height="${rawPos.h}" rx="8"/>
+      <g class="dg-ico">${productIcon(rawPos.x + cw.raw - 28, rawPos.y + 8, 18, "gcs_raw")}</g>
       <text x="${rawPos.x + 10}" y="${rawPos.y + 20}" style="font-weight:700">Raw zone</text>
       <text class="sub" x="${rawPos.x + 10}" y="${rawPos.y + 36}">Cloud Storage</text>
       ${lines.slice(0, rawPos.h >= 100 ? 3 : 2).map((l, i) => { const f = fitText(l, cw.raw - 18, 11, 9.5, 400); return `<text class="sub" x="${rawPos.x + 10}" y="${rawPos.y + 52 + i * 15}" style="font-size:${f.fs}px">${esc(f.t)}</text>`; }).join("")}</g>`;
@@ -254,15 +261,17 @@ export function renderDiagram() {
   const chipY = bandY + (lake.layers || []).length * (bandH + 4) + 10;
   const chipH = Math.min(24, Math.max(18, (bqY + bqH - 34 - chipY) / inside.length - 4));
   inside.splice(Math.max(0, Math.floor((bqY + bqH - 30 - chipY) / (chipH + 4))));
-  if (hasLake) nodes += node(lakePos.x, lakePos.y, cw.bq, "Cloud Storage data lake", `Target · ${fmtGB(plat.data_lake_gib_month12 || 0)} at M12 · BigLake`, "raw", "");
-  if (hasOpdb) nodes += node(opdbPos.x, opdbPos.y, cw.bq, "AlloyDB / Cloud SQL", "Target · operational database (DMS)", "comp google database", "");
+  if (hasLake) nodes += node(lakePos.x, lakePos.y, cw.bq, "Cloud Storage data lake", `Target · ${fmtGB(plat.data_lake_gib_month12 || 0)} at M12 · BigLake`, "raw", "", "", nodeH, pi("gcs_lake"));
+  if (hasOpdb) nodes += node(opdbPos.x, opdbPos.y, cw.bq, "AlloyDB / Cloud SQL", "Target · operational database (DMS)", "comp google database", "", "", nodeH, pi("op_db"));
   const bqFoot = fitText(bqModelName(), cw.bq - 28, 11, 9.5, 400);
+  const bqSub = fitText(`${S.result.region.id} · medallion lakehouse · month 12`, cw.bq - 54, 11, 9.5, 400);
   if (!hasBQ) nodes += `<g class="dg-node bq-empty" data-drop="bigquery"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
     <text x="${col.bq + cw.bq / 2}" y="${bqY + bqH / 2 - 8}" text-anchor="middle">No source targets the</text>
     <text x="${col.bq + cw.bq / 2}" y="${bqY + bqH / 2 + 10}" text-anchor="middle">BigQuery data platform yet</text></g>`;
   else nodes += `<g class="dg-node bq" data-drop="bigquery"><title>BigQuery lakehouse in ${esc(S.result.region.name || S.result.region.id)} - ${esc(bqModelName())}</title><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
-    <text x="${col.bq + 14}" y="${bqY + 26}" style="font-weight:700">BigQuery</text>
-    <text class="sub" x="${col.bq + 14}" y="${bqY + 44}">${esc(S.result.region.id)} · medallion lakehouse</text>
+    <g class="dg-ico">${productIcon(col.bq + 12, bqY + 10, 22, "bigquery")}</g>
+    <text x="${col.bq + 42}" y="${bqY + 26}" style="font-weight:700">BigQuery</text>
+    <text class="sub" x="${col.bq + 42}" y="${bqY + 44}" style="font-size:${bqSub.fs}px">${esc(bqSub.t)}</text>
     ${layers}
     ${inside.map((t, i) => { const f = fitText(t, cw.bq - 44, 11.5, 10, 500); return `<g class="bq-chip"><rect x="${col.bq + 12}" y="${chipY + i * (chipH + 4)}" width="${cw.bq - 24}" height="${chipH}" rx="5"/><text x="${col.bq + 22}" y="${chipY + i * (chipH + 4) + chipH / 2 + 4}" style="font-size:${f.fs}px">${esc(f.t)}</text></g>`; }).join("")}
     <text class="sub" x="${col.bq + 14}" y="${bqY + bqH - 12}" style="font-size:${bqFoot.fs}px">${esc(bqFoot.t)}</text></g>`;
@@ -295,7 +304,7 @@ export function renderDiagram() {
       if (c.type === "agent_platform") attrs += ` data-drop="agents"`;
       if (c.type === "gemini_enterprise") attrs += ` data-dragmode="gemini_enterprise"`;
       if (c.type === "apigee") attrs += ` data-dragmode="apigee"`;
-      nodes += node(col.out, y, cw.out, m.name.replace("Agent Platform (Vertex AI) data agents", "Agent Platform data agents"), sub, cls, attrs, m.vendor === "partner" ? "Partner" : "");
+      nodes += node(col.out, y, cw.out, m.name.replace("Agent Platform (Vertex AI) data agents", "Agent Platform data agents"), sub, cls, attrs, m.vendor === "partner" ? "Partner" : "", nodeH, pi(c.type));
       if (!(c.type in pos)) pos[c.type] = y;
       y += step;
     });
@@ -319,12 +328,12 @@ export function renderDiagram() {
   {
     const have = new Set(comps.map((x) => x.c.type));
     const chips = govComps.map(({ c, m }) => ({ t: m.name, s: c.included === false ? "Not priced" : m.category === "security" ? "Security & compliance" : m.vendor === "partner" ? "Partner catalog" : "Lineage, quality, glossary",
-      cls: `gov clickable ${m.vendor} ${m.category}${c.included === false ? " excluded" : ""}`, attrs: `data-comp="${esc(c.id)}" tabindex="0" role="button" aria-label="Configure ${esc(m.name)}"`, tag: m.vendor === "partner" ? "Partner" : "" }));
+      cls: `gov clickable ${m.vendor} ${m.category}${c.included === false ? " excluded" : ""}`, attrs: `data-comp="${esc(c.id)}" tabindex="0" role="button" aria-label="Configure ${esc(m.name)}"`, tag: m.vendor === "partner" ? "Partner" : "", icon: pi(c.type) }));
     RECOMMENDED_CONTROLS.filter((t) => !have.has(t) && compMeta(t)).forEach((t) => chips.push({ t: "+ " + compMeta(t).name, s: "Recommended - click to add", cls: "gov ghost clickable", attrs: `data-addcomp="${t}" tabindex="0" role="button" aria-label="Add ${esc(compMeta(t).name)}"`, tag: "" }));
     band = `<g class="dg-band"><rect x="16" y="${by}" width="${W - 32}" height="${bh}" rx="12"/>
       <text class="band-title" x="30" y="${by + 20}">Governance & security across every layer</text></g>`;
     const cw2 = Math.min(230, (W - 48 - (chips.length - 1) * 8) / Math.max(1, chips.length));
-    chips.forEach((ch, i) => { band += node(30 + i * (cw2 + 8), by + 28, cw2, ch.t, ch.s, ch.cls, ch.attrs, ch.tag); });
+    chips.forEach((ch, i) => { band += node(30 + i * (cw2 + 8), by + 28, cw2, ch.t, ch.s, ch.cls, ch.attrs, ch.tag, nodeH, cw2 >= 150 ? ch.icon || "" : ""); });
     edges += `<path class="dg-edge plain" stroke-dasharray="3 4" d="M${col.bq + cw.bq / 2},${bqY + bqH + (extraH ? extraH : 0)} L${col.bq + cw.bq / 2},${by}"/>`;
   }
   // 10. platform foundation band (enterprise landing zone - not separately priced)
@@ -334,7 +343,8 @@ export function renderDiagram() {
       <text class="band-title" x="30" y="${fy + 20}">Platform foundation & operations</text>
       <text class="band-note" x="${W - 30}" y="${fy + 20}" text-anchor="end">Enterprise landing-zone practice · not separately priced</text></g>`;
     const cw3 = (W - 48 - (FOUNDATION.length - 1) * 8) / FOUNDATION.length;
-    FOUNDATION.forEach(([t, s], i) => { band += node(30 + i * (cw3 + 8), fy + 28, cw3, t, s, "found", "", "", 44); });
+    const FG = ["layers", "people", "gear", "monitor", "shield", "chart"];
+    FOUNDATION.forEach(([t, s], i) => { band += node(30 + i * (cw3 + 8), fy + 28, cw3, t, s, "found", "", "", 44, si(FG[i])); });
   }
   // 11. legend
   const ly = fy + fh + 22;
@@ -349,6 +359,7 @@ export function renderDiagram() {
     [consume.length ? S.catalog.component_categories.find((k) => k.id === consume[0].m.category).name : "Consumers", col.out]].filter(Boolean);
   const headSvg = heads.map(([t, x]) => `<text class="dg-col-title" x="${x}" y="22">${esc(t)}</text>`).join("");
 
+  renderArchInventory();
   host.innerHTML = `<svg id="archSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Target data and AI architecture on Google Cloud" xmlns="http://www.w3.org/2000/svg">${headSvg}${edges}${band}${nodes}${over}${legendSvg}</svg>`;
   $("#canvasTip").hidden = !(ge || apigee);
 }
@@ -431,3 +442,63 @@ export function bqModelName() {
 }
 
 export function clip(s, n) { s = String(s); n = Math.floor(n); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+// ---------------- every product in the architecture (ingestion, storage, platform, consumption, governance)
+export function archInventory() {
+  const r = S.result;
+  if (!r) return { groups: [], google: 0, partner: 0, total: 0 };
+  const recs = r.recommendations || [];
+  const plat = r.platform || {};
+  const lake = plat.lakehouse || {};
+  const targets = new Set(recs.map((x) => x.target || "data_platform"));
+  const add = (map, id, name, vendor = "google", priced = true) => { if (!map.has(name)) map.set(name, { id, name, vendor, priced }); };
+  const G = { conn: new Map(), ing: new Map(), store: new Map(), plat: new Map(), use: new Map(), gov: new Map(), found: new Map() };
+  if (recs.some((x) => x.needs_connectivity) && plat.connectivity) add(G.conn, plat.connectivity, tool(plat.connectivity).name);
+  recs.forEach((x) => x.chain.forEach((t) => {
+    if (t === "gcs_lake" || t === "op_db" || (lake.raw_zone && LAND_TOOLS.has(t))) return;
+    const partner = ["litmus", "clearblade"].includes(t);
+    add(G.ing, t, tool(t).name, partner ? "partner" : "google", !partner);
+  }));
+  if (targets.has("data_platform")) add(G.store, "bigquery", "BigQuery (bronze, silver, gold)");
+  if (lake.raw_zone) add(G.store, "gcs_raw", "Cloud Storage - raw zone");
+  if (targets.has("data_lake")) add(G.store, "gcs_lake", "Cloud Storage - data lake");
+  if (targets.has("operational_db")) add(G.store, "op_db", "AlloyDB / Cloud SQL (target)");
+  if (targets.has("data_platform")) add(G.plat, "dataform", "Dataform");
+  const orch = plat.orchestration?.tool;
+  if (orch && orch !== "none") add(G.plat, orch, orch === "composer" ? "Cloud Composer" : "Workflows + Cloud Scheduler");
+  if (plat.datafusion_edition) add(G.plat, "datafusion", "Cloud Data Fusion instance");
+  S.scenario.components.forEach((c) => {
+    const m = compMeta(c.type);
+    if (!m) return;
+    const g = ["governance", "security"].includes(m.category) ? G.gov : G.use;
+    add(g, c.type, m.name, m.vendor, m.costed && c.included !== false);
+  });
+  [["logging", "Cloud Logging"], ["monitoring", "Cloud Monitoring"], ["iam", "IAM & Workload Identity"], ["build", "Cloud Build (CI/CD)"], ["secret", "Secret Manager"]]
+    .forEach(([id, n]) => add(G.found, id, n, "google", false));
+  const groups = [["Connectivity", G.conn], ["Ingestion & processing", G.ing], ["Storage & lakehouse", G.store], ["Transformation & orchestration", G.plat],
+    ["Analytics, AI, APIs & databases", G.use], ["Governance & security", G.gov], ["Platform foundation (not separately priced)", G.found]]
+    .map(([name, m]) => ({ name, items: [...m.values()] })).filter((g) => g.items.length);
+  const all = groups.flatMap((g) => g.items);
+  return { groups, total: all.length, google: all.filter((x) => x.vendor === "google").length, partner: all.filter((x) => x.vendor !== "google").length,
+    priced: all.filter((x) => x.priced).length };
+}
+
+function renderArchInventory() {
+  const host = $("#archProducts");
+  if (!host || !S.result) return;
+  const inv = archInventory();
+  const lake = S.result.platform?.lakehouse || {};
+  const recs = S.result.recommendations || [];
+  const dp = new Set(recs.filter((x) => (x.target || "data_platform") === "data_platform").map((x) => x.source_id));
+  const src = S.scenario.sources.filter((s) => s.included !== false && dp.has(s.id));
+  const init = src.reduce((a, s) => a + (+s.initial_volume_gb || 0), 0), daily = src.reduce((a, s) => a + (+s.daily_change_gb || 0), 0);
+  const L = Object.fromEntries((lake.layers || []).map((l) => [l.id, l]));
+  host.innerHTML = `<div class="inv-head"><h3>Products in this architecture <small class="muted">${inv.total} products · ${inv.google} Google Cloud · ${inv.partner} partner</small></h3></div>
+    <div class="inv-grid">${inv.groups.map((g) => `<div class="inv-group"><h4>${esc(g.name)} <small>${g.items.length}</small></h4><ul>${g.items.map((x) => `<li class="${x.vendor !== "google" ? "partner" : ""}">${esc(x.name)}${x.vendor !== "google" ? ' <span class="tag">partner</span>' : ""}</li>`).join("")}</ul></div>`).join("")}</div>
+    ${L.bronze ? `<details class="vol-explain"><summary>How the bronze, silver and gold sizes are calculated</summary>
+      <ul><li><b>Bronze ${esc(fmtGB(L.bronze.gib_month12))}</b> = everything landed in BigQuery by month 12 from the ${src.length} data-platform source${src.length === 1 ? "" : "s"}: initial loads (${esc(fmtGB(init))}) plus the daily change (${esc(fmtGB(daily))}/day) for each month a source has been live, grown by ${+S.scenario.annual_growth_pct}% a year, and compressed as BigQuery stores it.</li>
+      <li><b>Silver ${esc(fmtGB(L.silver?.gib_month12 || 0))}</b> = bronze × ${+(L.silver?.pct || 0)}% - cleansed, de-duplicated and conformed tables.</li>
+      <li><b>Gold ${esc(fmtGB(L.gold?.gib_month12 || 0))}</b> = bronze × ${+(L.gold?.pct || 0)}% - curated marts and semantic models for BI and AI.</li>
+      ${lake.raw_zone ? `<li><b>Raw zone ${esc(fmtGB(lake.raw_gib_month12 || 0))}</b> = files and batch extracts kept for ${lake.raw_retention_months} months in Cloud Storage ${esc(lake.raw_storage_class)}.</li>` : ""}
+      <li>Change the silver and gold shares, retention and storage class in <b>Settings › Lakehouse layers</b>; change volumes on each source.</li></ul></details>` : ""}`;
+}

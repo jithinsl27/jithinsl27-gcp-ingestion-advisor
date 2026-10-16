@@ -174,7 +174,7 @@ export function renderBqDialog() {
     </div>`;
 }
 
-function profileSvg(r) {
+export function profileSvg(r) {
   const W = 560, H = 190, L = 44, Rr = 8, T = 10, B = 24;
   const prof = r.profile || [];
   const base = isEditions() ? r.baseline : r.auto_baseline, max = isEditions() ? r.max : r.auto_max;

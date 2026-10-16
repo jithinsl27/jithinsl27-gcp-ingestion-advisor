@@ -110,6 +110,12 @@ Custom sources (*Other - not in this list*) are priced as the type chosen in *Tr
 
 Plans are computed from the monthly cost of every product line and environment (`product_months`), in three prices: pay-as-you-go, 1-year and 3-year committed-use (only commitment-eligible lines - BigQuery edition baselines, Cloud SQL / AlloyDB, Spanner, Compute Engine, GKE … - get the discount). *PAYG 1 year* and *1-year commitment* sum months 1-12; *3-year commitment* and *PAYG 3 years* sum months 1-36 and are split by year. *With ramp-up plan* uses the roadmap's go-live months; *Full scope from month 1* uses the steady-state estimate.
 
+Each plan has its own BigQuery baseline per environment (below), so the pay-as-you-go, 1-year and 3-year figures each use the reservation that is cheapest under that plan.
+
+### Bill-of-materials edits
+
+An edit sets a service's **quantity per month** (month 12) and / or **unit price** in one environment. The engine scales that line in every month by `new qty / calculated qty × new price / calculated price` (commitment prices keep their ratio to the PAYG price; lines without a unit take a monthly cost). Contingency, negotiated discount and support are applied after the edits. Charge-back price books use the same mechanism with one price per service for all environments.
+
 ## Environments
 
 The scenario describes the primary environment. Each additional environment adds a copy of every service line scaled by one factor: storage, Cloud Storage and initial loads by *data %*; CDC, pipelines, streaming, Write API and transfer by *ingestion %*; on-demand BigQuery compute by *compute %*; BI, Gemini Enterprise, agents and GPU endpoints by *AI %*; Apigee and operational databases by *apps %*; orchestration, Data Fusion, governance and security by *platform %*. Services billed while running (streaming Dataflow, Composer, Data Fusion instance, VMs, Integration Connectors nodes, GPU endpoints, Agent Engine, Apigee environment, AlloyDB, Cloud SQL, Spanner, Bigtable, Memorystore) are further multiplied by *running hours %* (hours per week ÷ 168). HA VPN / Interconnect and the Looker licence are shared (factor 0). Contingency applies to the total.
@@ -131,7 +137,7 @@ Every line item carries a quantity in its billing unit (GiB, TiB scanned, slot-h
 
 ## BigQuery slot sizing
 
-The same model serves the estimate and the Workload sizing tab (`app/slots.py`). Max (auto) = max(busiest hour, heavy / ad-hoc query burst to finish within the target minutes) rounded up to 50 slots. The baseline (auto) is chosen from 0 … max in 50-slot steps to minimise `baseline × 730 × 1-year commit price + autoscaled slot-hours × pay-as-you-go price`. Standard edition: no baseline or commitments, 1,600-slot maximum. The edition comparison shows on-demand and each edition at its own auto-sized baseline / max for all three pricing options; editions are recommended only when at least 10 % cheaper than on-demand (with a 1-year commitment).
+The same model serves the estimate and the Workload page (`app/slots.py`). **Slot rules: a reservation baseline or capacity commitment is 0 or at least 100 slots, then steps of 50; the max is at least 100 slots in steps of 50; autoscaling adds 50-slot steps and is billed pay as you go.** Max (auto) = max(busiest hour, heavy / ad-hoc query burst to finish within the target minutes) rounded up under these rules. The baseline is chosen **per plan** from 0, 100, 150 … max to minimise `baseline × 730 × plan rate + autoscaled slot-hours × pay-as-you-go rate` (plan rate = PAYG, 1-year or 3-year commitment price). Other environments scale production by their *compute %* (baseline only when running full time) and round with the same rules; architect overrides below 100 become 100. The page shows each environment's average and busiest-hour demand, the per-plan baseline / commitment, max and monthly cost, the whole-project totals, and what a 100-slot commitment would cost where none is recommended. Standard edition: no baseline or commitments, 1,600-slot maximum. The edition comparison shows on-demand and each edition at its own auto-sized baseline / max for all three pricing options; editions are recommended only when at least 10 % cheaper than on-demand (with a 1-year commitment).
 
 ## Regions
 

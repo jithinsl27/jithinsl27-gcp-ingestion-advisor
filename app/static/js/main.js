@@ -3,6 +3,8 @@ import { S } from "./state.js";
 import { $, $$, api, clone, esc, toast } from "./core.js";
 import { bindEvents, menu, scheduleEstimate } from "./events.js";
 import { bindGoogleExport, loadServerConfig } from "./exports.js";
+import { initIdentity } from "./identity.js";
+import { loadIconManifest } from "./icons.js";
 import { renderAll } from "./render.js";
 import { bindBq } from "./bigquery.js";
 import { bindNotices } from "./notices.js";
@@ -15,7 +17,7 @@ import { showModule } from "./modules.js";
 // ------------------------------------------------------------------ boot
 export async function boot() {
   try {
-    [S.catalog, S.config] = await Promise.all([api.catalog(), api.config().catch(() => ({}))]);
+    [S.catalog, S.config] = await Promise.all([api.catalog(), api.config().catch(() => ({})), loadIconManifest()]);
   } catch (e) {
     toast(`Could not load the catalog: ${e.message}`, 8000);
     return;
@@ -52,6 +54,7 @@ export async function boot() {
   renderAll();
   scheduleEstimate(0);
   initAccount();
+  initIdentity();
 }
 
 export function opt(list, sel) {

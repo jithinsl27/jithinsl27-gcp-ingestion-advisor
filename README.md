@@ -24,6 +24,11 @@
 - **module-by-module workspace**: a left-hand navigation (Overview, Source systems, Architecture, Ingestion patterns, Platform, Pricing, Environments, Workload, Roadmap, Proposal, Settings) where every module opens with its key insights;
 - **commercial pricing plans for the whole programme**: *Pay as you go - 1 year* with the monthly ramp-up, *1-year commitment* and *3-year commitment* (year 1 / 2 / 3), each with product, unit, quantity, unit price and a month × product matrix (cost or quantity), downloadable as CSV;
 - **a target per source**: data platform (BigQuery bronze / silver / gold), data lake (Cloud Storage) or operational database (AlloyDB / Cloud SQL via Database Migration Service) - and **any product not in the list** by name, treated like the nearest known type;
+- **three commercial plans with the specification per environment**: pay as you go 1 year, 1-year commitment and 3-year commitment (year 1 / 2 / 3), each with BigQuery baseline / commitment and max slots per environment (100-slot minimum, steps of 50), products, quantities and prices; click the total for the **editable bill of materials** (quantity and unit price, region) - edits recalculate the whole app;
+- **top 5 use cases** recommended from the customer's data, plus the customer's own list;
+- **Workload and BigQuery slots** pages written for business users - the workload drives BigQuery sizing and every plan;
+- **charge-back**: upload the negotiated price sheet (Excel, CSV, Google Sheets link, PDF or scanned image read by Gemini) and price any department's request - sources, pipelines, reports, AI use cases - with a ledger per department;
+- **usage tracking**: name and email on the first visit, Cloud Logging for every call and an admin usage page;
 - **kickoff readiness from the finalised architecture**: a customer / partner checklist (CDC prerequisites, connectivity lead times, security controls, AI evaluation sets …), milestones with exit criteria, and the recommended team size and skills;
 - **enterprise-standard architecture diagram**: medallion flow with raw zone, crossing-free layout, recommended governance controls, a platform-foundation band and a legend; AI components default to **Gemini 3.8 Flash**;
 - **generates a customer proposal of up to 15 pages** as PDF, Word or Google Docs;

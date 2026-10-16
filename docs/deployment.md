@@ -95,7 +95,21 @@ Colleagues without Google Cloud console access can use the app straight from its
 
    A **Feedback** button then appears in the header for every user.
 
+4. **Who used it** - the first visit asks for name and email. `deploy.sh` prints an **admin key**; open *Usage (admin)* in the app and enter it to see people and activity. It is kept across redeploys (pass `--admin-key` to set your own, `--feedback-url` to set the form). Request logs are in Cloud Logging: `jsonPayload.kind="compass_request"`. Set `IDENTITY_PROMPT=off` to stop asking for name and email.
+
 Saving to the cloud, sharing and Drive export still need Google sign-in (an OAuth client, see above); trial users can save and reopen scenarios as JSON files instead. To stop the trial, turn on `--private` or an allow-list (below).
+
+## Official product icons
+
+The diagram ships with its own icons. To show Google's official product icons instead:
+
+1. Download the Google Cloud icon pack (zip of SVGs) from https://cloud.google.com/icons and check its terms of use.
+2. In Cloud Shell, in the repository: `python3 tools/install_gcp_icons.py ~/google-cloud-icons.zip` - it copies the icons that match the products used by the tool into `app/static/icons/` and writes `manifest.json`.
+3. Redeploy (`./deploy.sh ...`). Products without a matching icon keep the built-in one.
+
+## Charge-back data
+
+The price book (Firestore `system/pricebook`) and charge-back requests (`chargeback` collection) are shared by everyone who opens the module. Reading PDFs and images uses Gemini on Vertex AI in the deployment's project (`GEMINI_MODEL`, default `gemini-3.8-flash`); Excel, CSV and Google Sheets links do not.
 
 ## Restricting access
 

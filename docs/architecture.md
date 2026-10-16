@@ -28,6 +28,9 @@
 │ workload.py      workload-based sizing + slot sizing                           │
 │ plan.py          ramp-up roadmap + ramped costs                                │
 │ readiness.py     kickoff checklist, milestones, team size & skills             │
+│ usecases.py      top 5 use cases from the sources in scope                     │
+│ chargeback.py    price book (Excel/CSV/Sheets/PDF/image) and department pricing│
+│ usage.py         request logs (Cloud Logging) and usage events, admin summary  │
 │ live_pricing.py  Cloud Billing Catalog → prices, regional uplift, availability │
 │ store.py         Firestore (or memory): scenarios, versions, sharing, cache    │
 │ assist.py        Gemini on Vertex AI (structured output) + spreadsheet import  │

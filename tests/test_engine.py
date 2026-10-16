@@ -495,3 +495,117 @@ def test_gemini_38_flash_is_the_default_agent_model():
     sc = {"region": "us-central1", "sources": [], "components": [{"id": "c1", "type": "agent_platform", "settings": {}}]}
     lines = [b["service"] for b in estimate(sc)["bom"]]
     assert any("Gemini 3.8 Flash tokens" in s for s in lines)
+
+
+# ---------------------------------------------------------------- v3: slot rules, plan specs, BOM edits, use cases, charge-back, usage
+from app import slots as SLT  # noqa: E402
+from app.chargeback import match_services, parse_price_sheet, price_request, template_rows  # noqa: E402
+
+
+def test_slot_rules_start_at_100_then_steps_of_50():
+    assert SLT.res_max(0) == 0 and SLT.res_max(1) == 100 and SLT.res_max(101) == 150 and SLT.res_max(260) == 300
+    assert SLT.res_baseline(99) == 0 and SLT.res_baseline(120) == 100 and SLT.res_baseline(180) == 150
+    assert SLT.snap_baseline(1) == 100 and SLT.snap_baseline(130) == 150 and SLT.snap_baseline(0) == 0
+
+
+@pytest.mark.parametrize("path", SAMPLES, ids=lambda p: p.stem)
+def test_bigquery_spec_per_environment_and_plan(path):
+    sc = json.loads(path.read_text())
+    sc = {**sc.get("scenario", sc), "bq": {"mode": "editions", "edition": "enterprise"}}
+    b = estimate(sc)["bigquery"]
+    assert len(b["env_specs"]) == len(sc.get("environments") or [1])
+    for e in b["env_specs"]:
+        for o in ("payg", "cud1", "cud3"):
+            x = e["by_option"][o]
+            assert x["baseline"] == 0 or (x["baseline"] >= 100 and x["baseline"] % 50 == 0)
+            assert x["max"] == 0 or (x["max"] >= 100 and x["max"] % 50 == 0)
+            assert x["baseline"] <= x["max"]
+        assert e["by_option"]["payg"]["commitment"] == 0
+        # the 3-year plan is never more expensive than the 1-year plan, which is never above pay as you go
+        assert e["by_option"]["cud3"]["monthly"] <= e["by_option"]["cud1"]["monthly"] + 0.01 <= e["by_option"]["payg"]["monthly"] + 0.02
+    t = b["project_totals"]
+    assert t["cud3"]["commitment"] == sum(e["by_option"]["cud3"]["commitment"] for e in b["env_specs"])
+
+
+def test_bom_edit_changes_quantity_cost_and_totals():
+    sc = json.loads(SAMPLES[0].read_text())
+    sc = sc.get("scenario", sc)
+    base = estimate(sc)
+    row = next(r for r in base["bom"] if r["service"] == "BigQuery storage")
+    edited = estimate({**sc, "bom_overrides": [{"service": "BigQuery storage", "environment": row["environment"], "qty": row["qty_month12"] * 2}]})
+    row2 = next(r for r in edited["bom"] if r["service"] == "BigQuery storage" and r["environment"] == row["environment"])
+    assert row2["edited"] and abs(row2["qty_month12"] - 2 * row["qty_month12"]) < 1
+    assert abs(row2["year1"] - 2 * row["year1"]) < 1
+    assert edited["totals"]["year1_payg"] > base["totals"]["year1_payg"]
+    priced = estimate({**sc, "bom_overrides": [{"service": "BigQuery storage", "environment": row["environment"], "unit_price": row["unit_price"] / 2}]})
+    row3 = next(r for r in priced["bom"] if r["service"] == "BigQuery storage" and r["environment"] == row["environment"])
+    assert abs(row3["year1"] - row["year1"] / 2) < 1 and abs(row3["qty_month12"] - row["qty_month12"]) < 0.01
+    assert row["region"]
+
+
+@pytest.mark.parametrize("path", SAMPLES, ids=lambda p: p.stem)
+def test_top_five_use_cases(path):
+    sc = json.loads(path.read_text())
+    ucs = estimate(sc.get("scenario", sc))["use_cases"]
+    assert 1 <= len(ucs) <= 5 and all(u["why"] for u in ucs)
+    assert [u["score"] for u in ucs] == sorted((u["score"] for u in ucs), reverse=True)
+
+
+def test_chargeback_uses_negotiated_prices():
+    req = {"department": "Marketing", "sources": [{"kind": "database_cdc", "count": 2, "daily_gb": 10, "history_gb": 400}],
+           "pipelines": {"simple": 4}, "reports": {"dashboards": 4, "users": 20, "bi_tool": "looker_studio_pro"}, "ai": {"use_cases": 1}}
+    base = price_request(req, None)
+    assert base["totals"]["monthly"] > 0 and not base["price_book_used"]
+    assert not any(l["service"].startswith("Network") for l in base["lines"])          # shared items paid centrally
+    book = {"items": [{"service": l["service"], "unit": l["unit"], "price": l["unit_price"] * 0.5} for l in base["lines"] if l["unit_price"]]}
+    disc = price_request(req, book)
+    assert disc["price_book_used"] and disc["totals"]["monthly"] < base["totals"]["monthly"] * 0.6
+    assert abs(disc["totals"]["saving_monthly"] - (base["totals"]["monthly"] - disc["totals"]["monthly"])) < 1
+
+
+def test_price_sheet_parsing_and_matching():
+    known = template_rows("us-central1")
+    assert {"service", "unit", "list_price"} <= set(known[0])
+    rows = [["Quote 2026"], [], ["Service", "Unit", "List price", "Negotiated price"], ["Datastream CDC", "GiB", "2", "1.6"], ["BigQuery storage", "GiB-months", "", "$0.015"]]
+    items = match_services(parse_price_sheet(rows), known)
+    ds = next(i for i in items if i["source_name"] == "Datastream CDC")
+    assert ds["service"] == "Datastream (CDC)" and ds["price"] == 1.6 and ds["match"] == "closest"
+    assert next(i for i in items if i["source_name"] == "BigQuery storage")["price"] == 0.015
+    with pytest.raises(ValueError):
+        parse_price_sheet([["Name", "Cost"], ["x", "1"]])
+
+
+def test_chargeback_and_usage_api():
+    h = {"X-Compass-User": "Test User", "X-Compass-Email": "test@example.com"}
+    csv_ = "Service,Unit,List price,Negotiated price\nDatastream (CDC),GiB,2,1\n"
+    r = client.post("/api/chargeback/pricebook/extract", files={"file": ("p.csv", csv_)}, headers=h)
+    assert r.status_code == 200 and any(i["price"] == 1 for i in r.json()["items"])
+    assert client.post("/api/chargeback/pricebook/extract", files={"file": ("p.docx", b"x")}).status_code == 422
+    items = [i for i in r.json()["items"] if i["service"]]
+    assert client.put("/api/chargeback/pricebook", json={"region": "us-central1", "items": items}, headers=h).status_code == 200
+    req = {"department": "Finance", "title": "Board pack", "sources": [{"kind": "database_cdc", "count": 1, "daily_gb": 5, "history_gb": 100}]}
+    saved = client.post("/api/chargeback/requests", json=req, headers=h).json()
+    assert saved["department"] == "Finance" and saved["created_by"] == "test@example.com"
+    assert any(x["id"] == saved["id"] for x in client.get("/api/chargeback/requests").json())
+    assert client.delete(f"/api/chargeback/requests/{saved['id']}").status_code == 200
+    client.post("/api/usage/event", json={"action": "module opened", "detail": "pricing"}, headers=h)
+    u = client.get("/api/admin/usage").json()                 # open locally (no ADMIN_KEY)
+    assert any(x["email"] == "test@example.com" for x in u["users"])
+    assert "text/csv" in client.get("/api/chargeback/template?format=csv").headers["content-type"]
+
+
+def test_admin_usage_needs_the_key(monkeypatch):
+    monkeypatch.setenv("ADMIN_KEY", "s3cret")
+    assert client.get("/api/admin/usage").status_code == 403
+    assert client.get("/api/admin/usage", headers={"X-Admin-Key": "s3cret"}).status_code == 200
+
+
+def test_price_sheet_pdf_text_fallback_and_bad_files():
+    from app import chargeback as CB
+    known = [{"service": "Datastream (CDC)", "unit": "GiB", "list_price": 2.0}, {"service": "BigQuery storage", "unit": "GiB-months", "list_price": 0.02}]
+    got = CB.match_text("Quote 2026\nDatastream (CDC)   per GiB   list $2.00   negotiated $1.40\nOther line 5", known)
+    assert got == [{"service": "Datastream (CDC)", "unit": "GiB", "list_price": 2.0, "price": 1.4}]
+    with pytest.raises(ValueError):
+        CB.read_price_file("quote.docx", b"x", known, None)
+    with pytest.raises(ValueError):
+        CB.google_sheet_rows("https://example.com/not-a-sheet")

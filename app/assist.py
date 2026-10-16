@@ -91,7 +91,10 @@ def read_table(filename: str, data: bytes) -> list[list]:
         return [[c for c in row] for row in ws.iter_rows(values_only=True)][:2000]
     if name.endswith((".csv", ".txt", ".tsv")):
         text = data.decode("utf-8-sig", errors="replace")
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t") if text.strip() else csv.excel
+        try:
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t") if text.strip() else csv.excel
+        except csv.Error:
+            dialect = csv.excel
         return [r for r in csv.reader(io.StringIO(text), dialect)][:2000]
     raise HTTPException(status_code=415, detail="Upload a .csv or .xlsx file")
 
