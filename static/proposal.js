@@ -25,7 +25,7 @@
     { id: "monthly", name: "Monthly consumption & ramp-up" },
     { id: "roadmap", name: "Delivery roadmap" },
     { id: "assumptions", name: "Assumptions, risks & dependencies" },
-    { id: "next", name: "Next steps" },
+    { id: "next", name: "Kickoff readiness, team & next steps" },
   ];
   const PLAN_KEY = { payg_1y: "payg", commit_1y: "cud1", commit_3y: "cud3", payg_3y: "payg" };
   const sum = (a, lo = 0, hi = a.length) => a.slice(lo, hi).reduce((x, y) => x + y, 0);
@@ -46,7 +46,7 @@
     const sl = wl?.slots;
     const pages = [];
     const on = (id) => opts.sections.includes(id);
-    const page = (id, title, blocks) => { if (on(id)) pages.push({ id, title, blocks }); };
+    const page = (id, title, blocks) => { if (on(id)) pages.push({ id, title, blocks: blocks.filter(Boolean) }); };
 
     // 1 cover
     page("cover", "", [{ type: "cover", customer, title: opts.title || "Data & AI platform on Google Cloud",
@@ -188,7 +188,8 @@
     const gantt = await ctx.diagramPng("#roadmapBody .gantt-wrap svg", 1000);
     page("roadmap", "Delivery roadmap", plan ? [
       gantt ? { type: "img", data: gantt.dataUrl, w: gantt.w, h: gantt.h, bytes: gantt.bytes, maxH: 0.55 } : null,
-      { type: "table", head: ["Milestone", "Month"], widths: [70, 30], rows: plan.milestones.map((x) => [x.name, `Month ${x.month}`]) },
+      plan.readiness ? { type: "table", small: true, head: ["Month", "Milestone", "Exit criteria"], widths: [14, 26, 60], rows: plan.readiness.milestones.map((x) => [x.month === 0 ? "Before M1" : `M${x.month}`, x.name, x.exit]) }
+        : { type: "table", head: ["Milestone", "Month"], widths: [70, 30], rows: plan.milestones.map((x) => [x.name, `Month ${x.month}`]) },
     ].filter(Boolean) : [{ type: "note", text: "Roadmap not available yet." }]);
 
     // 14 assumptions
@@ -203,14 +204,18 @@
       { type: "ul", items: [...new Set(recs.flatMap((x) => x.caveats))].slice(0, 6).concat(["Data-residency and security sign-off for every region used."]) },
     ]);
 
-    // 15 next steps
-    page("next", "Next steps", [
+    // 15 kickoff readiness, team & next steps
+    const rd = plan?.readiness;
+    page("next", "Kickoff readiness, team & next steps", [
+      rd ? { type: "p", text: `Delivery team: about ${rd.team.partner_fte} partner FTE at peak in ${rd.team.squads} squad(s), with ${rd.team.customer.length} customer roles. The full checklist (${rd.summary.items} items) is in the Kickoff readiness module and the Sheets export.` } : null,
+      rd ? { type: "table", small: true, head: ["Partner role", "People", "Key skills"], widths: [30, 10, 60], rows: rd.team.partner.map((x) => [x.role, String(x.count), x.skills.slice(0, 4).join(", ")]) } : null,
+      rd ? { type: "h", text: "Critical before kickoff" } : null,
+      rd ? { type: "table", small: true, head: ["Owner", "Item"], widths: [14, 86], rows: rd.checklist.filter((c) => c.critical).slice(0, 8).map((c) => [c.owner, c.item]) } : null,
+      { type: "h", text: "Next steps" },
       { type: "ol", items: [
-        "Confirm scope, priorities and success criteria with business and IT stakeholders.",
-        "Validate source volumes, CDC prerequisites and connectivity with source owners.",
-        "Run a 4-6 week pilot: one quick-win source, one CDC source, one dashboard and one data agent.",
-        "Measure slot usage and storage after the pilot and right-size commitments.",
-        "Agree the commercial option and Google Cloud commitment, then mobilise the delivery squads.",
+        "Confirm scope, success criteria and the commercial option with business and IT stakeholders.",
+        "Close the critical readiness items with source owners, network and security teams.",
+        "Mobilise the delivery squads; start with the landing zone and one quick-win and one CDC source.",
       ] },
       { type: "p", text: `Prepared ${[opts.author, opts.company].filter(Boolean).length ? "by " + [opts.author, opts.company].filter(Boolean).join(", ") : ""} with Data Cloud Compass. Figures are ballpark estimates for discussion; validate with the Google Cloud Pricing Calculator before contracting.` },
     ]);

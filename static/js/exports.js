@@ -10,6 +10,7 @@ import { freqName, recFor, tool } from "./render.js";
 import { syncForm, withDefaults } from "./scenario.js";
 import { EDITION_NAME } from "./workload.js";
 import { mergeEnvs } from "./modules.js";
+import { itemKey } from "./readiness.js";
 
 // ------------------------------------------------------------------ exports
 export const NO_DOWNLOAD = !!window.ADVISOR_NO_DOWNLOAD;
@@ -401,6 +402,23 @@ export async function workbookSpec() {
         series: gs.map((g, i) => ({ col: i + 1, color: (GROUP_COLORS[g] || "#9AA0A6").slice(1) })), anchor: { col: gs.length + 5, row: 3, cols: 10, rows: 20 } }] });
   }
 
+  // Kickoff readiness: checklist, milestones, team
+  const rd = S.planResult?.readiness;
+  if (rd) {
+    const done = new Set(S.scenario.readiness_done || []);
+    const kr = [[{ v: "Kickoff readiness - checklist for the finalised architecture", s: ST.title }],
+      [{ v: `${rd.summary.items} items · ${rd.summary.critical} critical · owners: Customer ${rd.summary.by_owner.Customer}, Partner ${rd.summary.by_owner.Partner}, Joint ${rd.summary.by_owner.Joint}`, s: ST.sub }], [],
+      H(["Area", "Owner", "Item", "Why", "Due", "Critical", "Ready"])];
+    rd.checklist.forEach((c) => kr.push([c.area, c.owner, { v: c.item, s: ST.wrap }, { v: c.why, s: ST.wrap }, c.due, c.critical ? "Yes" : "", done.has(itemKey(c)) ? "Yes" : ""]));
+    kr.push([], [{ v: "Milestones", s: ST.title }], H(["Month", "Milestone", "Exit criteria", "Deliverables"]));
+    rd.milestones.forEach((m) => kr.push([m.month === 0 ? "Before M1" : `Month ${m.month}`, m.name, { v: m.exit, s: ST.wrap }, { v: m.deliverables.join(", "), s: ST.wrap }]));
+    sheets.push({ name: "Kickoff readiness", rows: kr, widths: [22, 11, 60, 44, 14, 10, 9], merges: ["A1:G1", "A2:G2"], freeze: 4 });
+    const tr = [[{ v: "Delivery team & skills", s: ST.title }], [{ v: rd.team.note, s: ST.sub }], [], H(["Side", "Role", "People", "Key skills", "When"])];
+    rd.team.partner.forEach((x) => tr.push(["Partner", x.role, x.count, { v: x.skills.join(", "), s: ST.wrap }, x.when]));
+    rd.team.customer.forEach((x) => tr.push(["Customer", x.role, x.count, { v: x.skills.join(", "), s: ST.wrap }, x.when]));
+    sheets.push({ name: "Team & skills", rows: tr, widths: [11, 32, 9, 70, 30], merges: ["A1:E1", "A2:E2"] });
+  }
+
   // Assumptions
   const a = S.result.assumptions;
   sheets.push({ name: "Assumptions", rows: [H(["Assumption", "Value"]),
@@ -565,6 +583,21 @@ export async function buildDeck() {
     const gs = p.group_order.filter((x) => p.months.some((m) => m.by_group[x]));
     s2.addChart(P.ChartType.bar, gs.map((grp) => ({ name: grp, labels: p.months.map((m) => `M${m.month}`), values: p.months.map((m) => cv(m.by_group[grp] || 0)) })),
       { x: 0.4, y: 1.3, w: 12.5, h: 5.6, barDir: "col", barGrouping: "stacked", chartColors: gs.map((x) => (GROUP_COLORS[x] || "#9AA0A6").slice(1)), showLegend: true, legendPos: "r", legendFontSize: 8, valAxisLabelFormatCode: "#,##0", catAxisLabelFontSize: 8, valAxisLabelFontSize: 8 });
+  }
+  // 9b. Kickoff readiness & team
+  if (S.planResult?.readiness) {
+    const rd = S.planResult.readiness;
+    const s = slide("Kickoff readiness & delivery team", `${rd.summary.items} readiness items (${rd.summary.critical} critical) · ${rd.team.partner_fte} partner FTE at peak · ${rd.team.squads} squad(s)`);
+    const rows = [head(["Partner role", "People", "Key skills"])];
+    rd.team.partner.forEach((x) => rows.push([x.role, String(x.count), x.skills.slice(0, 4).join(", ")]));
+    s.addTable(rows, { ...tableOpts([2.6, 0.8, 3.0]), fontSize: 9 });
+    const crit = [head(["Owner", "Critical before kickoff"])];
+    rd.checklist.filter((c) => c.critical).slice(0, 10).forEach((c) => crit.push([c.owner, c.item.length > 120 ? c.item.slice(0, 117) + "…" : c.item]));
+    s.addTable(crit, { ...tableOpts([0.9, 5.2]), x: 6.9, fontSize: 8.5 });
+    const s2 = slide("Milestones & exit criteria", "From the roadmap - each milestone closes with business acceptance");
+    const ms = [head(["Month", "Milestone", "Exit criteria"])];
+    rd.milestones.forEach((m) => ms.push([m.month === 0 ? "Before M1" : `M${m.month}`, m.name, m.exit]));
+    s2.addTable(ms, { ...tableOpts([1.2, 3.0, 8.3]), fontSize: 9.5 });
   }
   // 10. Next steps
   {

@@ -11,6 +11,7 @@ import { EDITION_NAME } from "./bigquery.js";
 import { NO_DOWNLOAD, diagramPng, download, googleClientId, slug } from "./exports.js";
 import { envSizingSection } from "./environments.js";
 import { save } from "./scenario.js";
+import { bindReadiness, readiness, readinessProgress, renderReadiness } from "./readiness.js";
 
 // ------------------------------------------------------------------ modules
 export const MODULES = {
@@ -22,6 +23,7 @@ export const MODULES = {
   pricing: ["Pricing", "Whole-programme cost: pay as you go, 1-year or 3-year commitment - by month, product and quantity."],
   env: ["Environments", "Production, development, test, DR … each sized as a share of production."],
   workload: ["Workload sizing & BigQuery slots", "Size from what the customer will run, and get a slot reservation and edition recommendation."],
+  kickoff: ["Kickoff readiness", "What the customer and partner must have ready before kickoff for this architecture, the milestones with exit criteria, and the team size and skills."],
   roadmap: ["Roadmap", "Delivery plan by squad, go-live month per source and product, and the ramped monthly spend."],
   proposal: ["Proposal", "Generate a customer proposal of up to 15 pages - PDF, Word or Google Docs."],
   settings: ["Settings & assumptions", "Engagement settings, commercial terms, lakehouse layers, sizing constants and price sources."],
@@ -51,6 +53,7 @@ export function renderModules() {
   if (nav.tab === "pricing") renderPlans();
   if (nav.tab === "env") renderEnvBody();
   if (nav.tab === "proposal") renderProposal();
+  if (nav.tab === "kickoff") renderReadiness();
 }
 
 function insightChips(id) {
@@ -95,6 +98,13 @@ function insightChips(id) {
     const sl = S.wlResult.slots;
     if (sl) { chip("Slot reservation", `${sl.baseline_slots} → ${sl.max_slots}`); chip("Recommended", sl.model === "editions" ? EDITION_NAME[sl.edition] : "On-demand", "good"); }
   }
+  if (id === "kickoff" && readiness()) {
+    const p = readinessProgress(), r = readiness();
+    chip("Checklist ready", `${p.done} of ${p.total}`, p.done === p.total ? "good" : "");
+    chip("Critical items open", String(p.critOpen), p.critOpen ? "warn" : "good");
+    chip("Partner team at peak", `${r.team.partner_fte} FTE`);
+    chip("Milestones", String(r.milestones.length));
+  }
   if (id === "roadmap" && S.planResult) {
     chip("Programme", `${S.planResult.horizon} months`);
     chip("Squads", String(S.planResult.teams));
@@ -113,6 +123,7 @@ export function renderHead() {
   badge("pricing", pp() ? moneyShort(pp().plans.payg_1y.total) : "");
   badge("env", String(S.scenario.environments.length));
   badge("roadmap", S.planResult ? `${S.planResult.horizon} mo` : "");
+  { const p = readinessProgress(); badge("kickoff", p ? `${p.done}/${p.total}` : ""); }
   const fb = feedbackUrl();
   $("#feedbackBtn").hidden = !fb;
 }
@@ -162,6 +173,8 @@ export function renderOverview() {
     + kv("Recommended", sl.model === "editions" ? EDITION_NAME[sl.edition] + " edition" : "On-demand") : "<p>Calculating…</p>");
   html += card("roadmap", "Roadmap", S.planResult ? kv("Programme", `${S.planResult.horizon} months, ${S.planResult.teams} squads`)
     + kv("First data live", `Month ${S.planResult.pricing?.go_live?.first ?? "-"}`) + kv("All sources live", `Month ${S.planResult.pricing?.go_live?.all ?? "-"}`) : "<p>Calculating…</p>");
+  { const r = readiness(), p = readinessProgress();
+    html += card("kickoff", "Kickoff readiness", r ? kv("Checklist", `${p.done} of ${p.total} ready`) + kv("Critical open", String(p.critOpen)) + kv("Partner team", `${r.team.partner_fte} FTE, ${r.team.squads} squad(s)`) : "<p>Calculating…</p>"); }
   html += card("proposal", "Proposal", `<p>Generate a customer-ready proposal (up to 15 pages) as PDF, Word or Google Docs.</p>`);
   html += `</div>`;
   host.innerHTML = html;
@@ -307,6 +320,7 @@ function planCsv() {
 }
 
 export function bindModules(showTab) {
+  bindReadiness();
   $$(".modnav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   $("#tab-pricing").addEventListener("click", (e) => {
     const v = e.target.closest("[data-pview]");
