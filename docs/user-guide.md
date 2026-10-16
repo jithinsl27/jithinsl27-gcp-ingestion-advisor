@@ -98,6 +98,7 @@ The app is organised as modules in the left-hand navigation. Click a module to o
 | **Pricing** | Commercial plans (below) and the detailed breakdown |
 | **Environments** | Cost per environment and the per-environment sizing |
 | **Workload sizing**, **Roadmap** | See sections 6 and 7 |
+| **Kickoff** | Pre-kickoff checklist for customer and partner, milestones with exit criteria, team size and skills |
 | **Proposal** | Generate a customer proposal of up to 15 pages |
 | **Settings** | Engagement settings, BigQuery model, commercial terms, lakehouse layers and assumptions |
 
@@ -111,6 +112,27 @@ The **Pricing** module opens on four plan cards for the **whole programme**:
 - **Pay as you go - 3 years** - for comparison.
 
 Each plan shows a stacked monthly chart by capability, year tiles, and a **product table** with product name, unit, quantity, unit price, cost and saving. Switch the table to the **month × product matrix** to see cost or quantity per product per month (pick the year for 3-year plans), and **Download CSV**. Toggle **With ramp-up plan** (services start consuming when the roadmap brings them live; BigQuery compute starts at the first data-platform go-live) or **Full scope from month 1**, and filter by environment. **Detailed breakdown** keeps the earlier views (by capability, service, region, source and the bill of materials).
+
+### Architecture diagram
+
+The diagram follows the enterprise reference flow left to right: **sources → private connectivity / Apigee → ingestion & CDC → land (Cloud Storage raw zone) → processing → BigQuery lakehouse (bronze / silver / gold) → BI, AI, APIs and operational databases**. Batch and file flows land in the raw zone first; CDC and streaming go straight to bronze. Columns that are not needed disappear, ingestion and processing boxes sit next to the sources they serve so lines do not cross, and labels are fitted to their boxes (hover any box for its full text).
+
+Underneath are two bands:
+
+- **Governance & security** - the controls you added, plus dashed *Recommended* chips for enterprise controls that are still missing (Knowledge Catalog, policy tags / masking, CMEK, VPC Service Controls, Sensitive Data Protection). Click one to add it - it is priced and appears in the checklist.
+- **Platform foundation & operations** - the landing-zone practices every enterprise deployment needs (org policies and projects per environment, IAM and Workload Identity, Terraform + Cloud Build, Logging & Monitoring, backup & DR, FinOps guardrails). They are not separately priced.
+
+A legend explains the line styles. AI components show the Gemini model in use - **Gemini 3.8 Flash** by default (Gemini 3.5 Flash-Lite and Gemini 3.1 Pro preview can be chosen per agent component).
+
+### Kickoff readiness
+
+The **Kickoff** module turns the finalised architecture into what must be ready before the project starts:
+
+- **Kickoff checklist** - grouped by area (programme & commercial, cloud foundation, network, each source system, data platform, security & governance, analytics & AI, operations) with owner (**Customer, Partner or Joint**), why it matters, when it is due and whether it is **critical**. Items appear only when the architecture needs them - for example CDC prerequisites per database, SLT for SAP, Interconnect lead time for on-prem sources, CMEK key owners when CMEK is added, an AI evaluation set when agents are added. Tick items as they are done (saved with the scenario) and filter by owner to send each party its list.
+- **Milestones** - from mobilisation and landing zone to first data live, first dashboards, first agents, all sources live, the commitment decision and hypercare, each with exit criteria and deliverables, following the Roadmap months.
+- **Team & skills** - partner roles (architect, platform, data and analytics engineers, BI, AI / ML, API, security, QA) with head-count, skills taken from the chosen patterns and products, and when they are needed; plus the customer roles. Change the number of squads on the Roadmap to trade speed for team size.
+
+**Download CSV** exports the checklist, milestones and team; the Sheets export adds *Kickoff readiness* and *Team & skills* sheets, the Slides deck adds *Kickoff readiness & delivery team* and *Milestones & exit criteria*, and the proposal's last page summarises the team and the critical items.
 
 ### Proposal (up to 15 pages)
 

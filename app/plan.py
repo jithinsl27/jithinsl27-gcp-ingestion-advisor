@@ -22,6 +22,7 @@ import math
 from .catalog import SOURCE_BY_ID
 from .components import COMPONENT_BY_ID, normalized
 from .estimator import estimate, service_group
+from .readiness import build_readiness
 from .recommender import recommend
 
 WEEKS_PER_MONTH = 4.33
@@ -161,7 +162,10 @@ def build_plan(scenario: dict) -> dict:
     steady.pop("_items", None)
     pricing = {"ramped": pricing_plans(est["product_months"]), "steady": pricing_plans(steady["product_months"]),
                "go_live": {"first": first_live, "all": all_live}}
+    readiness = build_readiness(scenario, sources, recs, comp_rows, waves, teams, first_live, half_live, all_live, horizon, agents_month,
+                                connectivity=(steady.get("platform") or {}).get("connectivity", ""))
     return {
+        "readiness": readiness,
         "pricing": pricing,
         "teams": teams,
         "horizon": horizon,

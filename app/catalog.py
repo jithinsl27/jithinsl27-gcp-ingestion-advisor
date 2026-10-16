@@ -446,9 +446,9 @@ def catalog_payload(regions):
             {"id": "plus", "name": "Plus"},
         ],
         "gemini_models": [
-            {"id": "flash_lite", "name": "Gemini Flash-Lite"},
-            {"id": "flash", "name": "Gemini Flash"},
-            {"id": "pro", "name": "Gemini Pro"},
+            {"id": "flash_lite", "name": "Gemini 3.5 Flash-Lite"},
+            {"id": "flash", "name": "Gemini 3.8 Flash"},
+            {"id": "pro", "name": "Gemini 3.1 Pro (preview)"},
         ],
         "gpu_types": [
             {"id": "l4", "name": "NVIDIA L4 (g2-standard-8)"},

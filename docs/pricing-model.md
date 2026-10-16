@@ -24,7 +24,7 @@ On Cloud Run the service reads the public **Cloud Billing Catalog API** once a d
 `app/data/pricing.json` holds USD list prices for `us-central1`, reviewed 2026-10-15 from:
 
 - [BigQuery](https://cloud.google.com/bigquery/pricing), [Datastream](https://cloud.google.com/datastream/pricing), [Dataflow](https://cloud.google.com/dataflow/pricing), [Pub/Sub](https://cloud.google.com/pubsub/pricing), [Data Fusion](https://cloud.google.com/data-fusion/pricing), [Composer / Managed Airflow](https://cloud.google.com/composer/pricing), [Dataproc Serverless](https://cloud.google.com/dataproc-serverless/pricing), [Cloud Storage](https://cloud.google.com/storage/pricing), [Storage Transfer](https://cloud.google.com/storage-transfer/pricing), [Integration Connectors](https://cloud.google.com/integration-connectors/pricing)
-- [Vertex AI (prediction, Agent Engine)](https://cloud.google.com/vertex-ai/pricing), [Gemini models](https://cloud.google.com/vertex-ai/generative-ai/pricing), [Dataplex / Knowledge Catalog](https://cloud.google.com/dataplex/pricing), [Sensitive Data Protection](https://cloud.google.com/sensitive-data-protection/pricing), [Cloud KMS](https://cloud.google.com/kms/pricing)
+- [Vertex AI (prediction, Agent Engine)](https://cloud.google.com/vertex-ai/pricing), [Gemini models](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing), [Dataplex / Knowledge Catalog](https://cloud.google.com/dataplex/pricing), [Sensitive Data Protection](https://cloud.google.com/sensitive-data-protection/pricing), [Cloud KMS](https://cloud.google.com/kms/pricing)
 
 Entries flagged `"verify": true` are approximations (Composer environment size in DCUs, Data Fusion pipeline all-in vCPU rate, H100 node price, Interconnect port, Gemini Enterprise per-user prices, Dataplex DCU per scan).
 
@@ -75,7 +75,7 @@ Entries flagged `"verify": true` are approximations (Composer environment size i
 | Looker Studio Pro | users × $9 |
 | Gemini Enterprise | users × edition price (Business $21, Standard $30, Plus $60 indicative) |
 | Agent Engine | requests × seconds per request → vCPU-h ($0.085) and GiB-h ($0.009, 2 GiB per vCPU) after free tier |
-| Gemini tokens | requests × (input tokens × input price + output tokens × output price) |
+| Gemini tokens | requests × (input tokens × input price + output tokens × output price). Models: **Gemini 3.8 Flash** (default, $1.50 / $7.50 per 1M input / output tokens - the standard rate from 1 Jan 2027; $0.75 / $3.75 introductory until 31 Dec 2026), Gemini 3.5 Flash-Lite ($0.30 / $2.50), Gemini 3.1 Pro preview ($2 / $12). Global endpoint; regional endpoints are ~10 % higher |
 | Agent BigQuery queries | requests × GB scanned per request × on-demand rate (on-demand model only) |
 | GPU endpoint | replicas × hours/day × 30.4 × node price (L4 $0.98, A100 $4.22, H100 ≈ $12.80 per hour) |
 | Knowledge Catalog | tables (sources × 50 default × 2.5 for curated layers); quality scans on X% of tables × scans/month × 0.05 DCU-h + lineage 0.17 DCU-h per table, at premium $0.089/DCU-h; metadata $2/GiB |

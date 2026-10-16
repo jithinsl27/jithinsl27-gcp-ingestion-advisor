@@ -444,3 +444,54 @@ def test_pricing_plans_are_consistent():
         assert any(x["commit_eligible"] for x in prods)
     # ramp-up makes year 1 cheaper than running everything from month 1
     assert pr["ramped"]["plans"]["payg_1y"]["total"] < pr["steady"]["plans"]["payg_1y"]["total"]
+
+
+# ---------------------------------------------------------------- kickoff readiness and Gemini 3.8
+from app.plan import build_plan  # noqa: E402
+
+
+@pytest.mark.parametrize("path", SAMPLES, ids=lambda p: p.stem)
+def test_readiness_follows_the_architecture(path):
+    sc = json.loads(path.read_text())
+    sc = sc.get("scenario", sc)
+    rd = build_plan(sc)["readiness"]
+    assert rd["summary"]["items"] == len(rd["checklist"]) > 20
+    assert {c["owner"] for c in rd["checklist"]} <= {"Customer", "Partner", "Joint"}
+    names = [m["name"] for m in rd["milestones"]]
+    assert names[0] == "Mobilise & kickoff" and "Landing zone ready" in names and names[-1].startswith("Hypercare")
+    assert [m["month"] for m in rd["milestones"]] == sorted(m["month"] for m in rd["milestones"])
+    roles = {r["role"] for r in rd["team"]["partner"]}
+    assert {"Data & AI solution architect", "Data engineer", "Cloud platform engineer"} <= roles
+    assert rd["team"]["partner_fte"] == sum(r["count"] for r in rd["team"]["partner"])
+    # every included source gets its own owner / SME item
+    for s in sc["sources"]:
+        if s.get("included", True):
+            assert any(s["name"] in c["item"] for c in rd["checklist"]), s["name"]
+
+
+def test_readiness_items_depend_on_components_and_sources():
+    base = {"region": "us-central1", "sources": [{"id": "s1", "name": "ERP", "type": "oracle", "frequency": "near_realtime", "location": "on_prem",
+                                                  "initial_volume_gb": 500, "daily_change_gb": 10}], "components": []}
+    rd = build_plan(base)["readiness"]
+    text = " ".join(c["item"] for c in rd["checklist"])
+    assert "supplemental logging" in text and "ordered" in text  # CDC prerequisites and private connectivity
+    assert "Cloud KMS" not in text and "AI use cases" not in text
+    rd2 = build_plan({**base, "components": [{"id": "c1", "type": "cmek", "settings": {}}, {"id": "c2", "type": "agent_platform", "settings": {}}]})["readiness"]
+    text2 = " ".join(c["item"] for c in rd2["checklist"])
+    assert "Cloud KMS" in text2 and "AI use cases" in text2 and "Gemini 3.8 Flash" in text2
+    assert any(r["role"] == "AI / ML engineer" for r in rd2["team"]["partner"])
+    more = build_plan({**base, "plan": {"teams": 4}})["readiness"]
+    de = lambda r: next(x["count"] for x in r["team"]["partner"] if x["role"] == "Data engineer")  # noqa: E731
+    assert de(more) > de(rd)
+
+
+def test_gemini_38_flash_is_the_default_agent_model():
+    from app.components import COMPONENT_BY_ID
+    pricing = json.loads((Path(__file__).parents[1] / "app" / "data" / "pricing.json").read_text())
+    assert pricing["gemini_models"]["flash"]["name"] == "Gemini 3.8 Flash"
+    assert pricing["gemini_models"]["flash"]["model_id"] == "gemini-3.8-flash"
+    model = next(f for f in COMPONENT_BY_ID["agent_platform"]["settings"] if f["key"] == "model")
+    assert model["default"] == "flash"
+    sc = {"region": "us-central1", "sources": [], "components": [{"id": "c1", "type": "agent_platform", "settings": {}}]}
+    lines = [b["service"] for b in estimate(sc)["bom"]]
+    assert any("Gemini 3.8 Flash tokens" in s for s in lines)

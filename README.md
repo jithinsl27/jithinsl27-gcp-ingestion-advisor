@@ -24,6 +24,8 @@
 - **module-by-module workspace**: a left-hand navigation (Overview, Source systems, Architecture, Ingestion patterns, Platform, Pricing, Environments, Workload, Roadmap, Proposal, Settings) where every module opens with its key insights;
 - **commercial pricing plans for the whole programme**: *Pay as you go - 1 year* with the monthly ramp-up, *1-year commitment* and *3-year commitment* (year 1 / 2 / 3), each with product, unit, quantity, unit price and a month × product matrix (cost or quantity), downloadable as CSV;
 - **a target per source**: data platform (BigQuery bronze / silver / gold), data lake (Cloud Storage) or operational database (AlloyDB / Cloud SQL via Database Migration Service) - and **any product not in the list** by name, treated like the nearest known type;
+- **kickoff readiness from the finalised architecture**: a customer / partner checklist (CDC prerequisites, connectivity lead times, security controls, AI evaluation sets …), milestones with exit criteria, and the recommended team size and skills;
+- **enterprise-standard architecture diagram**: medallion flow with raw zone, crossing-free layout, recommended governance controls, a platform-foundation band and a legend; AI components default to **Gemini 3.8 Flash**;
 - **generates a customer proposal of up to 15 pages** as PDF, Word or Google Docs;
 - **trial link for business users**: share the Cloud Run URL - no console access needed - with an optional **Feedback** button that opens your Google Form;
 - **drills into every headline figure**: click the monthly, 1-year or 3-year total to see each product's quantity, unit price, cost and share, for all or one environment. Nothing is priced until a source system or a Google Cloud product is added;

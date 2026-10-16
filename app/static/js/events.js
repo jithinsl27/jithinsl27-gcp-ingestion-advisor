@@ -76,6 +76,8 @@ export function bindEvents() {
   const diagram = $("#diagram");
   diagram.addEventListener("click", (e) => {
     if (S.suppressClick) return;
+    const add = e.target.closest("[data-addcomp]");
+    if (add) { addComponent(add.dataset.addcomp); changed(); return; }
     if (e.target.closest("[data-lake]")) { showTab("settings"); setTimeout(() => $("#lakePanel").scrollIntoView({ behavior: "smooth", block: "center" }), 50); return; }
     const n = e.target.closest("[data-src]");
     if (n) return openDialog(n.dataset.src);
@@ -84,6 +86,8 @@ export function bindEvents() {
   });
   diagram.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
+    const add = e.target.closest("[data-addcomp]");
+    if (add) { e.preventDefault(); addComponent(add.dataset.addcomp); changed(); return; }
     const n = e.target.closest("[data-src],[data-comp]");
     if (!n) return;
     e.preventDefault();

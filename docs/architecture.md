@@ -27,6 +27,7 @@
 │ bom.py           bill of materials (qty, unit price, why) per option           │
 │ workload.py      workload-based sizing + slot sizing                           │
 │ plan.py          ramp-up roadmap + ramped costs                                │
+│ readiness.py     kickoff checklist, milestones, team size & skills             │
 │ live_pricing.py  Cloud Billing Catalog → prices, regional uplift, availability │
 │ store.py         Firestore (or memory): scenarios, versions, sharing, cache    │
 │ assist.py        Gemini on Vertex AI (structured output) + spreadsheet import  │

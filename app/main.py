@@ -264,6 +264,7 @@ class Scenario(BaseModel):
     excluded_services: list[str] = Field(default_factory=list, max_length=100)  # service lines left out of pricing
     environments: Optional[list[Environment]] = Field(None, max_length=12)
     lakehouse: Optional[Lakehouse] = None
+    readiness_done: list[str] = Field(default_factory=list, max_length=500)  # ticked kickoff-checklist items
 
 
 @app.get("/healthz")

@@ -106,3 +106,44 @@ def test_proposal_is_at_most_15_pages(page):
     page.uncheck('[data-pp-sec="monthly"]')
     page.wait_for_timeout(600)
     assert "14 pages" in page.inner_text("#ppCount")
+
+
+def test_kickoff_readiness_checklist_milestones_and_team(page):
+    page.wait_for_selector("#overviewBody .plan-card", timeout=15_000)
+    goto(page, "kickoff")
+    page.wait_for_selector("#kickoffBody [data-kitem]", timeout=15_000)
+    total = page.locator("#kickoffBody [data-kitem]").count()
+    assert total > 20
+    page.locator("#kickoffBody [data-kitem]").first.check()
+    page.wait_for_timeout(200)
+    assert page.inner_text('.modnav [data-badge="kickoff"]') == f"1/{total}"
+    page.click('[data-kowner="Partner"]')
+    assert 0 < page.locator("#kickoffBody [data-kitem]").count() < total
+    page.click('[data-kview="milestones"]')
+    assert "Landing zone ready" in page.inner_text("#kickoffBody .kick-ms")
+    page.click('[data-kview="team"]')
+    assert "Data engineer" in page.inner_text("#kickoffBody")
+    assert "FTE" in page.inner_text("#kickoffBody .kick-kpis")
+    # ticks survive a reload (saved with the scenario)
+    page.reload()
+    page.wait_for_selector("#summaryStrip .fig", state="attached", timeout=10_000)
+    goto(page, "kickoff")
+    page.wait_for_selector("#kickoffBody", timeout=15_000)
+    page.wait_for_function("document.querySelector('.modnav [data-badge=\"kickoff\"]').textContent.startsWith('1/')", timeout=15_000)
+
+
+def test_architecture_offers_recommended_controls_and_legend(page):
+    goto(page, "arch")
+    page.wait_for_selector("#archSvg .dg-legend")
+    ghosts = page.locator("#archSvg [data-addcomp]")
+    if ghosts.count():
+        before = ghosts.count()
+        ghosts.first.click()
+        page.wait_for_function(f"document.querySelectorAll('#archSvg [data-addcomp]').length < {before}", timeout=10_000)
+    assert "Platform foundation" in page.locator("#archSvg").text_content()
+    # no label in the diagram is wider than its box
+    over = page.evaluate("""() => [...document.querySelectorAll('#archSvg .dg-node')].filter(g => {
+      const r = g.querySelector('rect'); if (!r) return false; const rb = r.getBBox();
+      return [...g.querySelectorAll('text')].some(t => { const b = t.getBBox(); return b.x + b.width > rb.x + rb.width + 1; });
+    }).length""")
+    assert over == 0

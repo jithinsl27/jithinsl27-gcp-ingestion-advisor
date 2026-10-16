@@ -146,7 +146,7 @@ COMPONENTS = [
         "id": "agent_platform", "name": "Agent Platform (Vertex AI) data agents", "category": "ai", "vendor": "google", "costed": True,
         "method": "ADK + BigQuery tools / MCP, Agent Engine, Conversational Analytics API",
         "settings": [
-            sel("model", "Gemini model", "flash", [("flash_lite", "Gemini Flash-Lite"), ("flash", "Gemini Flash"), ("pro", "Gemini Pro")]),
+            sel("model", "Gemini model", "flash", [("flash_lite", "Gemini 3.5 Flash-Lite"), ("flash", "Gemini 3.8 Flash (recommended)"), ("pro", "Gemini 3.1 Pro (preview)")]),
             num("requests_month", "Agent requests / month", 50000, 1000),
             num("input_tokens", "Input tokens / request", 4000, 500),
             num("output_tokens", "Output tokens / request", 800, 100),

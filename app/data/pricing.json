@@ -17,7 +17,7 @@
       "https://cloud.google.com/network-connectivity/docs/vpn/pricing",
       "https://cloud.google.com/run/pricing",
       "https://cloud.google.com/vertex-ai/pricing",
-      "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+      "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing",
       "https://cloud.google.com/dataplex/pricing",
       "https://cloud.google.com/sensitive-data-protection/pricing",
       "https://cloud.google.com/kms/pricing",
@@ -189,20 +189,24 @@
   },
   "gemini_models": {
     "regional": false,
+    "note": "Vertex AI (Gemini Enterprise Agent Platform) list prices per 1M tokens, global endpoint, <=200K context. Gemini 3.8 Flash is priced at its standard rate from 1 Jan 2027 ($0.75 / $3.75 introductory rate until 31 Dec 2026). Regional endpoints are ~10% higher.",
     "flash_lite": {
-      "name": "Gemini Flash-Lite",
-      "input_mtok": 0.1,
-      "output_mtok": 0.4
-    },
-    "flash": {
-      "name": "Gemini Flash",
+      "name": "Gemini 3.5 Flash-Lite",
+      "model_id": "gemini-3.5-flash-lite",
       "input_mtok": 0.3,
       "output_mtok": 2.5
     },
+    "flash": {
+      "name": "Gemini 3.8 Flash",
+      "model_id": "gemini-3.8-flash",
+      "input_mtok": 1.5,
+      "output_mtok": 7.5
+    },
     "pro": {
-      "name": "Gemini Pro",
-      "input_mtok": 1.25,
-      "output_mtok": 10.0
+      "name": "Gemini 3.1 Pro (preview)",
+      "model_id": "gemini-3.1-pro-preview",
+      "input_mtok": 2.0,
+      "output_mtok": 12.0
     }
   },
   "agent_engine": {
