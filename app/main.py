@@ -53,6 +53,9 @@ class Source(BaseModel):
     included: bool = True                    # False = kept in the scenario but left out of this phase's estimate
     start_month: Optional[int] = Field(None, ge=1, le=36)
     iot_option: Optional[Literal["native", "mqtt_broker", "litmus", "clearblade", "mde"]] = None
+    target: Literal["data_platform", "data_lake", "operational_db"] = "data_platform"
+    custom_name: str = Field("", max_length=120)         # product name when type == "custom"
+    like_type: Optional[str] = Field(None, max_length=40)  # catalogued type the custom source behaves like
 
 
 class Environment(BaseModel):
@@ -193,7 +196,7 @@ def healthz():
 @app.get("/api/config")
 def get_config():
     """Front-end settings. GOOGLE_OAUTH_CLIENT_ID enables 'Create in my Google Drive' for Sheets / Slides exports."""
-    return {"google_client_id": os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")}
+    return {"google_client_id": os.environ.get("GOOGLE_OAUTH_CLIENT_ID", ""), "feedback_url": os.environ.get("FEEDBACK_URL", "")}
 
 
 @app.get("/api/catalog")

@@ -43,6 +43,10 @@ def random_scenarios(n=25, seed=7):
             })
             if rnd.random() > .7:
                 srcs[-1]["type"] = "iot"
+            if rnd.random() > .85:
+                srcs[-1].update({"type": "custom", "custom_name": "Workday", "like_type": rnd.choice(["saas_other", "oracle", "kafka", "files_onprem", "bogus"])})
+            if rnd.random() > .5:
+                srcs[-1]["target"] = rnd.choice(["data_platform", "data_lake", "operational_db"])
         out.append({
             "region": rnd.choice(regions), "skill": rnd.choice(["sql", "low_code", "code", "spark"]),
             "orchestration": rnd.choice(["auto", "auto", "composer", "workflows", "none"]),
@@ -145,5 +149,14 @@ def test_js_engine_matches_python(tmp_path):
         assert [c["start_month"] for c in jp["components"]] == [c["start_month"] for c in pp["components"]]
         assert jp["phases"] == pp["phases"]
         assert [m["total"] for m in jp["months"]] == pytest.approx([m["total"] for m in pp["months"]], abs=0.05)
+        for view in ("ramped", "steady"):
+            for k, plan in pp["pricing"][view]["plans"].items():
+                assert jp["pricing"][view]["plans"][k]["total"] == pytest.approx(plan["total"], abs=0.1), ("pricing", view, k)
+                assert jp["pricing"][view]["plans"][k]["by_year"] == pytest.approx(plan["by_year"], abs=0.1)
+            assert [(x["environment"], x["service"], x["commit_eligible"]) for x in jp["pricing"][view]["products"]] == \
+                   [(x["environment"], x["service"], x["commit_eligible"]) for x in pp["pricing"][view]["products"]]
+        for a, b in zip(js["recommendations"], py["recommendations"]):
+            assert a["target"] == b["target"]
+        assert js["platform"]["targets"] == py["platform"]["targets"]
         for k, v in pp["totals"].items():
             assert jp["totals"][k] == pytest.approx(v, abs=0.05, rel=1e-6), ("plan", k)

@@ -46,6 +46,8 @@ WHY = [
     ("Sensitive Data Protection", "Discovers and classifies personal and sensitive data across BigQuery to drive policy tags and masking."),
     ("Cloud KMS", "Customer-managed encryption keys (CMEK) for BigQuery, Cloud Storage and pipelines."),
     ("Knowledge Catalog", "Data quality scans, profiling and lineage so every consumer can trust the data products."),
+    ("Cloud Storage (data lake)", "Cloud Storage data lake for sources targeted at the lake: open formats (Parquet, Avro, Iceberg) queryable from BigQuery through BigLake."),
+    ("Database Migration Service", "Continuous replication into the operational database: schema conversion and change data capture for heterogeneous sources (Oracle / SQL Server to PostgreSQL)."),
     ("Contingency & operations", "Monitoring, logging, support tooling, egress and unknowns."),
 ]
 
@@ -90,7 +92,7 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
     """Collapse the monthly ledger into one row per (environment, service)."""
     r2 = lambda x: round(x + 1e-12, 2)  # noqa: E731
     acc = {}
-    for (m, svc, env_id), (usd, qty) in bom.items():
+    for (m, svc, env_id), (usd, qty, *_c) in bom.items():
         a = acc.setdefault((env_id, svc), {"m12": 0.0, "q12": 0.0, "y1": 0.0, "qy1": 0.0, "y3": 0.0})
         a["y3"] += usd
         if m <= 12:
@@ -122,4 +124,31 @@ def build_bom(bom, units, envs, drivers, group_fn, group_order, ctx):
         })
     rows.sort(key=lambda r: (env_order.get(r["environment"], 99),
                              group_order.index(r["group"]) if r["group"] in group_order else 99, -r["three_year"]))
+    return rows
+
+
+def product_months(bom, units, envs, group_fn, group_order):
+    """Monthly cost (PAYG, 1-yr and 3-yr commitment pricing) and quantity per product and environment."""
+    acc = {}
+    for (m, svc, env_id), (usd, qty, c1, c3) in bom.items():
+        a = acc.setdefault((env_id, svc), {"payg": [0.0] * 36, "cud1": [0.0] * 36, "cud3": [0.0] * 36, "qty": [0.0] * 36})
+        a["payg"][m - 1] += usd
+        a["cud1"][m - 1] += c1
+        a["cud3"][m - 1] += c3
+        a["qty"][m - 1] += qty
+    env_order = {e["id"]: i for i, e in enumerate(envs)}
+    env_name = {e["id"]: e["name"] for e in envs}
+    rows = []
+    for (env_id, svc), a in acc.items():
+        if sum(a["payg"]) <= 0:
+            continue
+        group = group_fn(svc)
+        rows.append({
+            "environment": env_id, "environment_name": env_name.get(env_id, env_id), "service": svc, "group": group,
+            "unit": units.get(svc),
+            "commit_eligible": any(c3 < p - 1e-9 for p, c3 in zip(a["payg"], a["cud3"])),
+            "payg": [round(v + 1e-12, 2) for v in a["payg"]], "cud1": [round(v + 1e-12, 2) for v in a["cud1"]],
+            "cud3": [round(v + 1e-12, 2) for v in a["cud3"]], "qty": [round(v + 1e-12, 3) for v in a["qty"]],
+        })
+    rows.sort(key=lambda r: (env_order.get(r["environment"], 99), group_order.index(r["group"]) if r["group"] in group_order else 99, -sum(r["payg"])))
     return rows

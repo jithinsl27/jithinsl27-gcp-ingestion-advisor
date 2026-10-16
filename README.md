@@ -1,8 +1,9 @@
 # Data Cloud Compass
 
-**From discovery to blueprint on Google Cloud.** A tool for Data & AI architects to use live in customer discovery sessions. Add the customer's source systems and the tools they already use, and Data Cloud Compass:
+**From discovery to blueprint on Google Cloud.** A tool for Data & AI architects to use live in customer discovery sessions. It is organised as clickable modules - Overview, Sources, Architecture, Ingestion, Integrations, Pricing, Environments, Sizing & slots, Roadmap, Proposal and Settings - each opening with its key insights. Add the customer's source systems and the tools they already use, and Data Cloud Compass:
 
 - **draws the target architecture** live: sources → connectivity → CDC / batch ingestion → **Cloud Storage raw zone** → BigQuery **bronze / silver / gold** → BI, AI, APIs and operational databases, with governance and security across every layer;
+- **lets you choose the target per source** - data platform (BigQuery lakehouse with bronze / silver / gold), Cloud Storage data lake, or operational database (AlloyDB / Cloud SQL via Database Migration Service) - and add sources that are not in the list by product name;
 - **recommends GCP-native ETL / ELT per source** (Datastream, Dataflow templates, Pub/Sub BigQuery subscriptions, BigQuery Data Transfer Service, Data Fusion, Dataproc Serverless, Storage Transfer, BigQuery Connector for SAP, Mainframe Connector …) based on source type, data type, freshness, location, transformation needs and team skills, with rationale, alternatives and discovery caveats;
 - **lets you search and add the consumption, governance and security layers** by product name:
   - *Google Cloud (costed)*: Looker, Looker Studio (Pro), Agent Platform data agents, Gemini Enterprise, Vertex AI GPU endpoints, BigQuery ML, **Apigee** API management & AI gateway, **AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore**, Knowledge Catalog (Dataplex);
@@ -14,17 +15,18 @@
 - **lets you choose what is priced** - tick sources in or out for a phased estimate, switch individual products or service lines off without removing them from the architecture;
 - **explains every integration** - how each tool connects to BigQuery, step by step, with best practices and documentation links;
 - **prices each service in its own region** - BigQuery in one data centre, ingestion or GPU endpoints in another - and adds cross-region transfer where data moves;
-- **estimates 1-year and 3-year consumption**, pay-as-you-go and with committed-use discounts, by service, capability, region and source, in USD, SAR, AED, EUR, GBP or INR;
+- **prices the whole programme three ways** - 1 year pay as you go, 1-year commitment, 3-year commitment (year 1 / 2 / 3) - following the ramp-up plan, each drilling into the month-by-month consumption, product, quantity and unit price; also by service, capability, region, source and environment, in USD, SAR, AED, EUR, GBP or INR;
 - **sizes from workloads** (Workload sizing tab): pipelines, simple/complex/periodic queries, ad-hoc reports, dashboards, data by type (KB … ZB), telemetry and a ramp-up phase - and **sizes BigQuery slots** (baseline, autoscale max, edition, commitment) with recommendations;
 - **itemises the bill of materials**: product, quantity, unit, unit price, cost and why each service is needed, per environment;
 - **builds a month-by-month roadmap** (Roadmap tab): final architecture, phased plan by delivery squads, go-live per source and component, and ramped monthly consumption;
+- **generates a customer proposal** of up to 15 pages as PDF, Word or Google Docs;
 - **exports to Google Sheets and Google Slides** (architecture, bill of materials, sizing and native charts) - directly into the user's Google Drive, or as .xlsx / .pptx files - plus a Markdown proposal, CSV, architecture SVG, scenario JSON or a print-ready PDF.
 
-![Architecture view](docs/images/architecture.png)
+![Overview](docs/images/overview.png)
 
-| Bill of materials | Slot sizing | Roadmap |
+| Architecture | Pricing plans | Proposal |
 |---|---|---|
-| ![](docs/images/bom.png) | ![](docs/images/workload.png) | ![](docs/images/roadmap.png) |
+| ![](docs/images/architecture.png) | ![](docs/images/pricing.png) | ![](docs/images/proposal.png) |
 
 ---
 
@@ -59,7 +61,7 @@ Details, private access with IAP and troubleshooting: [docs/deployment.md](docs/
 
 ### Static demo (no Google Cloud project needed)
 
-**Live demo: https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/**
+**Live demo: https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/** - no sign-in, nothing to install; share this link with business users for a trial. Set `feedbackUrl` in `app/static/config.js` (or `FEEDBACK_URL` on Cloud Run) to show a **Feedback** button that opens your Google Form.
 
 `python demo/build_demo.py` produces `demo/dist/index.html`: the whole tool in one file, running in the browser with a JavaScript port of the engine. The `pages.yml` workflow rebuilds it on every push to `main` and publishes it to the `gh-pages` branch, which GitHub Pages serves (Settings → Pages → Deploy from a branch → `gh-pages` / root). A parity test keeps the JavaScript engine identical to the Python one.
 

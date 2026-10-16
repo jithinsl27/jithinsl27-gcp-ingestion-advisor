@@ -226,12 +226,18 @@
       $$("#exportMenu [data-export]").forEach((b) => { if (["md", "csv", "json", "svg"].includes(b.dataset.export)) b.textContent = "Copy " + b.textContent.charAt(0).toLowerCase() + b.textContent.slice(1); });
     }
     if (window.ADVISOR_DEMO) document.body.classList.add("demo");
+    const setTop = () => document.documentElement.style.setProperty("--top", ($(".topbar")?.offsetHeight || 66) + "px");
+    setTop();
+    window.addEventListener("resize", setTop);
     restore();
     bindEvents();
     bindGoogleExport();
     loadServerConfig();
     loadSamples();
     syncForm();
+    let tab = "overview";
+    try { tab = localStorage.getItem("data-cloud-compass:tab") || "overview"; } catch (_) { /* ignore */ }
+    showTab(tab);
     renderAll();
     scheduleEstimate(0);
   }
@@ -267,6 +273,7 @@
     catalog.source_types.forEach((s) => (groups[cats[s.category] || "Other"] = groups[cats[s.category] || "Other"] || []).push(s));
     $("#f_type").innerHTML = Object.entries(groups).map(([g, ss]) =>
       `<optgroup label="${esc(g)}">${ss.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
+    $("#f_like_type").innerHTML = catalog.source_types.filter((s) => s.id !== "custom").map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("");
     $("#f_data_type").innerHTML = opt(catalog.data_types);
     $("#f_location").innerHTML = opt(catalog.locations);
     $("#f_frequency").innerHTML = opt(catalog.frequencies);
@@ -330,7 +337,7 @@
     $("#customer").addEventListener("input", (e) => { scenario.customer = e.target.value; save(); renderSummary(); });
     $("#region").addEventListener("change", (e) => { scenario.region = e.target.value; changed(); });
     $("#processing_region").addEventListener("change", (e) => { scenario.processing_region = e.target.value; changed(); });
-    $("#currency").addEventListener("change", (e) => { currency = e.target.value; save(); renderSummary(); renderCost(); renderPlatform(); renderWorkloadResults(); renderRoadmap(); });
+    $("#currency").addEventListener("change", (e) => { currency = e.target.value; save(); renderAll(); renderWorkloadResults(); });
     ["skill", "orchestration", "bq_model", "environment"].forEach((k) =>
       $("#" + k).addEventListener("change", (e) => { scenario[k] = e.target.value; $("#slotsField").hidden = scenario.bq_model === "ondemand"; changed(); }));
     ["bq_slots", "annual_growth_pct", "contingency_pct", "analytics_tib_month"].forEach((k) =>
@@ -339,7 +346,29 @@
         scenario[k] = k === "analytics_tib_month" ? v : (v ?? 0);
         changed();
       }));
-    $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+    $$(".modnav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+    $("#tab-pricing").addEventListener("click", (e) => {
+      const v = e.target.closest("[data-pview]");
+      if (v) { pricingView = v.dataset.pview; renderPricing(); return; }
+      const card = e.target.closest("[data-plan]");
+      if (card) { pricingPlan = card.dataset.plan; renderPricing(); return; }
+      const b = e.target.closest("[data-pbasis]");
+      if (b) { pricingBasis = b.dataset.pbasis; renderPricing(); return; }
+      const m = e.target.closest("[data-pmode]");
+      if (m) { pricingMode = m.dataset.pmode; renderPricing(); return; }
+      const y = e.target.closest("[data-pyear]");
+      if (y) { pricingYear = Number(y.dataset.pyear); renderPricing(); return; }
+      const ev = e.target.closest("[data-penv]");
+      if (ev) { pricingEnv = ev.dataset.penv; renderPricing(); return; }
+      if (e.target.closest("#planCsv")) download(`${slug()}-${pricingPlan}.csv`, "text/csv", planCsv());
+    });
+    $("#overviewBody").addEventListener("click", (e) => {
+      const c = e.target.closest("[data-goto]");
+      if (!c) return;
+      if (c.dataset.plan) pricingPlan = c.dataset.plan;
+      showTab(c.dataset.goto);
+    });
+    $("#feedbackBtn").addEventListener("click", () => { const u = feedbackUrl(); if (u) window.open(u, "_blank", "noopener"); });
     // lakehouse layers
     $("#lk_raw_zone").addEventListener("change", (e) => { scenario.lakehouse.raw_zone = e.target.checked; changed(); });
     ["raw_scope", "raw_storage_class"].forEach((k) => $("#lk_" + k).addEventListener("change", (e) => { scenario.lakehouse[k] = e.target.value; changed(); }));
@@ -502,7 +531,7 @@
     });
     $("#sourceForm").addEventListener("submit", (e) => { e.preventDefault(); saveSource(); });
     $("#f_type").addEventListener("change", applyTypeDefaults);
-    $("#f_type").addEventListener("change", () => ($("#f_iot_wrap").hidden = $("#f_type").value !== "iot"));
+    $("#f_like_type").addEventListener("change", applyTypeDefaults);
     ["f_frequency", "f_location", "f_transform", "f_type"].forEach((id) => $("#" + id).addEventListener("change", updateHint));
 
     $("#c_cancel").addEventListener("click", () => $("#compDialog").close());
@@ -557,10 +586,16 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") pop.hidden = true; });
   }
 
+  let currentTab = "overview";
   function showTab(id) {
-    $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
+    if (!$("#tab-" + id)) id = "overview";
+    currentTab = id;
+    $$(".modnav button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
     $$(".tabpanel").forEach((p) => (p.hidden = p.id !== "tab-" + id));
-    $("#summaryStrip").hidden = id === "workload";
+    try { localStorage.setItem("data-cloud-compass:tab", id); } catch (_) { /* ignore */ }
+    renderSummary();
+    if (id === "proposal") renderProposal();
+    window.scrollTo({ top: 0 });
   }
 
   function changed() {
@@ -605,6 +640,7 @@
       if (my !== wlSeq) return;
       wlResult = r;
       renderWorkloadResults();
+      renderSummary();
     } catch (e) {
       toast(`Workload sizing failed: ${e.message}`, 6000);
     }
@@ -617,6 +653,9 @@
       if (my !== planSeq) return;
       planResult = r;
       renderRoadmap();
+      renderPricing();
+      renderSummary();
+      if (currentTab === "proposal") renderProposal();
     } catch (e) {
       toast(`Roadmap failed: ${e.message}`, 6000);
     }
@@ -649,9 +688,21 @@
     unstructured: { data_type: "unstructured", frequency: "daily", location: "on_prem" },
   };
 
+  const effType = () => ($("#f_type").value === "custom" ? $("#f_like_type").value : $("#f_type").value);
+  function refreshTargets(keep) {
+    const allowed = catalog.allowed_targets[effType()] || ["data_platform"];
+    const cur = keep ?? $("#f_target").value;
+    $("#f_target").innerHTML = (editingId ? "" : `<option value="" disabled${cur ? "" : " selected"}>Choose where this source lands…</option>`)
+      + catalog.targets.filter((t) => allowed.includes(t.id)).map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("");
+    if (cur && allowed.includes(cur)) $("#f_target").value = cur;
+    else if (editingId) $("#f_target").value = "data_platform";
+    $("#f_custom_wrap").hidden = $("#f_type").value !== "custom";
+    $("#f_iot_wrap").hidden = effType() !== "iot";
+  }
   function applyTypeDefaults() {
+    refreshTargets();
     if (editingId) return updateHint();
-    const t = catalog.source_types.find((s) => s.id === $("#f_type").value);
+    const t = catalog.source_types.find((s) => s.id === effType());
     const d = TYPE_DEFAULTS[t?.category] || {};
     Object.entries(d).forEach(([k, v]) => ($("#f_" + k).value = v));
     updateHint();
@@ -684,6 +735,9 @@
     if (s) {
       ["type", "name", "data_type", "location", "frequency", "transform", "notes", "region"]
         .forEach((k) => ($("#f_" + k).value = s[k] ?? ""));
+      $("#f_custom_name").value = s.custom_name || "";
+      $("#f_like_type").value = s.like_type || "rest_api";
+      refreshTargets(s.target || "data_platform");
       setVol("#f_initial_volume_gb", "#f_initial_unit", s.initial_volume_gb, s.units?.initial);
       setVol("#f_daily_change_gb", "#f_daily_unit", s.daily_change_gb, s.units?.daily);
       $("#f_iot_option").value = s.iot_option || "native";
@@ -693,9 +747,10 @@
       setVol("#f_initial_volume_gb", "#f_initial_unit", 500, "GB");
       setVol("#f_daily_change_gb", "#f_daily_unit", 5, "GB");
       $("#f_iot_option").value = "native";
+      $("#f_custom_name").value = ""; $("#f_like_type").value = "rest_api";
+      $("#f_target").innerHTML = "";
       applyTypeDefaults();
     }
-    $("#f_iot_wrap").hidden = $("#f_type").value !== "iot";
     updateHint();
     $("#sourceDialog").showModal();
     $("#f_type").focus();
@@ -703,7 +758,9 @@
 
   function saveSource() {
     const v = (k) => $("#f_" + k).value;
-    const typeName = catalog.source_types.find((s) => s.id === v("type"))?.name || v("type");
+    if (!v("target")) { $("#f_hint").textContent = "Choose the target for this source: data platform (BigQuery), data lake or operational database."; $("#f_target").focus(); return; }
+    if (v("type") === "custom" && !v("custom_name").trim()) { $("#f_hint").textContent = "Enter the product name of the source that is not in the list."; $("#f_custom_name").focus(); return; }
+    const typeName = v("type") === "custom" ? v("custom_name").trim() : catalog.source_types.find((s) => s.id === v("type"))?.name || v("type");
     const src = {
       id: editingId || uid("s"),
       name: v("name").trim() || typeName,
@@ -715,7 +772,9 @@
       notes: v("notes"),
       region: v("region") || "",
     };
-    if (src.type === "iot") src.iot_option = v("iot_option");
+    src.target = v("target");
+    if (src.type === "custom") { src.custom_name = v("custom_name").trim(); src.like_type = v("like_type"); }
+    if ((src.type === "custom" ? src.like_type : src.type) === "iot") src.iot_option = v("iot_option");
     const prevSrc = editingId && scenario.sources.find((x) => x.id === editingId);
     if (prevSrc) { src.included = prevSrc.included !== false; if (prevSrc.start_month) src.start_month = prevSrc.start_month; }
     if (editingId) scenario.sources = scenario.sources.map((s) => (s.id === editingId ? src : s));
@@ -907,15 +966,17 @@
   // ------------------------------------------------------------------ rendering
   function renderAll() {
     renderEnvs();
+    renderEnvBody();
     renderSources();
     renderPills();
     renderSummary();
     renderDiagram();
     renderRecs();
     renderPlatform();
-    renderCost();
+    renderPricing();
     renderAssumptions();
     renderRoadmap();
+    if (currentTab === "proposal") renderProposal();
   }
 
   function flowClass(freq) { return freq === "one_time" ? "once" : STREAMING.has(freq) ? "stream" : "batch"; }
@@ -923,6 +984,7 @@
   function tool(id) { return catalog.tools[id] || { name: id, doc: "#" }; }
   function freqName(id) { return catalog.frequencies.find((f) => f.id === id)?.name || id; }
 
+  const TARGET_SHORT = { data_platform: "Data platform", data_lake: "Data lake", operational_db: "Operational DB" };
   function renderSources() {
     const list = $("#sourceList");
     const n = scenario.sources.length, inc = scenario.sources.filter((s) => s.included !== false).length;
@@ -933,26 +995,303 @@
       const r = recFor(s.id);
       const on = s.included !== false;
       const reg = s.region && s.region !== scenario.region ? ` · ${esc(s.region)}` : "";
+      const typeName = s.type === "custom" ? `${s.custom_name || "Custom source"} (custom)` : catalog.source_types.find((t) => t.id === s.type)?.name || s.type;
+      const tgt = r?.target || s.target || "data_platform";
       return `<li class="${on ? "" : "excluded"}"><label class="src-check" title="${on ? "Included" : "Excluded"} - untick to leave out of this phase">
           <input type="checkbox" data-include="${esc(s.id)}" ${on ? "checked" : ""} aria-label="Include ${esc(s.name)} in the estimate"></label>
         <button class="source-item" data-id="${esc(s.id)}" type="button">
         <i class="bar ${flowClass(s.frequency)}"></i>
-        <div><b>${esc(s.name)}</b><span>${esc(freqName(s.frequency))} · ${fmtGB(s.daily_change_gb)}/day${reg}${on ? "" : " · not in this phase"}</span></div>
-        <div class="tool">${r ? esc(tool(r.primary).name) : on ? "" : "Later phase"}</div>
+        <div><b>${esc(s.name)}</b><span>${esc(typeName)} · ${esc(freqName(s.frequency))} · ${fmtGB(s.initial_volume_gb)} + ${fmtGB(s.daily_change_gb)}/day${reg}${on ? "" : " · not in this phase"}</span></div>
+        <div class="src-target t-${esc(tgt)}">${esc(TARGET_SHORT[tgt])}</div>
+        <div class="tool">${r ? esc(r.chain.map((t) => tool(t).name).join(" → ")) : on ? "" : "Later phase"}</div>
       </button></li>`;
     }).join("");
   }
 
+  const MODULES = {
+    overview: ["Overview", "The whole engagement at a glance - click any card to open that module."],
+    sources: ["Source systems", "What the customer has today, where each source goes on Google Cloud, and which are in this phase."],
+    arch: ["Target architecture", "Sources, ingestion, raw zone, BigQuery bronze / silver / gold and the BI, AI, API and governance layers."],
+    recs: ["Ingestion patterns", "The recommended GCP-native ETL / ELT per source, with rationale, alternatives and discovery checks."],
+    platform: ["Integrations", "How each BI, AI, API, database and governance product connects to the platform."],
+    pricing: ["Pricing", "Whole-programme cost: pay as you go, 1-year or 3-year commitment - by month, product and quantity."],
+    env: ["Environments", "Production, development, test, DR … each sized as a share of production."],
+    workload: ["Workload sizing & BigQuery slots", "Size from what the customer will run, and get a slot reservation and edition recommendation."],
+    roadmap: ["Roadmap", "Delivery plan by squad, go-live month per source and product, and the ramped monthly spend."],
+    proposal: ["Proposal", "Generate a customer proposal of up to 15 pages - PDF, Word or Google Docs."],
+    settings: ["Settings & assumptions", "Engagement settings, lakehouse layers, sizing constants and price sources."],
+  };
+  const pp = () => planResult?.pricing?.[pricingBasis] || planResult?.pricing?.ramped;
+
+  function insightChips(id) {
+    const chips = [];
+    const chip = (label, value, tone) => chips.push(`<div class="ins${tone ? " " + tone : ""}"><span>${esc(label)}</span><b>${value}</b></div>`);
+    const plans = pp()?.plans;
+    const recs = result?.recommendations || [];
+    const tg = result?.platform?.targets || {};
+    if (id === "pricing") {
+      if (plans) {
+        chip("1 year, pay as you go", money(plans.payg_1y.total));
+        chip("1-year commitment", money(plans.commit_1y.total), "good");
+        chip("3-year commitment", money(plans.commit_3y.total), "good");
+      }
+    }
+    if (id === "overview" && planResult) {
+      chip("All sources live by", `Month ${Math.max(...planResult.waves.map((w) => w.go_live_month), 1)}`);
+      chip("Environments", String(scenario.environments.length));
+      chip("BigQuery region", esc(result?.region?.id || ""));
+    }
+    if (id === "sources") {
+      chip("Sources", `${recs.length} of ${scenario.sources.length} in this phase`);
+      chip("Daily change", fmtGB(scenario.sources.filter((s) => s.included !== false).reduce((a, s) => a + (Number(s.daily_change_gb) || 0), 0)) + "/day");
+      chip("To data platform", String((tg.data_platform || []).length));
+      if ((tg.data_lake || []).length) chip("To data lake", String(tg.data_lake.length));
+      if ((tg.operational_db || []).length) chip("To operational DB", String(tg.operational_db.length));
+    }
+    if (id === "arch" || id === "platform") {
+      const comps = scenario.components.map((c) => compMeta(c.type));
+      chip("Products", String(comps.length));
+      chip("Google Cloud", String(comps.filter((m) => m.vendor === "google").length));
+      chip("Partners (not costed)", String(comps.filter((m) => m.vendor === "partner").length));
+    }
+    if (id === "recs") {
+      const cdc = recs.filter((r) => r.engine.includes("datastream")).length;
+      chip("CDC sources", String(cdc));
+      chip("Distinct services", String(new Set(recs.flatMap((r) => r.chain)).size));
+    }
+    if (id === "env" && result?.environments) {
+      chip("Environments", String(result.environments.length));
+      const np = result.environments.slice(1).reduce((a, e) => a + e.year1, 0);
+      if (result.environments.length > 1) chip("Non-production, year 1", money(np));
+    }
+    if (id === "workload" && wlResult) {
+      chip("Steady month", money(wlResult.totals.steady_monthly));
+      if (wlResult.slots) chip("Slot reservation", `${wlResult.slots.baseline_slots} → ${wlResult.slots.max_slots}`);
+      if (wlResult.slots) chip("Recommended", wlResult.slots.model === "editions" ? EDITION_NAME[wlResult.slots.edition] : "On-demand", "good");
+    }
+    if (id === "roadmap" && planResult) {
+      chip("Programme", `${planResult.horizon} months`);
+      chip("Squads", String(planResult.teams));
+      chip("Year 1 with ramp-up", money(planResult.totals.ramped_year1));
+    }
+    return chips.join("");
+  }
+
   function renderSummary() {
-    const el = $("#summaryStrip");
-    if (!result || !scenario.sources.length) { el.innerHTML = ""; return; }
-    const t = result.totals;
-    const nReg = result.by_region?.length || 1;
-    el.innerHTML = `
-      <div class="fig"><b>${money(t.avg_monthly_year1)}</b><span>Average per month, year 1</span></div>
-      <div class="fig"><b>${money(t.year1_payg)}</b><span>1-year, pay-as-you-go</span></div>
-      <div class="fig"><b>${money(t.three_year_payg)}</b><span>3-year, pay-as-you-go</span></div>
-      <div class="note">BigQuery in ${esc(result.region.name)}${nReg > 1 ? ` · ${nReg} regions in use` : ""} · ${result.recommendations.length} of ${scenario.sources.length} sources in this estimate</div>`;
+    if (!catalog) return;
+    const [title, desc] = MODULES[currentTab] || MODULES.overview;
+    $("#modTitle").textContent = title;
+    $("#modDesc").textContent = desc;
+    $("#modInsights").innerHTML = scenario.sources.length ? insightChips(currentTab) : "";
+    const badge = (k, v) => { const el = $(`[data-badge="${k}"]`); if (el) el.textContent = v || ""; };
+    badge("sources", scenario.sources.length ? String(scenario.sources.length) : "");
+    badge("pricing", pp() ? moneyShort(pp().plans.payg_1y.total) : "");
+    badge("env", String(scenario.environments.length));
+    badge("roadmap", planResult ? `${planResult.horizon} mo` : "");
+    renderOverview();
+  }
+
+  function renderOverview() {
+    const host = $("#overviewBody");
+    if (!host || currentTab !== "overview") return;
+    if (!scenario.sources.length) {
+      host.innerHTML = `<div class="ov-empty"><h2>Start a discovery</h2><p>Add the customer's source systems, or load a sample to see a complete engagement.</p>
+        <button class="btn primary" type="button" data-goto="sources">Add source systems</button></div>`;
+      return;
+    }
+    const plans = pp()?.plans;
+    const recs = result?.recommendations || [];
+    const tg = result?.platform?.targets || {};
+    const comps = scenario.components.map((c) => compMeta(c.type));
+    const groups = (result?.by_group || []).filter((g) => g.year1 > 0);
+    const top = (result?.by_service || []).slice(0, 3);
+    const sl = wlResult?.slots;
+    const card = (goto, title, body, extra = "") => `<button type="button" class="ov-card" data-goto="${goto}"${extra}><h3>${esc(title)}</h3>${body}<span class="ov-open">Open ›</span></button>`;
+    const kv = (k, v) => `<div class="kv"><span>${esc(k)}</span><b>${v}</b></div>`;
+    let html = `<div class="ov-plans">`;
+    if (plans) {
+      const pc = (key, label, sub) => `<button type="button" class="plan-card" data-goto="pricing" data-plan="${key}"><span>${esc(label)}</span><b>${money(plans[key].total)}</b><small>${sub}</small></button>`;
+      html += pc("payg_1y", "1 year · pay as you go", `${money(plans.payg_1y.total / 12)} average per month, with ramp-up`)
+        + pc("commit_1y", "1 year · 1-year commitment", `saves ${money(plans.commit_1y.saving)} (${pct(plans.commit_1y.saving, plans.payg_1y.total)})`)
+        + pc("commit_3y", "3 years · 3-year commitment", plans.commit_3y.by_year.map((v, i) => `Y${i + 1} ${moneyShort(v)}`).join(" · "))
+        + pc("payg_3y", "3 years · pay as you go", plans.payg_3y.by_year.map((v, i) => `Y${i + 1} ${moneyShort(v)}`).join(" · "));
+    }
+    html += `</div><div class="ov-grid">`;
+    html += card("sources", "Source systems", kv("In this phase", `${recs.length} of ${scenario.sources.length}`) + kv("Platform / lake / op. DB", `${(tg.data_platform || []).length} / ${(tg.data_lake || []).length} / ${(tg.operational_db || []).length}`)
+      + kv("Daily change", fmtGB(scenario.sources.filter((s) => s.included !== false).reduce((a, s) => a + (Number(s.daily_change_gb) || 0), 0)) + "/day"));
+    html += card("arch", "Architecture", kv("Products", `${comps.length} (${comps.filter((m) => m.vendor === "partner").length} partner)`)
+      + kv("Lakehouse", result?.platform?.lakehouse?.raw_zone ? "Raw zone + bronze / silver / gold" : "Bronze / silver / gold")
+      + kv("BigQuery", `${esc(result?.region?.name || "")}`));
+    html += card("recs", "Ingestion patterns", recs.slice(0, 3).map((r) => kv(scenario.sources.find((s) => s.id === r.source_id)?.name || "", esc(tool(r.primary).name))).join("") || "<p>-</p>");
+    html += card("pricing", "Where the money goes", groups.map((g) => `<div class="bar-row"><span>${esc(g.group)}</span><i style="width:${Math.max(3, 100 * g.year1 / Math.max(...groups.map((x) => x.year1)))}%;background:${GROUP_COLORS[g.group]}"></i><b>${moneyShort(g.year1)}</b></div>`).join("")
+      + (top.length ? `<p class="ov-note">Biggest lines: ${top.map((t) => esc(t.service)).join(", ")}</p>` : ""));
+    html += card("env", "Environments", (result?.environments || []).map((e, i) => kv(e.name, `${moneyShort(e.year1)}/yr`)).join(""));
+    html += card("workload", "Sizing & BigQuery slots", sl ? kv("Average / peak", `${sl.avg_slots} / ${Math.round(sl.peak_slots)} slots`) + kv("Reservation", `${sl.baseline_slots} → ${sl.max_slots} slots`)
+      + kv("Recommended", sl.model === "editions" ? EDITION_NAME[sl.edition] + " edition" : "On-demand") : "<p>Calculating…</p>");
+    html += card("roadmap", "Roadmap", planResult ? kv("Programme", `${planResult.horizon} months, ${planResult.teams} squads`) + kv("First data live", `Month ${pp() ? planResult.pricing.go_live.first : "-"}`)
+      + kv("All sources live", `Month ${planResult.pricing.go_live.all}`) : "<p>Calculating…</p>");
+    html += card("proposal", "Proposal", `<p>Generate a customer-ready proposal (up to 15 pages) as PDF, Word or Google Docs.</p>`);
+    html += `</div>`;
+    host.innerHTML = html;
+  }
+  const pct = (a, b) => (b ? Math.round((100 * a) / b) + "%" : "0%");
+
+  // ---------------- pricing module
+  let pricingView = "plans", pricingPlan = "payg_1y", pricingBasis = "ramped", pricingMode = "cost", pricingYear = 1, pricingEnv = "all";
+  const PLAN_KEY = { payg_1y: "payg", commit_1y: "cud1", commit_3y: "cud3", payg_3y: "payg" };
+  function planProducts() {
+    const p = pp();
+    if (!p) return [];
+    const envs = new Set((result?.environments || []).map((e) => e.id));
+    if (pricingEnv !== "all" && !envs.has(pricingEnv)) pricingEnv = "all";
+    return p.products.filter((x) => pricingEnv === "all" || x.environment === pricingEnv);
+  }
+  function mergeEnvs(rows, force) {
+    if (!force && pricingEnv !== "all") return rows;
+    const by = new Map();
+    for (const r of rows) {
+      const k = r.service;
+      if (!by.has(k)) by.set(k, { ...r, payg: [...r.payg], cud1: [...r.cud1], cud3: [...r.cud3], qty: [...r.qty] });
+      else { const a = by.get(k); ["payg", "cud1", "cud3", "qty"].forEach((f) => r[f].forEach((v, i) => (a[f][i] += v))); a.commit_eligible = a.commit_eligible || r.commit_eligible; }
+    }
+    return [...by.values()].sort((x, y) => (GROUP_ORDER_UI.indexOf(x.group) - GROUP_ORDER_UI.indexOf(y.group)) || (sumArr(y.payg) - sumArr(x.payg)));
+  }
+  const sumArr = (a, lo = 0, hi = a.length) => a.slice(lo, hi).reduce((x, y) => x + y, 0);
+  const GROUP_ORDER_UI = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
+
+  function renderPricing() {
+    $$("#tab-pricing [data-pview]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.pview === pricingView)));
+    $("#pricingBody").hidden = pricingView !== "plans";
+    $("#costBody").hidden = pricingView !== "detail";
+    if (pricingView === "detail") { renderCost(); return; }
+    const host = $("#pricingBody");
+    const p = pp();
+    if (!p || !scenario.sources.length) { host.innerHTML = `<p class="empty-note">Pricing appears once at least one source system is added.</p>`; return; }
+    const plans = p.plans;
+    const plan = plans[pricingPlan] || plans.payg_1y;
+    const key = PLAN_KEY[pricingPlan];
+    const months = plan.months;
+    const envs = result?.environments || [];
+    let html = `<div class="pricing-controls">
+      <div class="seg small" role="group" aria-label="Schedule">
+        <button type="button" data-pbasis="ramped" aria-selected="${pricingBasis === "ramped"}">With ramp-up plan</button>
+        <button type="button" data-pbasis="steady" aria-selected="${pricingBasis === "steady"}">Full scope from month 1</button>
+      </div>
+      ${envs.length > 1 ? `<div class="seg small" role="group" aria-label="Environment">${[{ id: "all", name: "All environments" }, ...envs].map((e) => `<button type="button" data-penv="${esc(e.id)}" aria-selected="${pricingEnv === e.id}">${esc(e.name)}</button>`).join("")}</div>` : ""}
+    </div>`;
+    const card = (k, label, sub) => `<button type="button" class="plan-card${pricingPlan === k ? " on" : ""}" data-plan="${k}" aria-pressed="${pricingPlan === k}">
+      <span>${esc(label)}</span><b>${money(plans[k].total)}</b><small>${sub}</small></button>`;
+    html += `<div class="plan-cards">
+      ${card("payg_1y", "Pay as you go · 1 year", `${money(plans.payg_1y.total / 12)} average per month`)}
+      ${card("commit_1y", "1-year commitment", `${money(plans.commit_1y.saving)} saved (${pct(plans.commit_1y.saving, plans.payg_1y.total)}) vs pay as you go`)}
+      ${card("commit_3y", "3-year commitment", plans.commit_3y.by_year.map((v, i) => `Year ${i + 1}: ${moneyShort(v)}`).join(" · "))}
+      ${card("payg_3y", "Pay as you go · 3 years", plans.payg_3y.by_year.map((v, i) => `Year ${i + 1}: ${moneyShort(v)}`).join(" · "))}
+    </div>`;
+    if (pricingEnv !== "all") html += `<p class="hint">Plan totals above are for all environments; the detail below is filtered to ${esc(envs.find((e) => e.id === pricingEnv)?.name || "")}.</p>`;
+
+    const rows = mergeEnvs(planProducts());
+    const total = rows.reduce((a, r) => a + sumArr(r[key], 0, months), 0);
+    const paygTotal = rows.reduce((a, r) => a + sumArr(r.payg, 0, months), 0);
+    const isCommit = key !== "payg";
+    html += `<section class="plan-detail"><div class="plan-head"><div><h2>${esc(plan.label)}</h2>
+      <p>${pricingBasis === "ramped" ? "Each service starts consuming in the month it goes live (see Roadmap)." : "Every service runs at full scope from month 1."}
+      ${isCommit ? ` Commitment pricing applies to eligible services (marked ●); everything else stays pay as you go.` : ""}</p></div>
+      <div class="plan-total"><b>${money(total)}</b><span>${months === 12 ? "over 12 months" : "over 36 months"}${isCommit ? ` · saves ${money(paygTotal - total)}` : ""}</span></div></div>`;
+
+    // monthly stacked chart for the plan's months
+    const groups = GROUP_ORDER_UI.filter((g) => rows.some((r) => r.group === g));
+    const series = groups.map((g) => ({ g, v: Array.from({ length: months }, (_, m) => rows.filter((r) => r.group === g).reduce((a, r) => a + r[key][m], 0)) }));
+    const paygLine = isCommit ? Array.from({ length: months }, (_, m) => rows.reduce((a, r) => a + r.payg[m], 0)) : null;
+    html += `<div class="stack-legend">${groups.map((g) => `<span><i style="background:${GROUP_COLORS[g]}"></i>${esc(g)}</span>`).join("")}${paygLine ? `<span><i class="dash"></i>Pay as you go</span>` : ""}</div>
+      <div class="chart-wrap">${stackSvg(series, paygLine, months)}</div>`;
+    if (months === 36) {
+      html += `<div class="year-tiles">${[1, 2, 3].map((y) => `<div><span>Year ${y}</span><b>${money(rows.reduce((a, r) => a + sumArr(r[key], (y - 1) * 12, y * 12), 0))}</b>
+        ${isCommit ? `<small>vs ${money(rows.reduce((a, r) => a + sumArr(r.payg, (y - 1) * 12, y * 12), 0))} pay as you go</small>` : ""}</div>`).join("")}</div>`;
+    }
+
+    // product summary
+    const head = months === 36
+      ? `<th>Product</th><th>Unit</th><th>Qty, 3 years</th><th>Unit price</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Total</th>${isCommit ? "<th>Saving</th>" : ""}`
+      : `<th>Product</th><th>Unit</th><th>Qty, 12 months</th><th>Qty / month (M12)</th><th>Unit price</th><th>Avg / month</th><th>Total</th>${isCommit ? "<th>Saving</th>" : ""}`;
+    let lastG = null;
+    const body = rows.map((r) => {
+      const cost = sumArr(r[key], 0, months), q = sumArr(r.qty, 0, months);
+      if (cost <= 0) return "";
+      const up = r.unit && q ? cost / q : null;
+      let h = "";
+      if (r.group !== lastG) { h = `<tr class="bom-group"><th colspan="${months === 36 ? (isCommit ? 9 : 8) : (isCommit ? 8 : 7)}"><i style="background:${GROUP_COLORS[r.group] || "#9AA0A6"}"></i>${esc(r.group)}</th></tr>`; lastG = r.group; }
+      const name = `<td class="bom-prod"><b>${esc(r.service)}${isCommit && r.commit_eligible ? ` <span class="ce" title="Commitment discount applies">●</span>` : ""}</b></td>`;
+      const sav = isCommit ? `<td>${money(sumArr(r.payg, 0, months) - cost)}</td>` : "";
+      if (months === 36) return h + `<tr>${name}<td class="bom-unit">${esc(r.unit || "-")}</td><td>${r.unit ? fmtQty(q) : "-"}</td><td>${unitPrice(up)}</td>
+        <td>${money(sumArr(r[key], 0, 12))}</td><td>${money(sumArr(r[key], 12, 24))}</td><td>${money(sumArr(r[key], 24, 36))}</td><td><b>${money(cost)}</b></td>${sav}</tr>`;
+      return h + `<tr>${name}<td class="bom-unit">${esc(r.unit || "-")}</td><td>${r.unit ? fmtQty(q) : "-"}</td><td>${r.unit ? fmtQty(r.qty[11]) : "-"}</td><td>${unitPrice(up)}</td>
+        <td>${money(cost / 12)}</td><td><b>${money(cost)}</b></td>${sav}</tr>`;
+    }).join("");
+    html += `<h3>Products, quantities and prices</h3><div style="overflow-x:auto"><table class="bom-table plan-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody>
+      <tfoot><tr><td>Total</td><td></td><td></td>${months === 36 ? `<td></td>${[0, 1, 2].map((y) => `<td>${money(rows.reduce((a, r) => a + sumArr(r[key], y * 12, y * 12 + 12), 0))}</td>`).join("")}` : `<td></td><td></td><td>${money(total / 12)}</td>`}<td>${money(total)}</td>${isCommit ? `<td>${money(paygTotal - total)}</td>` : ""}</tr></tfoot></table></div>`;
+
+    // month-by-month matrix
+    const lo = months === 36 ? (pricingYear - 1) * 12 : 0;
+    html += `<div class="matrix-head"><h3>Month by month</h3>
+      <div class="seg small" role="group" aria-label="Show"><button type="button" data-pmode="cost" aria-selected="${pricingMode === "cost"}">Cost</button><button type="button" data-pmode="qty" aria-selected="${pricingMode === "qty"}">Quantity</button></div>
+      ${months === 36 ? `<div class="seg small" role="group" aria-label="Year">${[1, 2, 3].map((y) => `<button type="button" data-pyear="${y}" aria-selected="${pricingYear === y}">Year ${y}</button>`).join("")}</div>` : ""}
+      <button type="button" class="btn ghost small" id="planCsv">Download CSV</button></div>`;
+    const mcols = Array.from({ length: 12 }, (_, i) => lo + i);
+    html += `<div class="matrix-wrap"><table class="matrix"><thead><tr><th>Product</th>${pricingMode === "qty" ? "<th>Unit</th>" : ""}${mcols.map((m) => `<th>M${m + 1}</th>`).join("")}<th>${pricingMode === "qty" ? "Total qty" : "Total"}</th></tr></thead><tbody>`
+      + rows.filter((r) => sumArr(r[key], 0, months) > 0).map((r) => `<tr><td>${esc(r.service)}</td>${pricingMode === "qty" ? `<td class="bom-unit">${esc(r.unit || "-")}</td>` : ""}${mcols.map((m) => `<td>${pricingMode === "qty" ? (r.unit ? fmtQty(r.qty[m]) : "-") : moneyCell(r[key][m])}</td>`).join("")}<td><b>${pricingMode === "qty" ? (r.unit ? fmtQty(sumArr(r.qty, lo, lo + 12)) : "-") : moneyCell(sumArr(r[key], lo, lo + 12))}</b></td></tr>`).join("")
+      + (pricingMode === "cost" ? `</tbody><tfoot><tr><td>Total</td>${mcols.map((m) => `<td>${moneyCell(rows.reduce((a, r) => a + r[key][m], 0))}</td>`).join("")}<td>${moneyCell(rows.reduce((a, r) => a + sumArr(r[key], lo, lo + 12), 0))}</td></tr></tfoot>` : "</tbody>")
+      + `</table></div>`;
+    html += `<p class="disclaimer">Commitment views apply committed-use pricing to services that offer it (BigQuery editions slots, Dataflow streaming, Composer, Agent Engine, Knowledge Catalog premium processing, AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore, Memorystore); a commitment is a fixed spend or capacity for the term. Ballpark from public list prices - validate with the Google Cloud Pricing Calculator.</p></section>`;
+    host.innerHTML = html;
+  }
+  const moneyCell = (v) => (Math.abs(v) < 0.5 ? "-" : moneyShort(v));
+
+  function stackSvg(series, line, months) {
+    const W = 900, H = 260, L = 64, R = 12, T = 12, B = 30;
+    const tot = Array.from({ length: months }, (_, m) => series.reduce((a, s) => a + s.v[m], 0));
+    const max = Math.max(...tot, ...(line || [0]), 1) * 1.08;
+    const bw = (W - L - R) / months;
+    const y = (v) => T + (H - T - B) * (1 - v / max);
+    let g = "";
+    for (let k = 0; k <= 4; k++) { const v = (max / 4) * k; g += `<line class="chart-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="chart-axis" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${esc(moneyShort(v))}</text>`; }
+    for (let m = 0; m < months; m++) {
+      let acc = 0;
+      const x0 = L + m * bw + bw * 0.16, w = bw * 0.68;
+      series.forEach((s) => { const v = s.v[m]; if (!v) return; g += `<rect x="${x0}" y="${y(acc + v)}" width="${w}" height="${Math.max(0, y(acc) - y(acc + v))}" fill="${GROUP_COLORS[s.g]}"><title>M${m + 1} ${esc(s.g)}: ${esc(money(v))}</title></rect>`; acc += v; });
+      if (months <= 12 || m % 3 === 0) g += `<text class="chart-axis" x="${L + m * bw + bw / 2}" y="${H - 8}" text-anchor="middle">M${m + 1}</text>`;
+    }
+    if (line) g += `<path d="${line.map((v, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="var(--ink-2)" stroke-width="2" stroke-dasharray="5 4"/>`;
+    if (months === 36) [12, 24].forEach((m) => (g += `<line class="chart-grid" stroke-dasharray="3 3" x1="${L + m * bw}" x2="${L + m * bw}" y1="${T}" y2="${H - B}"/>`));
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly consumption by capability">${g}</svg>`;
+  }
+
+  function planCsv() {
+    const p = pp(), plan = p.plans[pricingPlan], key = PLAN_KEY[pricingPlan];
+    const rows = mergeEnvs(planProducts());
+    const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const c = (v) => (v * fx()).toFixed(2);
+    const months = Array.from({ length: plan.months }, (_, i) => i);
+    const lines = [[q("Plan"), q(plan.label), q("Currency"), q(currency), q("Schedule"), q(pricingBasis === "ramped" ? "With ramp-up" : "Full scope from month 1")].join(",")];
+    lines.push([q("Capability"), q("Product"), q("Unit"), q("Measure"), ...months.map((m) => q(`M${m + 1}`)), q("Total")].join(","));
+    rows.forEach((r) => {
+      lines.push([q(r.group), q(r.service), q(r.unit || ""), q("Cost"), ...months.map((m) => c(r[key][m])), c(sumArr(r[key], 0, plan.months))].join(","));
+      if (r.unit) lines.push([q(r.group), q(r.service), q(r.unit), q("Quantity"), ...months.map((m) => r.qty[m]), sumArr(r.qty, 0, plan.months).toFixed(3)].join(","));
+    });
+    return lines.join("\n");
+  }
+
+  // ---------------- environments module
+  function renderEnvBody() {
+    const host = $("#envBody");
+    if (!host) return;
+    const envs = result?.environments || [];
+    if (!envs.length) { host.innerHTML = ""; return; }
+    const max = Math.max(...envs.map((e) => e.three_year), 1);
+    host.innerHTML = `<h3>Cost by environment</h3><div style="overflow-x:auto"><table class="env-table"><thead><tr><th>Environment</th><th>Sizing vs ${esc(envs[0].name)}</th><th>Per month (yr 1)</th><th>Year 1</th><th>3 years</th></tr></thead><tbody>`
+      + envs.map((e, i) => `<tr><td><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}<span class="share" style="width:${Math.max(2, 60 * e.three_year / max)}px"></span></td>
+        <td class="env-f">${i === 0 ? "Baseline - sized by your sources, products and workload" : catalog.environment_factors.map((f) => `${esc(f.name.replace(" %", ""))} ${+e.factors[f.id]}%`).join(" · ") + (e.bq_slots != null && scenario.bq_model !== "ondemand" ? ` · ${e.bq_slots} slots` : "")}</td>
+        <td>${money(e.monthly_year1)}</td><td>${money(e.year1)}</td><td>${money(e.three_year)}</td></tr>`).join("")
+      + `</tbody></table></div><p class="hint">Network links (HA VPN / Interconnect) and the Looker licence are shared and counted once. Use <b>Edit sizing</b> to change the percentage of production per capability, or set a fixed BigQuery slot count per environment with editions.</p>`;
   }
 
   // ---------------- architecture diagram
@@ -985,15 +1324,17 @@
     const ge = comps.find((x) => x.c.type === "gemini_enterprise");
     const geMode = ge ? ge.c.settings.grounding || "bigquery" : null;
 
-    const flowH = Math.max(400, top + srcs.length * rowH + 30, top + consume.length * 58 + groupGap * Math.max(0, nGroups - 1) + 40);
+    const nTargets = new Set(srcs.map((x) => recFor(x.id)?.target).filter(Boolean)).size;
+    const flowH = Math.max(400 + (nTargets > 1 ? (nTargets - 1) * 62 : 0), top + srcs.length * rowH + 30, top + consume.length * 58 + groupGap * Math.max(0, nGroups - 1) + 40);
     const H = flowH + 100;
 
     const srcNodes = srcs.map((s, i) => ({ s, x: col.src, y: top + i * rowH, r: recFor(s.id) }));
     const ingKeys = [], procKeys = [];
     srcNodes.forEach((n) => {
       if (!n.r) return;
-      n.ing = n.r.chain[0];
-      n.proc = n.r.chain.length > 1 ? n.r.chain.slice(1).join(">") : null;
+      const ch = n.r.chain.filter((t) => t !== "gcs_lake" && t !== "op_db");
+      n.ing = ch[0] || n.r.chain[0];
+      n.proc = ch.length > 1 ? ch.slice(1).join(">") : null;
       if (!ingKeys.includes(n.ing)) ingKeys.push(n.ing);
       if (n.proc && !procKeys.includes(n.proc)) procKeys.push(n.proc);
     });
@@ -1003,7 +1344,16 @@
     };
     const ingPos = spread(ingKeys, col.ing, cw.ing);
     const procPos = spread(procKeys, col.proc, cw.proc);
-    const bqY = top, bqH = flowH - top - 20;
+    const tgtOf = (n) => n.r?.target || "data_platform";
+    const hasBQ = srcNodes.some((n) => n.r && tgtOf(n) === "data_platform");
+    const hasLake = srcNodes.some((n) => n.r && tgtOf(n) === "data_lake");
+    const hasOpdb = srcNodes.some((n) => n.r && tgtOf(n) === "operational_db");
+    const extraH = (hasLake ? nodeH + 14 : 0) + (hasOpdb ? nodeH + 14 : 0);
+    const bqY = top, bqH = flowH - top - 20 - extraH;
+    let ey = bqY + bqH + 14;
+    const lakePos = hasLake ? { x: col.bq, y: ey } : null;
+    if (hasLake) ey += nodeH + 14;
+    const opdbPos = hasOpdb ? { x: col.bq, y: ey } : null;
     const midY = (p) => p.y + nodeH / 2;
     const avgY = (list) => list.reduce((a, n) => a + n.y, 0) / list.length;
     const connSrc = srcNodes.filter((n) => n.r?.needs_connectivity);
@@ -1024,7 +1374,7 @@
 
     // which flows land in the Cloud Storage raw zone first
     const RAW_ENG = ["files_transfer", "dataflow_batch", "datafusion", "dataproc", "cloud_run", "app_integration", "dts_migration"];
-    const inRaw = (s) => lake.raw_zone && s.included !== false && (lake.raw_scope === "all" || (!STREAMING.has(s.frequency) && (recFor(s.id)?.engine || "").split("+").some((e) => RAW_ENG.includes(e))));
+    const inRaw = (s) => lake.raw_zone && s.included !== false && recFor(s.id)?.target === "data_platform" && (lake.raw_scope === "all" || (!STREAMING.has(s.frequency) && (recFor(s.id)?.engine || "").split("+").some((e) => RAW_ENG.includes(e))));
     const flows = [];
     srcNodes.forEach((n) => {
       const fc = flowClass(n.s.frequency);
@@ -1041,7 +1391,8 @@
       const ip = ingPos[n.ing];
       hops.push({ x: ip.x, w: ip.w, y: midY(ip) });
       if (n.proc) { const pp = procPos[n.proc]; hops.push({ x: pp.x, w: pp.w, y: midY(pp) }); }
-      flows.push({ n, fc, hops, raw: inRaw(n.s) });
+      if (n.r.target === "operational_db") hops.length = 0, hops.push({ x: ingPos[n.ing].x, w: ingPos[n.ing].w, y: midY(ingPos[n.ing]) });
+      flows.push({ n, fc, hops, raw: inRaw(n.s), tgt: tgtOf(n) });
     });
     const rawFlows = flows.filter((f) => f.raw);
     let rawPos = null;
@@ -1058,8 +1409,12 @@
         const ry = Math.max(rawPos.y + 12, Math.min(rawPos.y + rawPos.h - 12, y));
         edges += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.raw, ry)}"/>`;
         edges += `<path class="dg-edge ${f.fc}" d="${curve(col.raw + cw.raw, ry, col.bq, ry)}"/>`;
+      } else if (f.tgt === "data_lake") {
+        over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, midY(lakePos))}"/>`;
+      } else if (f.tgt === "operational_db") {
+        over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, midY(opdbPos))}"/>`;
       } else {
-        over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, y)}"/>`;  // bypasses the raw zone (CDC / streaming)
+        over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, Math.min(y, bqY + bqH - 10))}"/>`;  // bypasses the raw zone (CDC / streaming)
       }
     });
     if (connSrc.length) nodes += node(connPos.x, connPos.y, cw.conn, tool(plat.connectivity).name.replace("Cloud ", ""), "Private link", "");
@@ -1088,7 +1443,13 @@
         <text x="${col.bq + 22}" y="${bandY + i * (bandH + 4) + 19}"><tspan style="font-weight:700">${esc(l.name)}</tspan> · ${esc(fmtGB(l.gib_month12))}</text><title>${esc(l.name)}: ${esc(l.role)} (${esc(l.pct)}% of bronze)</title></g>`).join("");
     const chipY = bandY + (lake.layers || []).length * (bandH + 4) + 10;
     const chipH = Math.min(24, Math.max(18, (bqY + bqH - 34 - chipY) / inside.length - 4));
-    nodes += `<g class="dg-node bq" data-drop="bigquery"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
+    inside.splice(Math.max(0, Math.floor((bqY + bqH - 30 - chipY) / (chipH + 4))));
+    if (hasLake) nodes += node(lakePos.x, lakePos.y, cw.bq, "Cloud Storage data lake", `Target · ${fmtGB(plat.data_lake_gib_month12 || 0)} at M12 · BigLake`, "raw", "");
+    if (hasOpdb) nodes += node(opdbPos.x, opdbPos.y, cw.bq, "AlloyDB / Cloud SQL", "Target · operational database (DMS)", "comp google database", "");
+    if (!hasBQ) nodes += `<g class="dg-node bq-empty" data-drop="bigquery"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
+      <text x="${col.bq + cw.bq / 2}" y="${bqY + bqH / 2 - 8}" text-anchor="middle">No source targets the</text>
+      <text x="${col.bq + cw.bq / 2}" y="${bqY + bqH / 2 + 10}" text-anchor="middle">BigQuery data platform yet</text></g>`;
+    else nodes += `<g class="dg-node bq" data-drop="bigquery"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
       <text x="${col.bq + 14}" y="${bqY + 26}" style="font-weight:700">BigQuery</text>
       <text class="sub" x="${col.bq + 14}" y="${bqY + 44}">${esc(result.region.id)} · Iceberg lakehouse</text>
       ${layers}
@@ -1348,7 +1709,7 @@
   // ---------------- cost
   function fx() { return (result || wlResult)?.fx?.[currency] || 1; }
   const GROUP_COLORS = {
-    "Data ingestion & CDC": "#F9AB00", "BigQuery": "#1A73E8", "Analytics & AI": "#9334E6", "APIs & databases": "#E52592",
+    "Data ingestion & CDC": "#F9AB00", "BigQuery & storage": "#1A73E8", "Analytics & AI": "#9334E6", "APIs & databases": "#E52592",
     "Governance & security": "#12A4AF", "Platform & network": "#34A853", "Contingency": "#9AA0A6",
   };
   function money(usd, digits) {
@@ -1969,6 +2330,101 @@
     return `<?xml version="1.0" encoding="UTF-8"?>\n` + new XMLSerializer().serializeToString(c);
   }
 
+  // ------------------------------------------------------------------ proposal (max 15 pages)
+  let proposalPages = null, proposalSeq = 0, proposalTimer = null;
+  const VENDOR_BASE = window.ADVISOR_DEMO ? "vendor/" : "/static/vendor/";
+  function proposalOpts() {
+    const P = window.CompassProposal;
+    scenario.proposal = { title: "Data & AI platform on Google Cloud", author: "", company: "", plan: "commit_3y", basis: "ramped", summary: "",
+      sections: P ? P.SECTIONS.map((x) => x.id) : [], ...(scenario.proposal || {}) };
+    return scenario.proposal;
+  }
+  function proposalCtx() {
+    return { scenario, result, wl: wlResult, plan: planResult, catalog, opts: proposalOpts(), currency, money, moneyShort, fmtGB, fmtQty, unitPrice,
+      tool, compMeta, freqName, regionName, bqModelName, EDITION_NAME, GROUP_COLORS, diagramPng };
+  }
+  function renderProposal() {
+    const host = $("#proposalBody");
+    const P = window.CompassProposal;
+    if (!host || !P) return;
+    if (!result || !scenario.sources.length) { host.innerHTML = `<p class="empty-note">Add source systems to generate a proposal.</p>`; return; }
+    const o = proposalOpts();
+    if (!$("#ppForm")) {
+      host.innerHTML = `<div class="pp-layout"><form class="pp-controls card-panel" id="ppForm" onsubmit="return false">
+          <h2>Proposal settings</h2>
+          <label>Title<input type="text" data-pp="title" maxlength="120"></label>
+          <div class="grid2"><label>Prepared by<input type="text" data-pp="author" maxlength="80" placeholder="Your name"></label>
+          <label>Company<input type="text" data-pp="company" maxlength="80" placeholder="Your company"></label></div>
+          <div class="grid2"><label>Commercial option to feature<select data-pp="plan">
+            <option value="payg_1y">Pay as you go - 1 year</option><option value="commit_1y">1-year commitment</option>
+            <option value="commit_3y">3-year commitment</option><option value="payg_3y">Pay as you go - 3 years</option></select></label>
+          <label>Schedule<select data-pp="basis"><option value="ramped">With ramp-up plan</option><option value="steady">Full scope from month 1</option></select></label></div>
+          <label>Executive summary (optional - leave blank to generate)<textarea data-pp="summary" rows="4" maxlength="1500"></textarea></label>
+          <fieldset class="pp-sections"><legend>Sections (one page each, max ${P.MAX_PAGES})</legend>
+            ${P.SECTIONS.map((x) => `<label class="toggle"><input type="checkbox" data-pp-sec="${x.id}"> ${esc(x.name)}</label>`).join("")}</fieldset>
+          <div class="pp-actions">
+            <button type="button" class="btn primary" id="ppPdf">Print / Save as PDF</button>
+            <button type="button" class="btn ghost" id="ppWord">Download Word (.docx)</button>
+            <button type="button" class="btn ghost" id="ppGdoc">Create Google Doc</button>
+          </div>
+          <p class="hint" id="ppStatus" role="status"></p>
+        </form>
+        <div class="pp-preview"><div class="pp-count" id="ppCount"></div><div class="pp-pages" id="ppPages"></div></div></div>`;
+      const f = $("#ppForm");
+      ["title", "author", "company", "summary"].forEach((k) => ($(`[data-pp="${k}"]`, f).value = o[k] || ""));
+      ["plan", "basis"].forEach((k) => ($(`[data-pp="${k}"]`, f).value = o[k]));
+      $$("[data-pp-sec]", f).forEach((cb) => (cb.checked = o.sections.includes(cb.dataset.ppSec)));
+      f.addEventListener("input", onProposalInput);
+      f.addEventListener("change", onProposalInput);
+      $("#ppPdf").addEventListener("click", printProposal);
+      $("#ppWord").addEventListener("click", () => proposalWord(false));
+      $("#ppGdoc").addEventListener("click", () => proposalWord(true));
+      if (NO_DOWNLOAD) { ["#ppPdf", "#ppWord", "#ppGdoc"].forEach((s2) => ($(s2).disabled = true)); $("#ppStatus").innerHTML = `Downloads need the full app - open the <a href="https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/" target="_blank" rel="noopener">live demo</a>.`; }
+    }
+    refreshProposal();
+  }
+  function onProposalInput(e) {
+    const o = proposalOpts();
+    const el = e.target;
+    if (el.dataset.pp) o[el.dataset.pp] = el.value;
+    if (el.dataset.ppSec) o.sections = $$("[data-pp-sec]").filter((cb) => cb.checked).map((cb) => cb.dataset.ppSec);
+    save();
+    clearTimeout(proposalTimer);
+    proposalTimer = setTimeout(refreshProposal, 300);
+  }
+  async function refreshProposal() {
+    const my = ++proposalSeq;
+    const ctx = proposalCtx();
+    const pages = await window.CompassProposal.build(ctx);
+    if (my !== proposalSeq || !$("#ppPages")) return;
+    proposalPages = pages;
+    $("#ppPages").innerHTML = window.CompassProposal.toHtml(pages, ctx);
+    $("#ppCount").textContent = `${pages.length} page${pages.length === 1 ? "" : "s"} (maximum ${window.CompassProposal.MAX_PAGES})`;
+  }
+  function printProposal() {
+    if (!proposalPages) return;
+    document.body.classList.add("print-proposal");
+    const done = () => { document.body.classList.remove("print-proposal"); window.removeEventListener("afterprint", done); };
+    window.addEventListener("afterprint", done);
+    window.print();
+    setTimeout(done, 1500);
+  }
+  async function proposalWord(toDrive) {
+    const st = $("#ppStatus");
+    if (!proposalPages) return;
+    st.textContent = "Building the Word document…";
+    try {
+      const blob = await window.CompassProposal.toDocx(proposalPages, proposalCtx(), VENDOR_BASE);
+      const name = `${slug()}-proposal.docx`;
+      if (!toDrive) { download(name, blob.type, blob); st.textContent = `Downloaded ${name}.`; return; }
+      const id = googleClientId();
+      if (!id) { st.innerHTML = "Google Docs export needs a one-time OAuth client ID - open Export → Google Sheets to set it up, or download the Word file and open it with Google Docs."; return; }
+      st.textContent = "Uploading to Google Drive…";
+      const res = await window.CompassExports.driveUpload(blob, `${scenario.customer || "Customer"} - Data & AI platform proposal`, "docs", id);
+      st.innerHTML = `Created <a href="${esc(res.webViewLink)}" target="_blank" rel="noopener">${esc(res.name)}</a> in Google Docs.`;
+    } catch (err) { st.textContent = `Could not build the document: ${err.message}`; }
+  }
+
   // ------------------------------------------------------------------ Google Sheets / Slides export
   const GCLIENT_KEY = "data-cloud-compass:google-client-id";
   let gKind = null, serverClientId = "";
@@ -1977,9 +2433,17 @@
     try { local = localStorage.getItem(GCLIENT_KEY) || ""; } catch (_) { /* storage unavailable */ }
     return (window.COMPASS_CONFIG && window.COMPASS_CONFIG.googleClientId) || serverClientId || local;
   }
+  let serverFeedbackUrl = "";
+  const feedbackUrl = () => (window.COMPASS_CONFIG && window.COMPASS_CONFIG.feedbackUrl) || serverFeedbackUrl;
   async function loadServerConfig() {
+    const show = () => { $("#feedbackBtn").hidden = !feedbackUrl(); };
+    show();
     if (window.ADVISOR_API) return;
-    try { const r = await fetch("/api/config"); if (r.ok) serverClientId = (await r.json()).google_client_id || ""; } catch (_) { /* optional */ }
+    try {
+      const r = await fetch("/api/config");
+      if (r.ok) { const j = await r.json(); serverClientId = j.google_client_id || ""; serverFeedbackUrl = j.feedback_url || ""; }
+    } catch (_) { /* optional */ }
+    show();
   }
 
   function openGoogleExport(kind) {
@@ -2094,6 +2558,42 @@
         s.type === "iot" ? (catalog.iot_options.find((o) => o.id === (s.iot_option || "native"))?.name || "") : ""]);
     });
     sheets.push({ name: "Sources & patterns", rows: srcRows, widths: [28, 24, 14, 14, 14, 16, 14, 50, 50, 36], freeze: 1 });
+
+    // Pricing plans (whole programme, ramp-up schedule)
+    const pr = planResult?.pricing?.ramped;
+    if (pr) {
+      const P2 = pr.plans;
+      const ps = [[{ v: "Commercial options - whole programme with ramp-up", s: S.title }], [],
+        H(["Option", `Year 1 (${ccy})`, `Year 2 (${ccy})`, `Year 3 (${ccy})`, `Total (${ccy})`, `Saving vs pay as you go (${ccy})`]),
+        ["Pay as you go - 1 year", M(P2.payg_1y.total), "", "", M(P2.payg_1y.total), ""],
+        ["1-year commitment", M(P2.commit_1y.total), "", "", M(P2.commit_1y.total), M(P2.commit_1y.saving)],
+        ["Pay as you go - 3 years", ...P2.payg_3y.by_year.map(M), M(P2.payg_3y.total), ""],
+        ["3-year commitment", ...P2.commit_3y.by_year.map(M), M(P2.commit_3y.total), M(P2.commit_3y.saving)], [],
+        H(["Month", `Pay as you go (${ccy})`, `1-year commitment (${ccy})`, `3-year commitment (${ccy})`])];
+      const m0 = ps.length;
+      for (let i = 0; i < 36; i++) ps.push([`M${i + 1}`, M(P2.payg_3y.monthly[i]), i < 12 ? M(P2.commit_1y.monthly[i]) : "", M(P2.commit_3y.monthly[i])]);
+      sheets.push({ name: "Pricing plans", rows: ps, widths: [28, 20, 20, 20, 20, 26], freeze: 0,
+        charts: [{ type: "line", title: `Monthly consumption with ramp-up (${ccy})`, catCol: 0, firstRow: m0, lastRow: m0 + 35, series: [{ col: 1, color: "FBBC04" }, { col: 3, color: "188038" }], anchor: { col: 7, row: 1, cols: 10, rows: 20 } }] });
+      const merged = mergeEnvs(pr.products, true);
+      const planSheet = (name, key, months) => {
+        const head = months === 12
+          ? H(["Capability", "Product", "Unit", "Qty, 12 months", "Unit price", ...Array.from({ length: 12 }, (_, i) => `M${i + 1}`), "Total"])
+          : H(["Capability", "Product", "Unit", "Qty, 3 years", "Unit price", "Year 1", "Year 2", "Year 3", ...Array.from({ length: 36 }, (_, i) => `M${i + 1}`), "Total"]);
+        const rows = [head];
+        merged.forEach((r) => {
+          const cost = sumArr(r[key], 0, months), q = sumArr(r.qty, 0, months);
+          if (cost <= 0) return;
+          const up = r.unit && q ? { v: Math.round((cost / q) * fx() * 10000) / 10000, s: S.price } : "-";
+          rows.push([r.group, r.service, r.unit || "-", r.unit ? { v: Math.round(q * 100) / 100, s: S.num } : "-", up,
+            ...(months === 36 ? [0, 1, 2].map((y) => M(sumArr(r[key], y * 12, y * 12 + 12))) : []),
+            ...r[key].slice(0, months).map(M), { v: cur(cost), s: S.moneyBold }]);
+        });
+        sheets.push({ name, rows, widths: [20, 34, 14, 14, 12, ...(months === 36 ? [14, 14, 14] : []), ...Array.from({ length: months }, () => 11), 16], freeze: 1 });
+      };
+      planSheet("PAYG 1 year", "payg", 12);
+      planSheet("1-yr commitment", "cud1", 12);
+      planSheet("3-yr commitment", "cud3", 36);
+    }
 
     // Bill of materials
     const bom = result.bom || [];
@@ -2267,6 +2767,19 @@
         { x: 0.4, y: 3.0, w: 6.3, h: 3.9, barDir: "bar", chartColors: [BLUE, "F9AB00"], showLegend: true, legendPos: "b", legendFontFace: FONT, catAxisLabelFontFace: FONT, valAxisLabelFormatCode: "#,##0", catAxisLabelFontSize: 9, valAxisLabelFontSize: 8, showTitle: true, title: "By capability", titleFontSize: 12, titleFontFace: FONT });
       s.addChart(P.ChartType.line, [{ name: "Pay-as-you-go", labels: result.monthly.map((m) => `M${m.month}`), values: result.monthly.map((m) => cv(m.payg)) }, { name: "With 3-yr commitments", labels: result.monthly.map((m) => `M${m.month}`), values: result.monthly.map((m) => cv(m.cud3)) }],
         { x: 6.9, y: 3.0, w: 6.0, h: 3.9, chartColors: [BLUE, "188038"], lineDataSymbol: "none", lineSize: 2, showLegend: true, legendPos: "b", legendFontFace: FONT, valAxisLabelFormatCode: "#,##0", catAxisLabelFontSize: 8, valAxisLabelFontSize: 8, showTitle: true, title: `Monthly run-rate (${ccy})`, titleFontSize: 12, titleFontFace: FONT });
+    }
+    // 5b. Commercial options
+    if (planResult?.pricing) {
+      const P2 = planResult.pricing.ramped.plans;
+      const s = slide("Commercial options", "Whole programme with ramp-up - pay as you go vs 1-year and 3-year commitments");
+      const rows = [head(["Option", "Year 1", "Year 2", "Year 3", "Total", "Saving"])];
+      rows.push(["Pay as you go - 1 year", money(P2.payg_1y.total), "-", "-", money(P2.payg_1y.total), "-"]);
+      rows.push(["1-year commitment", money(P2.commit_1y.total), "-", "-", money(P2.commit_1y.total), money(P2.commit_1y.saving)]);
+      rows.push(["Pay as you go - 3 years", ...P2.payg_3y.by_year.map((v) => money(v)), money(P2.payg_3y.total), "-"]);
+      rows.push(["3-year commitment", ...P2.commit_3y.by_year.map((v) => money(v)), money(P2.commit_3y.total), money(P2.commit_3y.saving)]);
+      s.addTable(rows, { ...tableOpts([3.4, 1.8, 1.8, 1.8, 2.0, 1.7]), fontSize: 11 });
+      s.addChart(P.ChartType.bar, [{ name: "Pay as you go", labels: ["Year 1", "Year 2", "Year 3"], values: P2.payg_3y.by_year.map(cv) }, { name: "3-year commitment", labels: ["Year 1", "Year 2", "Year 3"], values: P2.commit_3y.by_year.map(cv) }],
+        { x: 0.4, y: 3.6, w: 12.5, h: 3.3, barDir: "col", chartColors: ["FBBC04", "188038"], showLegend: true, legendPos: "b", valAxisLabelFormatCode: "#,##0", showValue: true, dataLabelFormatCode: "#,##0", dataLabelFontSize: 9 });
     }
     // 6. Environments
     const envs = result.environments || [];

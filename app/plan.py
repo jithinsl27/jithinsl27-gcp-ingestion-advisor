@@ -137,8 +137,8 @@ def build_plan(scenario: dict) -> dict:
     comp_start = {c["id"]: c["start_month"] for c in comp_rows}
     ramped["components"] = [{**c, "start_month": comp_start.get(c["id"], 1)} for c in comps]
     ramped.pop("platform", None)
-    est = estimate(ramped, keep_items=True)
-    steady = estimate({**scenario})
+    est = estimate(ramped, keep_items=True, detail=True)
+    steady = estimate({**scenario}, detail=True)
 
     months = []
     for m in range(1, horizon + 1):
@@ -159,7 +159,10 @@ def build_plan(scenario: dict) -> dict:
         })
     est.pop("_items", None)
     steady.pop("_items", None)
+    pricing = {"ramped": pricing_plans(est["product_months"]), "steady": pricing_plans(steady["product_months"]),
+               "go_live": {"first": first_live, "all": all_live}}
     return {
+        "pricing": pricing,
         "teams": teams,
         "horizon": horizon,
         "phases": phases,
@@ -173,3 +176,23 @@ def build_plan(scenario: dict) -> dict:
         "group_order": ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"],
         "assumptions": {"foundation_weeks": FOUNDATION_WEEKS, "effort_weeks": EFFORT_WEEKS, "weeks_per_month": WEEKS_PER_MONTH},
     }
+
+
+def pricing_plans(products):
+    """Whole-programme pricing: pay-as-you-go vs 1-year and 3-year commitments, month by month and per product."""
+    r2 = lambda x: round(x + 1e-12, 2)  # noqa: E731
+
+    def monthly(key):
+        return [r2(sum(p[key][m] for p in products)) for m in range(36)]
+
+    payg, c1, c3 = monthly("payg"), monthly("cud1"), monthly("cud3")
+    year = lambda arr, y: r2(sum(arr[(y - 1) * 12: y * 12]))  # noqa: E731
+    plans = {
+        "payg_1y": {"label": "Pay as you go - 1 year", "months": 12, "monthly": payg[:12], "total": year(payg, 1), "by_year": [year(payg, 1)]},
+        "commit_1y": {"label": "1-year commitment", "months": 12, "monthly": c1[:12], "total": year(c1, 1), "by_year": [year(c1, 1)],
+                      "saving": r2(year(payg, 1) - year(c1, 1))},
+        "commit_3y": {"label": "3-year commitment", "months": 36, "monthly": c3, "total": r2(sum(c3)), "by_year": [year(c3, y) for y in (1, 2, 3)],
+                      "saving": r2(sum(payg) - sum(c3))},
+        "payg_3y": {"label": "Pay as you go - 3 years", "months": 36, "monthly": payg, "total": r2(sum(payg)), "by_year": [year(payg, y) for y in (1, 2, 3)]},
+    }
+    return {"plans": plans, "products": products}

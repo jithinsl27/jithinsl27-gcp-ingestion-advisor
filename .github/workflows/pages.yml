@@ -24,7 +24,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
       - run: python demo/build_demo.py
-      - run: mkdir -p _site && cp demo/dist/index.html _site/index.html && touch _site/.nojekyll
+      - run: mkdir -p _site/vendor && cp demo/dist/index.html _site/index.html && cp app/static/vendor/docx.min.js _site/vendor/ && touch _site/.nojekyll
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

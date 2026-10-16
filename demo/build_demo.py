@@ -61,6 +61,8 @@ def build():
     app_js = (STATIC / "app.js").read_text()
     engine_js = (Path(__file__).parent / "engine.js").read_text()
     exports_js = (STATIC / "exports.js").read_text()
+    proposal_js = (STATIC / "proposal.js").read_text()
+    config_js = (STATIC / "config.js").read_text()
     vendor_js = (STATIC / "vendor" / "pptxgen.bundle.js").read_text()
     data_js = "window.ADVISOR_DATA = " + json.dumps(data_payload(), separators=(",", ":")) + ";"
 
@@ -79,6 +81,8 @@ def build():
         vendor = "" if no_download else f"<script>{safe_script(vendor_js)}</script>"
         out = out.replace('<script src="/static/vendor/pptxgen.bundle.js" defer></script>', vendor)
         out = out.replace('<script src="/static/exports.js"></script>', f"<script>{safe_script(exports_js)}</script>")
+        out = out.replace('<script src="/static/proposal.js"></script>', f"<script>{safe_script(proposal_js)}</script>")
+        out = out.replace('<script src="/static/config.js"></script>', f"<script>{safe_script(config_js)}</script>")
         out = out.replace("<body>", "<body>\n  " + banner, 1)
         return out
 
@@ -94,6 +98,8 @@ def build():
     head = head.replace(title, "")
     body = re.search(r"<body>(.*)</body>", art, re.S).group(1)
     (DIST / "artifact.html").write_text(f"{title}\n{head_extra}\n{head.strip()}\n{body.strip()}\n")
+    (DIST / "vendor").mkdir(exist_ok=True)
+    (DIST / "vendor" / "docx.min.js").write_text((STATIC / "vendor" / "docx.min.js").read_text())
     print(f"Built {DIST / 'index.html'} and {DIST / 'artifact.html'}")
 
 

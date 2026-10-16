@@ -25,10 +25,10 @@ from collections import defaultdict
 from pathlib import Path
 
 from .catalog import FREQUENCIES, SOURCE_BY_ID, STREAMING_FREQS
-from .recommender import recommend, platform_components
+from .recommender import effective_type, recommend, platform_components
 from .components import COMPONENT_BY_ID, cost_components, component_view, normalized, platform_story
 from .environments import env_summary, normalized_envs, replicate
-from .bom import build_bom
+from .bom import build_bom, product_months
 
 DATA_DIR = Path(__file__).parent / "data"
 GIB_PER_TIB = 1024
@@ -129,7 +129,7 @@ def stream_vcpus(daily_gb, transform):
 # --------------------------------------------------------------------------- #
 # Main entry point
 # --------------------------------------------------------------------------- #
-def estimate(scenario: dict, keep_items: bool = False) -> dict:
+def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> dict:
     pricing = load_pricing()
     regions = {r["id"]: r for r in load_regions()}
     region_id = scenario.get("region", "us-central1")
@@ -165,7 +165,7 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
     excluded = set(scenario.get("excluded_services") or [])
     envs = normalized_envs(scenario)
     primary_env = envs[0]["id"]
-    bom = {}                              # (m, service, env_id) -> [usd, qty]
+    bom = {}                              # (m, service, env_id) -> [usd, qty, cud1_usd, cud3_usd]
     units = {}                            # service -> unit of quantity
 
     def add(m, service, source, usd, cud1=None, cud3=None, q=None):
@@ -175,8 +175,10 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         payg[k] += usd
         cud["cud1"][k] += usd if cud1 is None else cud1
         cud["cud3"][k] += usd if cud3 is None else cud3
-        row = bom.setdefault((m, service, primary_env), [0.0, 0.0])
+        row = bom.setdefault((m, service, primary_env), [0.0, 0.0, 0.0, 0.0])
         row[0] += usd
+        row[2] += usd if cud1 is None else cud1
+        row[3] += usd if cud3 is None else cud3
         if q:
             row[1] += q[0]
             units.setdefault(service, q[1])
@@ -196,14 +198,23 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
     src_start = {}
     landing_gib = defaultdict(float)
     raw_in = defaultdict(float)               # month -> GiB landed in the Cloud Storage raw zone
+    lake_in = defaultdict(float)              # month -> GiB written to the Cloud Storage data lake (target)
+    dms_cdc = defaultdict(lambda: defaultdict(float))   # month -> source -> GiB (heterogeneous DMS)
+    dms_backfill = defaultdict(lambda: defaultdict(float))
+    bq_starts = []
+    targets = {"data_platform": [], "data_lake": [], "operational_db": []}
     lk = lakehouse_settings(scenario)
     curated = (lk["silver_pct"] + lk["gold_pct"]) / 100.0
     per_source_meta = []
 
     for src, rec in zip(sources, recs):
         sid = src.get("id") or src["type"]
-        name = src.get("name") or SOURCE_BY_ID.get(src["type"], {}).get("name", src["type"])
-        cat = SOURCE_BY_ID.get(src["type"], {}).get("category", "api")
+        etype = effective_type(src)
+        name = src.get("name") or src.get("custom_name") or SOURCE_BY_ID.get(etype, {}).get("name", etype)
+        cat = SOURCE_BY_ID.get(etype, {}).get("category", "api")
+        to_bq = rec.target == "data_platform"
+        to_lake = rec.target == "data_lake"
+        targets[rec.target].append(name)
         freq = src.get("frequency", "daily")
         transform = src.get("transform", "none")
         daily0 = float(src.get("daily_change_gb") or 0)
@@ -215,12 +226,16 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         on_prem = src.get("location", "on_prem") == "on_prem"
         start = max(1, min(36, int(src.get("start_month") or 1)))
         src_start[sid] = start
-        initial_by_month[start] += initial
+        if to_bq:
+            initial_by_month[start] += initial
+            bq_starts.append(start)
+        elif to_lake:
+            lake_in[start] += initial
         src_rid = rid_of(src.get("region") or region_id)
         ctx["rid"] = src_rid
         per_source_meta.append({"id": sid, "name": name, "region": src_rid})
         xfer_rate = inter_region_rate(regions, src_rid, region_id, pricing)
-        in_raw = lk["raw_zone"] and (lk["raw_scope"] == "all" or (freq not in STREAMING_FREQS and bool(RAW_BATCH_ENGINES & set(engines))))
+        in_raw = to_bq and lk["raw_zone"] and (lk["raw_scope"] == "all" or (freq not in STREAMING_FREQS and bool(RAW_BATCH_ENGINES & set(engines))))
         if in_raw:
             raw_in[start] += initial
 
@@ -230,8 +245,11 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
             g = growth_factor(m, growth)
             daily = 0.0 if one_time else daily0 * g
             monthly = daily * 30
-            ingested_gib[m] += monthly
-            ingested_net_gib[m] += monthly * net_ratio
+            if to_bq:
+                ingested_gib[m] += monthly
+                ingested_net_gib[m] += monthly * net_ratio
+            elif to_lake:
+                lake_in[m] += monthly
             if in_raw:
                 raw_in[m] += monthly
             if xfer_rate:
@@ -283,12 +301,15 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
                 elif eng == "dts_free":
                     pass  # DTS connectors used here carry no transfer charge; BigQuery load is free
                 elif eng == "dts_migration":
-                    if src["type"] == "teradata" and not one_time:
+                    if etype == "teradata" and not one_time:
                         add(m, "Compute Engine (migration agent)", sid, HOURS * pricing["compute_engine"]["vm_standard_4vcpu_hr"] * up("compute_engine"), q=(HOURS, "VM-hours"))
                 elif eng == "sap_connector":
                     write_api_gib[m] += monthly
                 elif eng == "log_sink":
-                    streaming_insert_gib[m] += monthly
+                    if to_bq:
+                        streaming_insert_gib[m] += monthly
+                elif eng == "dms_hetero":
+                    dms_cdc[m][sid] += monthly
                 elif eng == "app_integration":
                     ic = pricing["integration_connectors"]
                     add(m, "Integration Connectors", sid,
@@ -298,7 +319,8 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
                     r = runs if runs else 30
                     secs = r * ASSUMPTIONS["cloud_run_minutes_per_run"] * 60
                     add(m, "Cloud Run jobs", sid, secs * (cr["vcpu_second"] + 2 * cr["gib_second"]) * up("cloud_run"), q=(r, "job runs"))
-                    write_api_gib[m] += monthly
+                    if to_bq:
+                        write_api_gib[m] += monthly
                 elif eng == "mqtt_broker":
                     if one_time:
                         continue
@@ -323,11 +345,28 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
                     if on_prem or cat == "mainframe":
                         add(m, "One-time initial load", sid, initial * pricing["storage_transfer"]["agent_gib"])
                     add(m, "One-time initial load", sid, initial * pricing["gcs"]["standard_gib_month"] * up("gcs"), q=(initial, "GiB loaded"))
-                elif primary_engine == "dts_migration" and src["type"] == "teradata":
+                elif primary_engine == "dms_hetero":
+                    dms_backfill[m][sid] += initial
+                elif primary_engine == "dts_migration" and etype == "teradata":
                     hrs = initial / ASSUMPTIONS["teradata_agent_gb_per_hr"]
                     add(m, "One-time initial load", sid, hrs * pricing["compute_engine"]["vm_standard_4vcpu_hr"] * up("compute_engine"), q=(initial, "GiB loaded"))
                 elif primary_engine == "sap_connector":
                     write_api_gib[m] += initial
+
+    # ------------------------------------------------------------ Database Migration Service (heterogeneous; tiers per account)
+    dm = pricing["database_migration"]
+    free_dms = dm["backfill_free_gib"]
+    for m in range(1, 37):
+        tot_gib = sum(dms_cdc[m].values())
+        if tot_gib:
+            total = tiered(tot_gib, dm["cdc_tiers_gib"])
+            for sid, gib in dms_cdc[m].items():
+                ctx["rid"] = region_id
+                add(m, "Database Migration Service (CDC)", sid, total * gib / tot_gib, q=(gib, "GiB"))
+        for sid, gib in dms_backfill[m].items():
+            billable = max(0.0, gib - free_dms)
+            free_dms = max(0.0, free_dms - gib)
+            add(m, "Database Migration Service (backfill)", sid, billable * dm["backfill_gib"], q=(billable, "GiB"))
 
     # ------------------------------------------------------------ Datastream (aggregate tiers)
     src_region = {m_["id"]: m_["region"] for m_ in per_source_meta}
@@ -350,6 +389,7 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
 
     # ------------------------------------------------------------ BigQuery (home region)
     plat_start = min(src_start.values()) if src_start else 1
+    bq_start = min(bq_starts) if bq_starts else None
     ctx["rid"] = region_id
     bq_up = up("bigquery")
     stored = 0.0
@@ -386,10 +426,12 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         else:
             analytics_tib = stored_tib * ASSUMPTIONS["auto_analytics_scan_multiplier"]
         scan_tib = elt_tib + analytics_tib
+        if bq_start is None or m < bq_start:
+            continue                      # no source has gone live on the data platform yet
         if bq_model == "ondemand":
             billable = max(0.0, scan_tib - bq["ondemand_free_tib"])
             add(m, "BigQuery compute", "_platform", billable * bq["ondemand_tib"] * bq_up, q=(billable, "TiB scanned"))
-        elif m >= plat_start:
+        else:
             ed = bq["editions"][bq_model]
             slot_hours = edition_slots * HOURS
             add(m, "BigQuery compute", "_platform", slot_hours * ed["payg"] * bq_up,
@@ -439,6 +481,13 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
                 add(m, "Cloud Storage (raw zone)", "_platform", gib * pricing["gcs"][f"{lk['raw_storage_class']}_gib_month"] * up("gcs"), q=(gib, "GiB-months"))
         elif landing_gib[m]:
             add(m, "Cloud Storage (landing zone)", "_platform", landing_gib[m] * pricing["gcs"]["standard_gib_month"] * up("gcs"), q=(landing_gib[m], "GiB-months"))
+    lake_stored = 0.0
+    lake_by_month = {}
+    for m in range(1, 37):
+        lake_stored += lake_in[m]
+        lake_by_month[m] = lake_stored
+        if lake_stored:
+            add(m, "Cloud Storage (data lake)", "_platform", lake_stored * pricing["gcs"]["standard_gib_month"] * up("gcs"), q=(lake_stored, "GiB-months"))
 
     # ------------------------------------------------------------ Analytics, AI, governance, security
     comps, sec = normalized(scenario)
@@ -456,6 +505,8 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
         "story": platform_story(comps, sec, sources),
     }
     platform["processing_region"] = processing_region
+    platform["targets"] = {k: v for k, v in targets.items()}
+    platform["data_lake_gib_month12"] = round(lake_by_month.get(12, 0.0), 2)
     m12 = 12
     platform["lakehouse"] = {
         **lk,
@@ -484,12 +535,18 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
             if cont_on:
                 view[(m, "Contingency & operations", "_platform", region_id)] += v * cont
     if cont_on:
-        month_bom = defaultdict(float)
-        for (m, svc, env_id), (usd, _q) in list(bom.items()):
-            month_bom[(m, env_id)] += usd
-        for (m, env_id), v in month_bom.items():
+        month_bom = defaultdict(lambda: [0.0, 0.0, 0.0])
+        for (m, svc, env_id), (usd, _q, c1, c3) in list(bom.items()):
+            t = month_bom[(m, env_id)]
+            t[0] += usd
+            t[1] += c1
+            t[2] += c3
+        for (m, env_id), (v, c1, c3) in month_bom.items():
             if v:
-                bom.setdefault((m, "Contingency & operations", env_id), [0.0, 0.0])[0] += v * cont
+                row = bom.setdefault((m, "Contingency & operations", env_id), [0.0, 0.0, 0.0, 0.0])
+                row[0] += v * cont
+                row[2] += c1 * cont
+                row[3] += c3 * cont
 
     out = _summarise(payg, cud, recs, platform, sources, per_source_meta, region, scenario, pricing)
     out["excluded_services"] = sorted(excluded)
@@ -502,6 +559,8 @@ def estimate(scenario: dict, keep_items: bool = False) -> dict:
     out["bom"] = build_bom(bom, units, envs, drivers, service_group, GROUP_ORDER,
                            {"bq_model": bq_model, "contingency_pct": round(cont * 100, 1), "lakehouse": lk,
                             "components": comps, "edition_slots": edition_slots})
+    if detail:
+        out["product_months"] = product_months(bom, units, envs, service_group, GROUP_ORDER)
     if keep_items:
         out["_items"] = payg
     return out

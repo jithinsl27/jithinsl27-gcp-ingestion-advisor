@@ -20,7 +20,7 @@
   const num = (v) => Number(v || 0);
 
   function Rec(sid, primary, pattern, chain, engine) {
-    return { source_id: sid, primary, pattern, chain: chain.slice(), engine, rationale: [], alternatives: [], caveats: [], needs_connectivity: false, needs_datafusion: false };
+    return { source_id: sid, primary, pattern, chain: chain.slice(), engine, rationale: [], alternatives: [], caveats: [], needs_connectivity: false, needs_datafusion: false, target: "data_platform" };
   }
   const alt = (tool, why) => ({ tool, why });
 
@@ -110,13 +110,13 @@
       });
       const baseBom = [...bom.entries()].filter(([k]) => k.split("\u0001")[2] === primary).map(([k, v]) => [k, v.slice()]);
       for (const env of envs.slice(1)) {
-        for (const [k, [usd, qty]] of baseBom) {
+        for (const [k, vals] of baseBom) {
           const [m, svc] = k.split("\u0001");
           const f = envFactor(env, svc, serviceGroup(svc), bqModel, baseSlots);
           if (f) {
             const kk = `${m}\u0001${svc}\u0001${env.id}`;
-            const row = bom.get(kk) || [0, 0];
-            row[0] += usd * f; row[1] += qty * f;
+            const row = bom.get(kk) || [0, 0, 0, 0];
+            vals.forEach((v, i) => (row[i] += v * f));
             bom.set(kk, row);
           }
         }
@@ -192,7 +192,58 @@
   }
 
   // ------------------------------------------------------------------ recommender
+  // ------------------------------------------------------------------ targets & custom sources
+  const LAKE_EXCLUDED = new Set(["saas_google", "saas_salesforce", "dwh", "sap"]);
+  const OPDB_HOMOGENEOUS = new Set(["mysql", "postgresql", "cloudsql", "alloydb"]);
+  const OPDB_ALLOWED = new Set([...OPDB_HOMOGENEOUS, "oracle", "sqlserver"]);
+  function effectiveType(src) {
+    if (src.type === "custom") return SOURCE_BY_ID[src.like_type] && src.like_type !== "custom" ? src.like_type : "rest_api";
+    return src.type;
+  }
+  function allowedTargets(stype) {
+    const cat = (SOURCE_BY_ID[stype] || {}).category || "api";
+    const out = ["data_platform"];
+    if (!LAKE_EXCLUDED.has(cat)) out.push("data_lake");
+    if (OPDB_ALLOWED.has(stype)) out.push("operational_db");
+    return out;
+  }
   function recommend(src, prefs) {
+    const stype = effectiveType(src);
+    const eff = stype !== src.type ? { ...src, type: stype } : src;
+    const r = recommendBase(eff, prefs);
+    if (src.type === "custom") {
+      const nm = src.custom_name || src.name || "This source";
+      r.rationale.unshift(`${nm} is not in the catalogue, so it follows the pattern for ${SOURCE_BY_ID[stype].name} sources - confirm the connector (driver, API or export) during discovery.`);
+    }
+    let target = src.target || "data_platform";
+    if (!allowedTargets(stype).includes(target)) target = "data_platform";
+    return applyTarget(r, stype, target);
+  }
+  function applyTarget(r, stype, target) {
+    r.target = target;
+    if (target === "data_lake") {
+      let chain = r.chain.filter((t) => !["gcs_load", "object_tables", "bq_dts", "sap_connector"].includes(t));
+      if (!chain.length) chain = ["dataflow"];
+      r.chain = [...chain, "gcs_lake"];
+      r.pattern = r.chain.map((t) => (D.catalog.tools[t] || { name: t }).name).join(" -> ");
+      r.rationale.unshift("Target is the Cloud Storage data lake: data lands in open formats (Parquet, Avro or Iceberg) and can be queried from BigQuery through BigLake tables when needed.");
+    } else if (target === "operational_db") {
+      const homo = OPDB_HOMOGENEOUS.has(stype);
+      r.primary = "dms";
+      r.chain = ["dms", "op_db"];
+      r.engine = homo ? "dms_native" : "dms_hetero";
+      r.pattern = homo ? "Database Migration Service (continuous replication) -> Cloud SQL / AlloyDB" : "Database Migration Service (conversion workspace + CDC) -> AlloyDB / Cloud SQL for PostgreSQL";
+      r.rationale = [homo ? "Native MySQL / PostgreSQL replication with Database Migration Service: no charge for the migration itself, minimal downtime cut-over."
+        : "Heterogeneous migration: Database Migration Service converts the schema and code (Gemini-assisted conversion workspace) and keeps the target in sync with CDC until cut-over.",
+        "Add AlloyDB or Cloud SQL from the product search to price the target database; Datastream can still feed BigQuery from the new database later."];
+      r.alternatives = [alt("datastream", "Keep the source as-is and replicate to BigQuery instead (target: data platform).")];
+      r.caveats = ["Validate source version, extensions and network connectivity (Private Service Connect / VPC peering) for the migration job."];
+      if (!homo) r.caveats.push("Heterogeneous migrations are priced per GiB of change data and backfill beyond 500 GiB.");
+    }
+    return r;
+  }
+
+  function recommendBase(src, prefs) {
     prefs = prefs || {};
     const skill = prefs.skill || "sql";
     const stype = src.type;
@@ -689,7 +740,7 @@
     return lk;
   }
 
-  function estimate(scenario, keepItems) {
+  function estimate(scenario, keepItems, detail) {
     const pricing = D.pricing;
     const regions = Object.fromEntries(D.regions.map((r) => [r.id, r]));
     const regionId = regions[scenario.region] ? scenario.region : "us-central1";
@@ -720,8 +771,10 @@
       inc(cud1, k, c1 === undefined ? usd : c1);
       inc(cud3, k, c3 === undefined ? usd : c3);
       const bk = `${m}\u0001${svc}\u0001${primaryEnv}`;
-      const row = bom.get(bk) || [0, 0];
+      const row = bom.get(bk) || [0, 0, 0, 0];
       row[0] += usd;
+      row[2] += c1 === undefined ? usd : c1;
+      row[3] += c3 === undefined ? usd : c3;
       if (q) { row[1] += q[0]; if (!(svc in units)) units[svc] = q[1]; }
       bom.set(bk, row);
     }
@@ -733,15 +786,21 @@
     const initialBy = z(), backfillBy = z();
     const srcStart = {};
     const meta = [];
-    const rawIn = z();
+    const rawIn = z(), lakeIn = z();
+    const dmsCdc = Array.from({ length: 37 }, () => ({})), dmsBackfill = Array.from({ length: 37 }, () => ({}));
+    const bqStarts = [];
+    const targets = { data_platform: [], data_lake: [], operational_db: [] };
     const lk = lakehouseSettings(scenario);
     const curated = (lk.silver_pct + lk.gold_pct) / 100;
 
     sources.forEach((src, i) => {
       const rec = recs[i];
       const sid = src.id || src.type;
-      const name = src.name || (SOURCE_BY_ID[src.type] || {}).name || src.type;
-      const cat = (SOURCE_BY_ID[src.type] || {}).category || "api";
+      const etype = effectiveType(src);
+      const name = src.name || src.custom_name || (SOURCE_BY_ID[etype] || {}).name || etype;
+      const cat = (SOURCE_BY_ID[etype] || {}).category || "api";
+      const toBq = rec.target === "data_platform", toLake = rec.target === "data_lake";
+      targets[rec.target].push(name);
       const freq = src.frequency || "daily";
       const transform = src.transform || "none";
       const daily0 = num(src.daily_change_gb), initial = num(src.initial_volume_gb);
@@ -752,20 +811,19 @@
       const onPrem = (src.location || "on_prem") === "on_prem";
       const start = Math.max(1, Math.min(36, Math.trunc(num(src.start_month) || 1)));
       srcStart[sid] = start;
-      initialBy[start] += initial;
+      if (toBq) { initialBy[start] += initial; bqStarts.push(start); } else if (toLake) lakeIn[start] += initial;
       const srcRid = ridOf(src.region || regionId);
       ctx.rid = srcRid;
       meta.push({ id: sid, name, region: srcRid });
       const xfer = interRegionRate(regions, srcRid, regionId, pricing);
-      const inRaw = lk.raw_zone && (lk.raw_scope === "all" || (!STREAMING.has(freq) && engines.some((e) => RAW_BATCH_ENGINES.has(e))));
+      const inRaw = toBq && lk.raw_zone && (lk.raw_scope === "all" || (!STREAMING.has(freq) && engines.some((e) => RAW_BATCH_ENGINES.has(e))));
       if (inRaw) rawIn[start] += initial;
 
       for (let m = 1; m <= 36; m++) {
         if (m < start) continue;
         const daily = oneTime ? 0 : daily0 * growthFactor(m, growth);
         const monthly = daily * 30;
-        ingGib[m] += monthly;
-        netGib[m] += monthly * netRatio;
+        if (toBq) { ingGib[m] += monthly; netGib[m] += monthly * netRatio; } else if (toLake) lakeIn[m] += monthly;
         if (inRaw) rawIn[m] += monthly;
         if (xfer) {
           add(m, "Cross-region data transfer", sid, monthly * xfer, U, U, [monthly, "GiB"]);
@@ -799,9 +857,10 @@
             if (onPrem || cat === "mainframe") add(m, "Storage Transfer Service", sid, monthly * pricing.storage_transfer.agent_gib, U, U, [monthly, "GiB"]);
             landing[m] += daily * A.landing_retention_days;
           } else if (eng === "dts_migration") {
-            if (src.type === "teradata" && !oneTime) add(m, "Compute Engine (migration agent)", sid, HOURS * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"), U, U, [HOURS, "VM-hours"]);
+            if (etype === "teradata" && !oneTime) add(m, "Compute Engine (migration agent)", sid, HOURS * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"), U, U, [HOURS, "VM-hours"]);
           } else if (eng === "sap_connector") writeApi[m] += monthly;
-          else if (eng === "log_sink") streamIns[m] += monthly;
+          else if (eng === "log_sink") { if (toBq) streamIns[m] += monthly; }
+          else if (eng === "dms_hetero") dmsCdc[m][sid] = (dmsCdc[m][sid] || 0) + monthly;
           else if (eng === "app_integration") {
             const ic = pricing.integration_connectors;
             add(m, "Integration Connectors", sid, HOURS * ic.third_party_node_hr + Math.max(0, monthly - ic.free_gib) * ic.data_processed_gib, U, U, [HOURS, "node-hours"]);
@@ -809,7 +868,7 @@
             const cr = pricing.cloud_run;
             const secs = (runs || 30) * A.cloud_run_minutes_per_run * 60;
             add(m, "Cloud Run jobs", sid, secs * (cr.vcpu_second + 2 * cr.gib_second) * up("cloud_run"), U, U, [runs || 30, "job runs"]);
-            writeApi[m] += monthly;
+            if (toBq) writeApi[m] += monthly;
           } else if (eng === "mqtt_broker") {
             if (oneTime) continue;
             const vmH = A.mqtt_broker_vms * HOURS;
@@ -831,12 +890,32 @@
           } else if (pe === "files_transfer") {
             if (onPrem || cat === "mainframe") add(m, "One-time initial load", sid, initial * pricing.storage_transfer.agent_gib);
             add(m, "One-time initial load", sid, initial * pricing.gcs.standard_gib_month * up("gcs"), U, U, [initial, "GiB loaded"]);
-          } else if (pe === "dts_migration" && src.type === "teradata") {
+          } else if (pe === "dms_hetero") {
+            dmsBackfill[m][sid] = (dmsBackfill[m][sid] || 0) + initial;
+          } else if (pe === "dts_migration" && etype === "teradata") {
             add(m, "One-time initial load", sid, (initial / A.teradata_agent_gb_per_hr) * pricing.compute_engine.vm_standard_4vcpu_hr * up("compute_engine"), U, U, [initial, "GiB loaded"]);
           } else if (pe === "sap_connector") writeApi[m] += initial;
         }
       }
     });
+
+    // Database Migration Service (heterogeneous), tiers per account
+    {
+      const dm = pricing.database_migration;
+      let freeDms = dm.backfill_free_gib;
+      for (let m = 1; m <= 36; m++) {
+        const totGib = Object.values(dmsCdc[m]).reduce((a, b) => a + b, 0);
+        if (totGib) {
+          const total = tiered(totGib, dm.cdc_tiers_gib);
+          for (const [sid, gib] of Object.entries(dmsCdc[m])) { ctx.rid = regionId; add(m, "Database Migration Service (CDC)", sid, (total * gib) / totGib, U, U, [gib, "GiB"]); }
+        }
+        for (const [sid, gib] of Object.entries(dmsBackfill[m])) {
+          const billable = Math.max(0, gib - freeDms);
+          freeDms = Math.max(0, freeDms - gib);
+          add(m, "Database Migration Service (backfill)", sid, billable * dm.backfill_gib, U, U, [billable, "GiB"]);
+        }
+      }
+    }
 
     // Datastream tiers, shared across the billing account
     const srcRegion = Object.fromEntries(meta.map((x) => [x.id, x.region]));
@@ -861,6 +940,7 @@
 
     // BigQuery (home region)
     const platStart = Object.keys(srcStart).length ? Math.min(...Object.values(srcStart)) : 1;
+    const bqStart = bqStarts.length ? Math.min(...bqStarts) : null;
     ctx.rid = regionId;
     const bqUp = up("bigquery");
     let stored = 0;
@@ -884,8 +964,9 @@
       const storedTib = (stored * mult) / GIB_PER_TIB;
       const eltTib = (ingGib[m] * A.elt_scan_multiplier) / GIB_PER_TIB;
       const analyticsTib = analyticsIn ? num(analyticsIn) * growthFactor(m, growth) : storedTib * A.auto_analytics_scan_multiplier;
+      if (bqStart === null || m < bqStart) continue;
       if (bqModel === "ondemand") { const billable = Math.max(0, eltTib + analyticsTib - bq.ondemand_free_tib); add(m, "BigQuery compute", "_platform", billable * bq.ondemand_tib * bqUp, U, U, [billable, "TiB scanned"]); }
-      else if (m >= platStart) {
+      else {
         const ed = bq.editions[bqModel], sh = slots * HOURS;
         add(m, "BigQuery compute", "_platform", sh * ed.payg * bqUp, sh * ed.cud1 * bqUp, sh * ed.cud3 * bqUp, [sh, "slot-hours"]);
       }
@@ -923,6 +1004,13 @@
         if (gib) add(m, "Cloud Storage (raw zone)", "_platform", gib * pricing.gcs[`${lk.raw_storage_class}_gib_month`] * up("gcs"), U, U, [gib, "GiB-months"]);
       } else if (landing[m]) add(m, "Cloud Storage (landing zone)", "_platform", landing[m] * pricing.gcs.standard_gib_month * up("gcs"), U, U, [landing[m], "GiB-months"]);
     }
+    let lakeStored = 0;
+    const lakeBy = z();
+    for (let m = 1; m <= 36; m++) {
+      lakeStored += lakeIn[m];
+      lakeBy[m] = lakeStored;
+      if (lakeStored) add(m, "Cloud Storage (data lake)", "_platform", lakeStored * pricing.gcs.standard_gib_month * up("gcs"), U, U, [lakeStored, "GiB-months"]);
+    }
 
     // analytics, AI, governance, security
     const { comps, sec } = normalizedComponents(scenario);
@@ -930,6 +1018,8 @@
     ctx.rid = regionId;
     platform.layer = { components: comps.map(componentView), security: sec, tables_estimated: tables, story: platformStory(comps, sec, sources) };
     platform.processing_region = procRegion;
+    platform.targets = targets;
+    platform.data_lake_gib_month12 = pyRound(lakeBy[12], 2);
     const r2 = (x) => pyRound(x, 2);
     platform.lakehouse = { ...lk, raw_gib_month12: r2(rawStored[12]),
       layers: [
@@ -949,13 +1039,19 @@
     }
     if (contOn) {
       const monthBom = new Map();
-      for (const [k, [usd]] of bom) { const [m, , envId] = k.split("\u0001"); const mk = `${m}\u0001${envId}`; monthBom.set(mk, (monthBom.get(mk) || 0) + usd); }
-      for (const [mk, v] of monthBom) {
+      for (const [k, [usd, , c1, c3]] of bom) {
+        const [m, , envId] = k.split("\u0001");
+        const mk = `${m}\u0001${envId}`;
+        const t = monthBom.get(mk) || [0, 0, 0];
+        t[0] += usd; t[1] += c1; t[2] += c3;
+        monthBom.set(mk, t);
+      }
+      for (const [mk, [v, c1, c3]] of monthBom) {
         if (!v) continue;
         const [m, envId] = mk.split("\u0001");
         const bk = `${m}\u0001Contingency & operations\u0001${envId}`;
-        const row = bom.get(bk) || [0, 0];
-        row[0] += v * cont;
+        const row = bom.get(bk) || [0, 0, 0, 0];
+        row[0] += v * cont; row[2] += c1 * cont; row[3] += c3 * cont;
         bom.set(bk, row);
       }
     }
@@ -967,7 +1063,51 @@
     for (const k of payg.keys()) { const [, svc, sid] = k.split("\u0001"); if (sid in nameOf) (drivers[svc] = drivers[svc] || new Set()).add(nameOf[sid]); }
     out.bom = buildBom(bom, units, envs, drivers, { bq_model: bqModel, contingency_pct: pyRound(cont * 100, 1), lakehouse: lk, components: comps, edition_slots: slots });
     if (keepItems) out._items = payg;
+    if (detail) out.product_months = productMonths(bom, units, envs);
     return out;
+  }
+
+  function productMonths(bom, units, envs) {
+    const acc = new Map();
+    for (const [k, [usd, qty, c1, c3]] of bom) {
+      const [ms, svc, envId] = k.split("\u0001");
+      const ak = `${envId}\u0001${svc}`;
+      const a = acc.get(ak) || { payg: new Array(36).fill(0), cud1: new Array(36).fill(0), cud3: new Array(36).fill(0), qty: new Array(36).fill(0) };
+      const i = +ms - 1;
+      a.payg[i] += usd; a.cud1[i] += c1; a.cud3[i] += c3; a.qty[i] += qty;
+      acc.set(ak, a);
+    }
+    const envOrder = Object.fromEntries(envs.map((e, i) => [e.id, i]));
+    const envName = Object.fromEntries(envs.map((e) => [e.id, e.name]));
+    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    const rows = [];
+    for (const [k, a] of acc) {
+      if (sum(a.payg) <= 0) continue;
+      const [envId, svc] = k.split("\u0001");
+      rows.push({ environment: envId, environment_name: envName[envId] || envId, service: svc, group: serviceGroup(svc), unit: units[svc] || null,
+        commit_eligible: a.payg.some((p, i) => a.cud3[i] < p - 1e-9),
+        payg: a.payg.map((v) => round2(v + 1e-12)), cud1: a.cud1.map((v) => round2(v + 1e-12)), cud3: a.cud3.map((v) => round2(v + 1e-12)), qty: a.qty.map((v) => pyRound(v + 1e-12, 3)) });
+    }
+    const gi = (g) => (GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : 99);
+    rows.sort((x, y) => ((envOrder[x.environment] ?? 99) - (envOrder[y.environment] ?? 99)) || (gi(x.group) - gi(y.group)) || (sum(y.payg) - sum(x.payg)));
+    return rows;
+  }
+
+  function pricingPlans(products) {
+    const r2 = (x) => round2(x + 1e-12);
+    const monthly = (k) => Array.from({ length: 36 }, (_, m) => r2(products.reduce((a, p) => a + p[k][m], 0)));
+    const payg = monthly("payg"), c1 = monthly("cud1"), c3 = monthly("cud3");
+    const year = (arr, y) => r2(arr.slice((y - 1) * 12, y * 12).reduce((a, b) => a + b, 0));
+    const tot = (arr) => r2(arr.reduce((a, b) => a + b, 0));
+    return {
+      plans: {
+        payg_1y: { label: "Pay as you go - 1 year", months: 12, monthly: payg.slice(0, 12), total: year(payg, 1), by_year: [year(payg, 1)] },
+        commit_1y: { label: "1-year commitment", months: 12, monthly: c1.slice(0, 12), total: year(c1, 1), by_year: [year(c1, 1)], saving: r2(year(payg, 1) - year(c1, 1)) },
+        commit_3y: { label: "3-year commitment", months: 36, monthly: c3, total: tot(c3), by_year: [1, 2, 3].map((y) => year(c3, y)), saving: r2(tot(payg) - tot(c3)) },
+        payg_3y: { label: "Pay as you go - 3 years", months: 36, monthly: payg, total: tot(payg), by_year: [1, 2, 3].map((y) => year(payg, y)) },
+      },
+      products,
+    };
   }
 
   const GROUP_ORDER = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
@@ -1410,8 +1550,8 @@
     const compStart = Object.fromEntries(compRows.map((c) => [c.id, c.start_month]));
     ramped.components = comps.map((c) => ({ ...c, start_month: compStart[c.id] || 1 }));
     delete ramped.platform;
-    const est = estimate(ramped, true);
-    const steady = estimate(JSON.parse(JSON.stringify(scenario)));
+    const est = estimate(ramped, true, true);
+    const steady = estimate(JSON.parse(JSON.stringify(scenario)), false, true);
     const months = [];
     for (let m = 1; m <= horizon; m++) {
       const groups = {};
@@ -1425,6 +1565,7 @@
         components_started: compRows.filter((c) => c.start_month === m).map((c) => c.name) });
     }
     return {
+      pricing: { ramped: pricingPlans(est.product_months), steady: pricingPlans(steady.product_months), go_live: { first: firstLive, all: allLive } },
       teams, horizon, phases, waves, components: compRows, milestones, months,
       totals: { ramped_year1: est.totals.year1_payg, steady_year1: steady.totals.year1_payg, ramped_three_year: est.totals.three_year_payg,
         steady_three_year: steady.totals.three_year_payg, ramped_year1_cud1: est.totals.year1_cud1, ramped_three_year_cud3: est.totals.three_year_cud3 },

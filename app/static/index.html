@@ -41,6 +41,7 @@
         <button class="btn ghost" id="samplesBtn" aria-haspopup="true" aria-expanded="false">Load sample</button>
         <div class="menu-pop" id="samplesMenu" role="menu" hidden></div>
       </div>
+      <button class="btn ghost" id="feedbackBtn" type="button" hidden>Feedback</button>
       <div class="menu">
         <button class="btn primary" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export</button>
         <div class="menu-pop right" id="exportMenu" role="menu" hidden>
@@ -60,113 +61,45 @@
     </div>
   </header>
 
-  <main class="workspace">
-    <aside class="side">
-      <section class="panel" aria-labelledby="srcHead">
-        <div class="panel-head">
-          <h2 id="srcHead">Source systems</h2>
-          <button class="btn primary small" id="addSourceBtn">Add source</button>
-        </div>
-        <div class="src-bulk" id="srcBulk" hidden>
-          <span id="srcCount"></span>
-          <span class="spacer"></span>
-          <button type="button" class="link-btn" id="srcAll">Select all</button>
-          <button type="button" class="link-btn" id="srcNone">Clear all</button>
+  <div class="shell">
+    <nav class="modnav" aria-label="Modules" role="tablist">
+      <button role="tab" data-tab="overview" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg><span>Overview</span></button>
+      <button role="tab" data-tab="sources" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C7.6 3 4 4.3 4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6c0-1.7-3.6-3-8-3zm0 2c3.9 0 6 1.1 6 1s-2.1 1-6 1-6-.9-6-1 2.1-1 6-1zm6 13c0 .1-2.1 1-6 1s-6-.9-6-1v-2.2c1.5.8 3.7 1.2 6 1.2s4.5-.4 6-1.2V18zm0-4.5c0 .1-2.1 1-6 1s-6-.9-6-1v-2.2c1.5.8 3.7 1.2 6 1.2s4.5-.4 6-1.2v2.2zM18 9c0 .1-2.1 1-6 1S6 9.1 6 9V8.3C7.5 9 9.7 9.5 12 9.5s4.5-.5 6-1.2V9z"/></svg><span>Sources</span><small data-badge="sources"></small></button>
+      <button role="tab" data-tab="arch" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h6v5H3V4zm12 0h6v5h-6V4zM9 15h6v5H9v-5zM6 9v3h12V9h-2v1H8V9H6zm5 3h2v3h-2v-3z"/></svg><span>Architecture</span></button>
+      <button role="tab" data-tab="recs" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2zm14-12l3 3-3 3V4zm0 10l3 3-3 3v-6z"/></svg><span>Ingestion</span></button>
+      <button role="tab" data-tab="platform" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h4v4H7V7zm6 0h4v4h-4V7zm-6 6h4v4H7v-4zm6 0h4v4h-4v-4zM3 3v18h18V3H3zm16 16H5V5h14v14z"/></svg><span>Integrations</span></button>
+      <button role="tab" data-tab="pricing" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15.9V19h-2v-1.1c-1.7-.3-3-1.3-3.1-3h1.9c.1.9.8 1.5 2.2 1.5 1.5 0 1.9-.7 1.9-1.2 0-.6-.3-1.2-2.1-1.6-2-.5-3.4-1.3-3.4-3 0-1.4 1.1-2.4 2.6-2.7V6.8h2v1.2c1.6.4 2.4 1.6 2.4 2.8h-1.9c0-.9-.5-1.5-1.8-1.5-1.2 0-1.9.5-1.9 1.3 0 .7.5 1.1 2.1 1.5 1.6.4 3.4 1.1 3.4 3.1 0 1.5-1.1 2.4-2.6 2.7z"/></svg><span>Pricing</span><small data-badge="pricing"></small></button>
+      <button role="tab" data-tab="env" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v4H4V5zm0 5h16v4H4v-4zm0 5h16v4H4v-4zm2-8v1h2V7H6zm0 5v1h2v-1H6zm0 5v1h2v-1H6z"/></svg><span>Environments</span><small data-badge="env"></small></button>
+      <button role="tab" data-tab="workload" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h3v11H5V9zm5.5-5h3v16h-3V4zM16 13h3v7h-3v-7z"/></svg><span>Sizing &amp; slots</span></button>
+      <button role="tab" data-tab="roadmap" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h8v3H3V5zm4 5h9v3H7v-3zm6 5h8v3h-8v-3z"/></svg><span>Roadmap</span><small data-badge="roadmap"></small></button>
+      <button role="tab" data-tab="proposal" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v15H6V2zm8 1.5V8h4.5L14 3.5zM8 12h10v1.5H8V12zm0 3h10v1.5H8V15zm0 3h7v1.5H8V18z"/></svg><span>Proposal</span></button>
+      <button role="tab" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 000-2l2.1-1.6-2-3.5-2.5 1a7.7 7.7 0 00-1.7-1L15 3h-4l-.4 2.7a7.7 7.7 0 00-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 000 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5-2.2-1.8zM13 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"/></svg><span>Settings</span></button>
+    </nav>
+
+    <main class="stage">
+      <header class="module-head">
+        <div><h1 id="modTitle">Overview</h1><p id="modDesc"></p></div>
+        <div class="insights" id="modInsights" aria-live="polite"></div>
+      </header>
+
+      <section class="tabpanel" id="tab-overview" role="tabpanel"><div id="overviewBody"></div></section>
+
+      <section class="tabpanel" id="tab-sources" role="tabpanel" hidden>
+        <div class="toolbar">
+          <button class="btn primary" id="addSourceBtn" type="button">Add source</button>
+          <div class="src-bulk" id="srcBulk" hidden>
+            <span id="srcCount"></span>
+            <button type="button" class="link-btn" id="srcAll">Select all</button>
+            <button type="button" class="link-btn" id="srcNone">Clear all</button>
+          </div>
         </div>
         <ol class="source-list" id="sourceList"></ol>
         <div class="empty" id="sourceEmpty">
-          <p>Add each system the customer wants in BigQuery. You'll get a pattern per source and a running cost.</p>
+          <p>Add each system the customer wants to bring onto Google Cloud, choose its target (data platform, data lake or operational database) and you'll get a pattern per source and a running cost. Not in the list? Pick <b>Other</b> and type the product name.</p>
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="envHead">
-        <div class="panel-head">
-          <h2 id="envHead">Environments</h2>
-          <label class="inline-field small">Total
-            <select id="envCount" aria-label="Total number of environments"></select>
-          </label>
-          <button class="btn ghost small" id="envConfigure" type="button">Size</button>
-        </div>
-        <ul class="env-list" id="envList"></ul>
-      </section>
-
-      <details class="panel settings" open>
-        <summary><h2>Engagement settings</h2></summary>
-        <div class="grid2">
-          <label>Team skill set
-            <select id="skill"></select>
-          </label>
-          <label>Orchestration
-            <select id="orchestration"></select>
-          </label>
-          <label>BigQuery pricing
-            <select id="bq_model"></select>
-          </label>
-          <label id="slotsField">Avg. slots (editions)
-            <input id="bq_slots" type="number" min="0" step="50" value="100">
-          </label>
-          <label>Analytics scan, TiB/month
-            <input id="analytics_tib_month" type="number" min="0" step="1" placeholder="Auto">
-          </label>
-          <label>Annual data growth %
-            <input id="annual_growth_pct" type="number" min="-50" max="500" step="5" value="20">
-          </label>
-          <label>Environment
-            <select id="environment">
-              <option value="poc">Proof of concept</option>
-              <option value="production" selected>Production</option>
-              <option value="production_ha">Production (HA)</option>
-            </select>
-          </label>
-          <label>Contingency %
-            <input id="contingency_pct" type="number" min="0" max="100" step="5" value="10">
-          </label>
-          <label class="span2">Processing region (orchestration, Data Fusion, network)
-            <select id="processing_region"></select>
-          </label>
-        </div>
-      </details>
-
-      <details class="panel settings" id="lakePanel">
-        <summary><h2>Lakehouse layers</h2></summary>
-        <div class="grid2">
-          <label class="toggle span2"><input type="checkbox" id="lk_raw_zone"> Cloud Storage raw zone</label>
-          <label>Land in raw zone
-            <select id="lk_raw_scope">
-              <option value="batch">Batch file / extract sources</option>
-              <option value="all">All sources (incl. CDC, streams)</option>
-            </select>
-          </label>
-          <label>Raw retention (months)
-            <input id="lk_raw_retention_months" type="number" min="1" max="120" step="1">
-          </label>
-          <label class="span2">Raw zone storage class
-            <select id="lk_raw_storage_class"></select>
-          </label>
-          <label>Silver, % of bronze
-            <input id="lk_silver_pct" type="number" min="0" max="500" step="5">
-          </label>
-          <label>Gold, % of bronze
-            <input id="lk_gold_pct" type="number" min="0" max="500" step="5">
-          </label>
-        </div>
-      </details>
-    </aside>
-
-    <section class="stage">
-      <nav class="tabs" role="tablist">
-        <button role="tab" aria-selected="true" data-tab="arch">Architecture</button>
-        <button role="tab" aria-selected="false" data-tab="recs">Ingestion patterns</button>
-        <button role="tab" aria-selected="false" data-tab="platform">Integrations</button>
-        <button role="tab" aria-selected="false" data-tab="cost">Consumption estimate</button>
-        <button role="tab" aria-selected="false" data-tab="workload">Workload sizing</button>
-        <button role="tab" aria-selected="false" data-tab="roadmap">Roadmap</button>
-        <button role="tab" aria-selected="false" data-tab="assume">Assumptions</button>
-      </nav>
-
-      <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
-
-      <div class="tabpanel" id="tab-arch" role="tabpanel">
+      <section class="tabpanel" id="tab-arch" role="tabpanel" hidden>
         <section class="picker" aria-labelledby="pickHead">
           <label class="picker-label" id="pickHead" for="compSearch">Add products to the architecture</label>
           <div class="search-box">
@@ -178,42 +111,87 @@
           </div>
           <div class="selected-pills" id="selectedPills" aria-label="Selected products"></div>
         </section>
-
         <div class="canvas"><div class="canvas-title">Target architecture</div>
-<div class="legend">
-          <span><i class="ln stream"></i>Streaming / CDC</span>
-          <span><i class="ln batch"></i>Scheduled batch</span>
-          <span><i class="ln once"></i>One-time migration</span>
+          <div class="legend">
+            <span><i class="ln stream"></i>Streaming / CDC</span>
+            <span><i class="ln batch"></i>Scheduled batch</span>
+            <span><i class="ln once"></i>One-time migration</span>
+          </div>
+          <div class="diagram-wrap" id="diagram"></div>
+          <p class="canvas-tip" id="canvasTip">Tip: drag <b>Gemini Enterprise</b> onto Looker, BigQuery or an agent, or drag <b>Apigee</b> onto the source systems (integration layer) or an agent (AI gateway), to change how they connect.</p>
         </div>
-<div class="diagram-wrap" id="diagram"></div>
-<p class="canvas-tip" id="canvasTip">Tip: drag <b>Gemini Enterprise</b> onto Looker, BigQuery or an agent, or drag <b>Apigee</b> onto the source systems (integration layer) or an agent (AI gateway), to change how they connect.</p></div>
-      </div>
+      </section>
 
-      <div class="tabpanel" id="tab-recs" role="tabpanel" hidden>
-        <div id="recsBody"></div>
-      </div>
+      <section class="tabpanel" id="tab-recs" role="tabpanel" hidden><div id="recsBody"></div></section>
+      <section class="tabpanel" id="tab-platform" role="tabpanel" hidden><div id="platformBody"></div></section>
 
-      <div class="tabpanel" id="tab-platform" role="tabpanel" hidden>
-        <div id="platformBody"></div>
-      </div>
+      <section class="tabpanel" id="tab-pricing" role="tabpanel" hidden>
+        <div class="seg" role="tablist" aria-label="Pricing view">
+          <button type="button" data-pview="plans" aria-selected="true">Plans &amp; monthly consumption</button>
+          <button type="button" data-pview="detail" aria-selected="false">Detailed breakdown</button>
+        </div>
+        <div id="pricingBody"></div>
+        <div id="costBody" hidden></div>
+      </section>
 
-      <div class="tabpanel" id="tab-cost" role="tabpanel" hidden>
-        <div id="costBody"></div>
-      </div>
+      <section class="tabpanel" id="tab-env" role="tabpanel" hidden>
+        <div class="toolbar">
+          <label class="inline-field">Number of environments
+            <select id="envCount" aria-label="Total number of environments"></select>
+          </label>
+          <button class="btn primary" id="envConfigure" type="button">Edit sizing</button>
+        </div>
+        <ul class="env-list" id="envList"></ul>
+        <div id="envBody"></div>
+      </section>
 
-      <div class="tabpanel" id="tab-workload" role="tabpanel" hidden>
-        <div id="workloadBody"></div>
-      </div>
+      <section class="tabpanel" id="tab-workload" role="tabpanel" hidden><div id="workloadBody"></div></section>
+      <section class="tabpanel" id="tab-roadmap" role="tabpanel" hidden><div id="roadmapBody"></div></section>
+      <section class="tabpanel" id="tab-proposal" role="tabpanel" hidden><div id="proposalBody"></div></section>
 
-      <div class="tabpanel" id="tab-roadmap" role="tabpanel" hidden>
-        <div id="roadmapBody"></div>
-      </div>
-
-      <div class="tabpanel" id="tab-assume" role="tabpanel" hidden>
+      <section class="tabpanel" id="tab-settings" role="tabpanel" hidden>
+        <div class="settings-grid">
+          <section class="card-panel">
+            <h2>Engagement settings</h2>
+            <div class="grid2">
+              <label>Team skill set<select id="skill"></select></label>
+              <label>Orchestration<select id="orchestration"></select></label>
+              <label>BigQuery pricing<select id="bq_model"></select></label>
+              <label id="slotsField">Avg. slots (editions)<input id="bq_slots" type="number" min="0" step="50" value="100"></label>
+              <label>Analytics scan, TiB/month<input id="analytics_tib_month" type="number" min="0" step="1" placeholder="Auto"></label>
+              <label>Annual data growth %<input id="annual_growth_pct" type="number" min="-50" max="500" step="5" value="20"></label>
+              <label>Production tier
+                <select id="environment">
+                  <option value="poc">Proof of concept</option>
+                  <option value="production" selected>Production</option>
+                  <option value="production_ha">Production (HA)</option>
+                </select>
+              </label>
+              <label>Contingency %<input id="contingency_pct" type="number" min="0" max="100" step="5" value="10"></label>
+              <label class="span2">Processing region (orchestration, Data Fusion, network)<select id="processing_region"></select></label>
+            </div>
+          </section>
+          <section class="card-panel" id="lakePanel">
+            <h2>Lakehouse layers</h2>
+            <div class="grid2">
+              <label class="toggle span2"><input type="checkbox" id="lk_raw_zone"> Cloud Storage raw zone</label>
+              <label>Land in raw zone
+                <select id="lk_raw_scope">
+                  <option value="batch">Batch file / extract sources</option>
+                  <option value="all">All sources (incl. CDC, streams)</option>
+                </select>
+              </label>
+              <label>Raw retention (months)<input id="lk_raw_retention_months" type="number" min="1" max="120" step="1"></label>
+              <label class="span2">Raw zone storage class<select id="lk_raw_storage_class"></select></label>
+              <label>Silver, % of bronze<input id="lk_silver_pct" type="number" min="0" max="500" step="5"></label>
+              <label>Gold, % of bronze<input id="lk_gold_pct" type="number" min="0" max="500" step="5"></label>
+            </div>
+          </section>
+        </div>
         <div id="assumeBody"></div>
-      </div>
-    </section>
-  </main>
+      </section>
+    </main>
+  </div>
 
   <dialog id="sourceDialog" aria-labelledby="dlgTitle">
     <form id="sourceForm" method="dialog">
@@ -221,6 +199,17 @@
       <div class="grid2">
         <label class="span2">Source system type
           <select id="f_type" required></select>
+        </label>
+        <div class="span2 custom-src" id="f_custom_wrap" hidden>
+          <label>Product name (not in the list)
+            <input id="f_custom_name" type="text" placeholder="e.g. Workday, Snowflake on Azure, Guidewire" maxlength="120">
+          </label>
+          <label>Behaves like
+            <select id="f_like_type"></select>
+          </label>
+        </div>
+        <label class="span2">Target on Google Cloud
+          <select id="f_target" required></select>
         </label>
         <label class="span2">Name used in the customer's estate
           <input id="f_name" type="text" placeholder="e.g. Core banking (Oracle 19c)" maxlength="120">
@@ -333,7 +322,9 @@
 
   <div class="toast" id="toast" role="status" hidden></div>
   <script src="/static/vendor/pptxgen.bundle.js" defer></script>
+  <script src="/static/config.js"></script>
   <script src="/static/exports.js"></script>
+  <script src="/static/proposal.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

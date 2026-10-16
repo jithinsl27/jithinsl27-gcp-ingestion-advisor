@@ -92,6 +92,14 @@ gcloud beta iap web add-iam-policy-binding --resource-type=cloud-run --service=i
   --member=group:architects@example.com --role=roles/iap.httpsResourceAccessor
 ```
 
+## Trial link for business users
+
+Business users without Google Cloud console access can use the public demo: **https://jithinsl27.github.io/jithinsl27-gcp-ingestion-advisor/**. It runs entirely in the browser (no sign-in, no data leaves the browser) and is rebuilt on every push to `main`. A Cloud Run deployment with `--allow-unauthenticated` (the `deploy.sh` default) gives the same experience on your own URL.
+
+### Feedback button
+
+Create a Google Form, then set its link in `app/static/config.js` (`feedbackUrl`) and push - the live demo shows a **Feedback** button. On Cloud Run you can instead set `FEEDBACK_URL` (`gcloud run services update ingestion-advisor --region REGION --update-env-vars FEEDBACK_URL=https://forms.gle/...`).
+
 ## Google Sheets / Slides export
 
 Exports are built in the browser. **Download** always works. **Create in my Google Drive** uploads the file to the signed-in user's Drive and converts it to Google Sheets / Slides using Google Identity Services with the narrow `drive.file` scope (the app only sees files it creates). To enable it:

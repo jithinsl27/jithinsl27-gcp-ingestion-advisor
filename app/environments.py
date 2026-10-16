@@ -97,7 +97,7 @@ def replicate(views: list[dict], bom: dict, envs: list[dict], group_fn, bq_model
     """Add the non-primary environments to every ledger view (in place).
 
     views: dicts keyed (m, service, item, region) -> usd (PAYG, CUD1, CUD3)
-    bom:   dict keyed (m, service, env_id) -> [usd, qty]
+    bom:   dict keyed (m, service, env_id) -> [usd, qty, cud1_usd, cud3_usd]
     Returns per-environment monthly totals: {env_id: {"payg": [37], "cud1": [37], "cud3": [37]}}.
     """
     names = ("payg", "cud1", "cud3")
@@ -117,12 +117,12 @@ def replicate(views: list[dict], bom: dict, envs: list[dict], group_fn, bq_model
                         env_tot[env["id"]][n][k[0]] += v * f
         base_bom = [(k, list(v)) for k, v in bom.items() if k[2] == primary]
         for env in envs[1:]:
-            for (m, svc, _), (usd, qty) in base_bom:
+            for (m, svc, _), vals in base_bom:
                 f = env_factor(env, svc, group_fn(svc), bq_model, base_slots)
                 if f:
-                    row = bom.setdefault((m, svc, env["id"]), [0.0, 0.0])
-                    row[0] += usd * f
-                    row[1] += qty * f
+                    row = bom.setdefault((m, svc, env["id"]), [0.0, 0.0, 0.0, 0.0])
+                    for i, v in enumerate(vals):
+                        row[i] += v * f
     return env_tot
 
 

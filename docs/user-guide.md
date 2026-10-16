@@ -1,5 +1,42 @@
 # User guide
 
+## Modules
+
+The left-hand menu holds the modules; each opens with a few insight tiles. **Overview** shows the pricing plans and one card per module - click a card to open it.
+
+| Module | What it shows |
+|---|---|
+| Overview | Pricing plans and an insight card for every module |
+| Sources | Source systems, their target, phase (include / exclude) and pattern |
+| Architecture | Product search and the target architecture canvas |
+| Ingestion | Recommended pattern per source with rationale and checks |
+| Integrations | How each BI, AI, API, database and governance product connects |
+| Pricing | Plans (pay as you go, 1-year and 3-year commitment) and the detailed breakdown |
+| Environments | Number of environments, their sizing and cost |
+| Sizing & slots | Workload-based sizing and BigQuery slot recommendation |
+| Roadmap | Delivery plan and ramped monthly spend |
+| Proposal | Customer proposal generator (max 15 pages) |
+| Settings | Engagement settings, lakehouse layers, assumptions and price sources |
+
+## Pricing plans
+
+The **Pricing** module prices the whole programme following the roadmap (each service starts when it goes live) - switch to *Full scope from month 1* to ignore the ramp-up.
+
+- **Pay as you go - 1 year**: the 12-month total; the detail shows the monthly ramp-up chart, every product with its unit, quantity, unit price and cost, and a month-by-month matrix (cost or quantity).
+- **1-year commitment**: the same 12 months with committed-use prices on eligible services (marked ●) and the saving.
+- **3-year commitment**: 36 months with year 1, 2 and 3 totals, per-product year columns, and the month matrix by year.
+- **Pay as you go - 3 years**: for comparison.
+
+Filter by environment, toggle cost / quantity, and download the plan as CSV. *Detailed breakdown* keeps the earlier view (by capability, service toggles, bill of materials, region, source).
+
+## Targets and custom sources
+
+Every source needs a **target**: *Data platform* (BigQuery lakehouse, bronze → silver → gold), *Data lake* (Cloud Storage, open formats, BigLake) or *Operational database* (AlloyDB / Cloud SQL through Database Migration Service - free for MySQL / PostgreSQL, priced per GiB for Oracle / SQL Server). BigQuery appears in the architecture only when at least one source targets the data platform. If a source is not in the list, choose **Other - not in this list**, type the product name and pick the source it *behaves like*; the recommendation follows that pattern.
+
+## Proposal
+
+The **Proposal** module builds a customer proposal of up to 15 pages (one page per section): cover, executive summary, landscape, architecture, ingestion, lakehouse & governance, analytics/AI/integration, environments, slot sizing, commercial options, product breakdown, monthly consumption, roadmap, assumptions & risks, and next steps. Set the title, author, company, featured commercial option and schedule, optionally write your own executive summary, untick sections you do not need, then **Print / Save as PDF**, **Download Word (.docx)** or **Create Google Doc**.
+
 Data Cloud Compass is built to be used live in discovery workshops, typically screen-shared. Everything recalculates as you type.
 
 ## 1. Set up the engagement
