@@ -158,7 +158,7 @@ echo "Deployed: ${URL}"
 echo "Live prices load in the background after the first request: ${URL}/api/pricing/status"
 echo ""
 echo "Share this link with business users (no console access needed): ${URL}"
-echo "Usage admin key (open "Usage (admin)" in the app): ${ADMIN_KEY}"
+echo "Usage admin key (open Usage (admin) in the app): ${ADMIN_KEY}"
 echo "Request logs: Cloud Logging, filter  jsonPayload.kind=\"compass_request\""
 [[ -z "${FEEDBACK_URL}" ]] && echo "Feedback button: re-run with --feedback-url https://forms.gle/... to show it"
 if [[ -z "${OAUTH_CLIENT_ID}" ]]; then
