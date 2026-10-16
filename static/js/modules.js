@@ -6,23 +6,34 @@ import { GROUP_COLORS, fmtGB, fmtQty, fx, money, moneyShort, unitPrice } from ".
 import { compMeta } from "./pricing.js";
 import { freqName, renderSummary, tool } from "./render.js";
 import { regionName } from "./main.js";
-import { bqModelName } from "./diagram.js";
+import { archInventory, bqModelName } from "./diagram.js";
 import { EDITION_NAME } from "./bigquery.js";
 import { NO_DOWNLOAD, diagramPng, download, googleClientId, slug } from "./exports.js";
 import { envSizingSection } from "./environments.js";
 import { save } from "./scenario.js";
 import { bindReadiness, readiness, readinessProgress, renderReadiness } from "./readiness.js";
+import { bindBomEditor, ed as bomEd, envSpecSection, renderBomEditor } from "./bomedit.js";
+import { renderSlotsPage } from "./slotspage.js";
+import { bindUseCases, renderUseCases } from "./usecases.js";
+import { bindChargeback, loadChargeback, renderChargeback } from "./cbpage.js";
+import { bindUsage, loadUsage, renderUsage } from "./usagepage.js";
+import { track } from "./identity.js";
+import { renderWorkloadForm, renderWorkloadSummary } from "./workload.js";
 
 // ------------------------------------------------------------------ modules
 export const MODULES = {
   overview: ["Overview", "The whole engagement at a glance - click any card to open that module."],
   sources: ["Source systems", "What the customer has today, where each source lands on Google Cloud, and which are in this phase."],
+  usecases: ["Use cases", "The top 5 use cases recommended from the customer's data, and the use cases the customer wants."],
+  slots: ["BigQuery slots", "How much BigQuery computing power each environment needs, what to reserve or commit, and why."],
+  chargeback: ["Charge-back", "Price a department's request - sources, pipelines, reports and AI use cases - on the negotiated Google Cloud prices."],
+  usage: ["Usage", "Who is using Data Cloud Compass and what they do (admin key required)."],
   arch: ["Target architecture", "Sources, ingestion, raw zone, BigQuery bronze / silver / gold and the BI, AI, API and governance layers."],
   recs: ["Ingestion patterns", "The recommended GCP-native ETL / ELT per source, with rationale, alternatives and discovery checks."],
   platform: ["Integrations", "How each BI, AI, API, database and governance product connects to the platform."],
   pricing: ["Pricing", "Whole-programme cost: pay as you go, 1-year or 3-year commitment - by month, product and quantity."],
   env: ["Environments", "Production, development, test, DR … each sized as a share of production."],
-  workload: ["Workload sizing & BigQuery slots", "Size from what the customer will run, and get a slot reservation and edition recommendation."],
+  workload: ["Workload", "What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms. It drives BigQuery sizing and pricing."],
   kickoff: ["Kickoff readiness", "What the customer and partner must have ready before kickoff for this architecture, the milestones with exit criteria, and the team size and skills."],
   roadmap: ["Roadmap", "Delivery plan by squad, go-live month per source and product, and the ramped monthly spend."],
   proposal: ["Proposal", "Generate a customer proposal of up to 15 pages - PDF, Word or Google Docs."],
@@ -43,6 +54,11 @@ export function showModule(id) {
   $$(".tabpanel").forEach((p) => (p.hidden = p.id !== "tab-" + id));
   try { localStorage.setItem("data-cloud-compass:tab", id); } catch (_) { /* ignore */ }
   renderModules();
+  if (id === "chargeback") loadChargeback();
+  if (id === "usage") loadUsage();
+  if (id === "workload") renderWorkloadForm();
+  if (S.booted) track("module opened", id);
+  S.booted = true;
   window.scrollTo({ top: 0 });
 }
 
@@ -54,6 +70,12 @@ export function renderModules() {
   if (nav.tab === "env") renderEnvBody();
   if (nav.tab === "proposal") renderProposal();
   if (nav.tab === "kickoff") renderReadiness();
+  if (nav.tab === "usecases") renderUseCases();
+  if (nav.tab === "slots") renderSlotsPage();
+  if (nav.tab === "chargeback") renderChargeback();
+  if (nav.tab === "usage") renderUsage();
+  if (nav.tab === "workload") renderWorkloadSummary();
+  if (bomEd.open) renderBomEditor();
 }
 
 function insightChips(id) {
@@ -80,10 +102,10 @@ function insightChips(id) {
     if ((tg.operational_db || []).length) chip("To operational DB", String(tg.operational_db.length));
   }
   if (id === "arch" || id === "platform") {
-    const comps = S.scenario.components.map((c) => compMeta(c.type)).filter(Boolean);
-    chip("Products", String(comps.length));
-    chip("Google Cloud", String(comps.filter((m) => m.vendor === "google").length));
-    chip("Partners (not costed)", String(comps.filter((m) => m.vendor === "partner").length));
+    const inv = archInventory();
+    chip("Products in the architecture", String(inv.total));
+    chip("Google Cloud", String(inv.google));
+    chip("Partners (not costed)", String(inv.partner));
   }
   if (id === "recs") {
     chip("CDC sources", String(recs.filter((r) => r.engine.includes("datastream")).length));
@@ -93,10 +115,21 @@ function insightChips(id) {
     chip("Environments", String(S.result.environments.length));
     if (S.result.environments.length > 1) chip("Non-production, year 1", money(S.result.environments.slice(1).reduce((a, e) => a + e.year1, 0)));
   }
-  if (id === "workload" && S.wlResult) {
-    chip("Steady month", money(S.wlResult.totals.steady_monthly));
-    const sl = S.wlResult.slots;
-    if (sl) { chip("Slot reservation", `${sl.baseline_slots} → ${sl.max_slots}`); chip("Recommended", sl.model === "editions" ? EDITION_NAME[sl.edition] : "On-demand", "good"); }
+  if (id === "workload" && S.result?.bigquery) {
+    const b = S.result.bigquery;
+    chip("Pricing uses", b.scan_basis === "workload" ? "These numbers" : "Rule of thumb", b.scan_basis === "workload" ? "good" : "");
+    chip("Scanned / month", `${(b.scan_tib_month || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} TiB`);
+    chip("Production slots", `${b.avg_slots} avg · ${Math.round(b.peak_slots)} peak`);
+  }
+  if (id === "usecases") {
+    chip("Recommended", String((S.result?.use_cases || []).length));
+    chip("Customer's list", String((S.scenario.use_cases || []).length));
+  }
+  if (id === "slots" && S.result?.bigquery?.active) {
+    const b = S.result.bigquery, t = b.project_totals || {};
+    chip("Model", S.scenario.bq?.mode === "editions" ? `${EDITION_NAME[b.edition]} edition` : "On-demand");
+    chip("Production demand", `${b.avg_slots} avg · ${Math.round(b.peak_slots)} peak`);
+    if (S.scenario.bq?.mode === "editions") { chip("Max slots, all envs", String(t.cud1?.max || 0)); chip("3-yr commitment", `${t.cud3?.commitment || 0} slots`, "good"); }
   }
   if (id === "kickoff" && readiness()) {
     const p = readinessProgress(), r = readiness();
@@ -124,6 +157,8 @@ export function renderHead() {
   badge("env", String(S.scenario.environments.length));
   badge("roadmap", S.planResult ? `${S.planResult.horizon} mo` : "");
   { const p = readinessProgress(); badge("kickoff", p ? `${p.done}/${p.total}` : ""); }
+  badge("usecases", (S.scenario.use_cases || []).length ? String(S.scenario.use_cases.length) : "");
+  badge("slots", S.scenario.bq?.mode === "editions" && S.result?.bigquery?.project_totals ? String(S.result.bigquery.project_totals.cud1.max) : "");
   const fb = feedbackUrl();
   $("#feedbackBtn").hidden = !fb;
 }
@@ -162,7 +197,8 @@ export function renderOverview() {
   html += card("sources", "Source systems", kv("In this phase", `${recs.length} of ${S.scenario.sources.length}`)
     + kv("Platform / lake / op. DB", `${(tg.data_platform || []).length} / ${(tg.data_lake || []).length} / ${(tg.operational_db || []).length}`)
     + kv("Daily change", fmtGB(S.scenario.sources.filter((s) => s.included !== false).reduce((a, s) => a + (Number(s.daily_change_gb) || 0), 0)) + "/day"));
-  html += card("arch", "Architecture", kv("Products", `${comps.length} (${comps.filter((m) => m.vendor === "partner").length} partner)`)
+  const inv = archInventory();
+  html += card("arch", "Architecture", kv("Products", `${inv.total} (${inv.google} Google Cloud, ${inv.partner} partner)`)
     + kv("Lakehouse", r?.platform?.lakehouse?.raw_zone ? "Raw zone + bronze / silver / gold" : "Bronze / silver / gold")
     + kv("BigQuery", esc(r?.region?.name || "")));
   html += card("recs", "Ingestion patterns", recs.slice(0, 3).map((x) => kv(S.scenario.sources.find((s) => s.id === x.source_id)?.name || "", esc(tool(x.primary).name))).join("") || "<p>-</p>");
@@ -223,13 +259,12 @@ export function renderPlans() {
     </div>
     ${envs.length > 1 ? `<div class="seg small" role="group" aria-label="Environment">${[{ id: "all", name: "All environments" }, ...envs].map((e) => `<button type="button" data-penv="${esc(e.id)}" aria-selected="${plans.env === e.id}">${esc(e.name)}</button>`).join("")}</div>` : ""}
   </div>`;
-  const card = (k, label, sub) => `<button type="button" class="plan-card${plans.plan === k ? " on" : ""}" data-plan="${k}" aria-pressed="${plans.plan === k}">
-    <span>${esc(label)}</span><b>${money(P[k].total)}</b><small>${sub}</small></button>`;
-  html += `<div class="plan-cards">
-    ${card("payg_1y", "Pay as you go · 1 year", `${money(P.payg_1y.total / 12)} average per month`)}
-    ${card("commit_1y", "1-year commitment", `${money(P.commit_1y.saving)} saved (${pct(P.commit_1y.saving, P.payg_1y.total)}) vs pay as you go`)}
-    ${card("commit_3y", "3-year commitment", P.commit_3y.by_year.map((v, i) => `Year ${i + 1}: ${moneyShort(v)}`).join(" · "))}
-    ${card("payg_3y", "Pay as you go · 3 years", P.payg_3y.by_year.map((v, i) => `Year ${i + 1}: ${moneyShort(v)}`).join(" · "))}
+  const card = (k, n, label, sub) => `<button type="button" class="plan-card${plans.plan === k ? " on" : ""}" data-plan="${k}" aria-pressed="${plans.plan === k}">
+    <span><i class="plan-n">${n}</i>${esc(label)}</span><b>${money(P[k].total)}</b><small>${sub}</small></button>`;
+  html += `<div class="plan-cards three">
+    ${card("payg_1y", 1, "Pay as you go · 1 year", `${money(P.payg_1y.total / 12)} average per month · no commitment`)}
+    ${card("commit_1y", 2, "1-year commitment · all services", `Saves ${money(P.commit_1y.saving)} (${pct(P.commit_1y.saving, P.payg_1y.total)}) vs pay as you go`)}
+    ${card("commit_3y", 3, "3-year commitment · all services", P.commit_3y.by_year.map((v, i) => `Year ${i + 1}: ${moneyShort(v)}`).join(" · ") + ` · saves ${moneyShort(P.commit_3y.saving)} vs ${moneyShort(P.payg_3y.total)} pay as you go`)}
   </div>`;
   if (plans.env !== "all") html += `<p class="hint">Plan totals above are for all environments; the detail below is filtered to ${esc(envs.find((e) => e.id === plans.env)?.name || "")}.</p>`;
 
@@ -240,7 +275,8 @@ export function renderPlans() {
   html += `<section class="plan-detail"><div class="plan-head"><div><h2>${esc(plan.label)}</h2>
     <p>${plans.basis === "ramped" ? "Each service starts consuming in the month it goes live (see Roadmap)." : "Every service runs at full scope from month 1."}
     ${isCommit ? " Commitment pricing applies to eligible services (marked ●); everything else stays pay as you go." : ""}</p></div>
-    <div class="plan-total"><b>${money(total)}</b><span>${months === 12 ? "over 12 months" : "over 36 months"}${isCommit ? ` · saves ${money(paygTotal - total)}` : ""}</span></div></div>`;
+    <button type="button" class="plan-total" data-bom-open title="Open the bill of materials - products, quantities, prices and regions, editable"><b>${money(total)}</b><span>${months === 12 ? "over 12 months" : "over 36 months"}${isCommit ? ` · saves ${money(paygTotal - total)}` : ""}</span><em>View &amp; edit bill of materials ›</em></button></div>`;
+  html += envSpecSection(plans.plan);
   const groups = GROUP_ORDER_UI.filter((g) => rows.some((r) => r.group === g));
   const series = groups.map((g) => ({ g, v: Array.from({ length: months }, (_, m) => rows.filter((r) => r.group === g).reduce((a, r) => a + Math.max(0, r[key][m]), 0)) }));
   const paygLine = isCommit ? Array.from({ length: months }, (_, m) => rows.reduce((a, r) => a + r.payg[m], 0)) : null;
@@ -321,6 +357,10 @@ function planCsv() {
 
 export function bindModules(showTab) {
   bindReadiness();
+  bindBomEditor(() => plans.plan);
+  bindUseCases();
+  bindChargeback();
+  bindUsage();
   $$(".modnav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   $("#tab-pricing").addEventListener("click", (e) => {
     const v = e.target.closest("[data-pview]");
@@ -343,6 +383,7 @@ export function bindModules(showTab) {
     if (c.dataset.plan) { plans.plan = c.dataset.plan; plans.view = "plans"; }
     showTab(c.dataset.goto);
   });
+  document.addEventListener("click", (e) => { const g = e.target.closest("[data-goto-tab]"); if (g) showTab(g.dataset.gotoTab); });
   $("#feedbackBtn").addEventListener("click", () => { const u = feedbackUrl(); if (u) window.open(u, "_blank", "noopener"); });
   const setTop = () => document.documentElement.style.setProperty("--top", ($(".topbar")?.offsetHeight || 66) + "px");
   setTop();

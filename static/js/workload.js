@@ -5,6 +5,7 @@ import { chartSvg, money, regionTable } from "./cost.js";
 import { runWorkload } from "./events.js";
 import { opt, regionOptions } from "./main.js";
 import { save, unitGb } from "./scenario.js";
+import { changed } from "./events.js";
 
 // ---------------- workload sizing
 export const QUERY_ROWS = [["simple", "Simple queries"], ["complex", "Complex queries"], ["heavy", "Heavy / periodic queries"], ["adhoc", "Ad-hoc reports"]];
@@ -36,11 +37,14 @@ export function renderWorkloadForm() {
   const vol = (path, label, base) => `<label>${esc(label)}${volIn(path, base)}</label>`;
   const regSel = (path, label) => `<label>${esc(label)}<select data-w="${path}">${regionOptions("Same as BigQuery region (" + S.scenario.region + ")")}</select></label>`;
   const freqs = S.catalog.query_frequencies;
+  const used = S.scenario.bq?.scan_basis === "workload";
   host.innerHTML = `
-    <p class="lede">Size consumption from what the customer will run, independent of the source-by-source design. Values below are the example you described; change any of them.</p>
+    <div class="wl-switch ${used ? "on" : ""}"><label class="toggle"><input type="checkbox" id="wlUse" ${used ? "checked" : ""}>
+      <b>Use these numbers to size BigQuery and pricing</b></label>
+      <span>${used ? "On - BigQuery compute, slots and every pricing plan follow the reports, pipelines and queries below." : "Off - BigQuery is sized with a rule of thumb from the data volume. Change any number below to switch it on."}</span></div>
     <div class="wl-layout">
       <form class="wl-form" id="wlForm" onsubmit="return false">
-        <fieldset><legend>Data estate (steady state)</legend><div class="grid3">
+        <fieldset><legend>How much data</legend><div class="grid3">
           ${vol("data.structured_tb", "Structured data", "TB")}${vol("data.semi_structured_tb", "Semi-structured data", "TB")}${vol("data.unstructured_tb", "Unstructured data", "TB")}
           ${n("data.annual_growth_pct", "Annual growth %", 5)}${n("data.tables", "Number of tables", 50)}
         </div></fieldset>
@@ -50,12 +54,12 @@ export function renderWorkloadForm() {
           ${n("telemetry.retention_months", "Retention (months)", 1)}
           <div class="span3">${chk("telemetry.transform", "Transform in flight (Dataflow streaming)")}</div>
         </div></fieldset>
-        <fieldset><legend>Pipelines</legend><div class="grid3">
+        <fieldset><legend>Data pipelines (jobs that load and transform data)</legend><div class="grid3">
           ${n("pipelines.simple", "Simple pipelines", 5)}${n("pipelines.medium", "Medium pipelines", 5)}${n("pipelines.complex", "Complex pipelines", 5)}
           ${n("pipelines.runs_per_day", "Runs per day (each)", 1)}
           ${sel("pipelines.engine", "Pipeline engine", [{ id: "elt", name: "ELT in BigQuery (Dataform)" }, { id: "etl", name: "ETL on Dataflow" }])}
         </div></fieldset>
-        <fieldset><legend>Queries &amp; reports</legend>
+        <fieldset><legend>Reports and queries people run</legend>
           <div class="qtable" role="table">
             <div class="qrow qhead" role="row"><span>Workload</span><span>Count</span><span>Runs</span><span>Scanned / run</span></div>
             ${QUERY_ROWS.map(([k, label]) => `<div class="qrow" role="row"><span>${esc(label)}</span>
@@ -64,7 +68,7 @@ export function renderWorkloadForm() {
               ${volIn(`queries.${k}.gb`, "GB", `${label} data scanned`)}</div>`).join("")}
           </div>
         </fieldset>
-        <fieldset><legend>Dashboards</legend><div class="grid3">
+        <fieldset><legend>Dashboards</legend><p class="hint">How many dashboards, how often they refresh and how much data each refresh reads.</p><div class="grid3">
           ${n("dashboards.count", "Dashboards", 1)}${n("dashboards.refreshes_per_day", "Refreshes per day", 1)}${n("dashboards.queries_per_refresh", "Queries per refresh", 1)}
           ${vol("dashboards.gb_per_query", "Scanned per query", "GB")}${n("dashboards.cache_pct", "Served from cache / BI Engine %", 5)}
         </div></fieldset>
@@ -72,7 +76,8 @@ export function renderWorkloadForm() {
           ${n("ramp.months", "Months", 1)}${vol("ramp.data_gb", "Total data during ramp", "GB")}
           ${n("ramp.pipelines", "Pipelines during ramp", 1)}${n("ramp.reports", "Reports / dashboards during ramp", 1)}
         </div></fieldset>
-        <fieldset><legend>BigQuery slot sizing</legend><div class="grid3">
+        <details class="wl-adv"><summary>Advanced: working hours, regions and the standalone estimate</summary>
+        <fieldset><legend>When work runs</legend><div class="grid3">
           ${n("slots.batch_window_hours", "Batch window (hours)", 1)}${n("slots.business_hours", "Business hours / day", 1)}${n("slots.peak_concurrency", "Peak hour vs average (x)", 0.1)}
           ${n("slots.heavy_target_minutes", "Heavy query target (minutes)", 5)}
           ${sel("slots.edition", "Edition", [{ id: "auto", name: "Recommend for me" }, { id: "standard", name: "Standard" }, { id: "enterprise", name: "Enterprise" }, { id: "enterprise_plus", name: "Enterprise Plus" }])}
@@ -84,13 +89,36 @@ export function renderWorkloadForm() {
           ${n("contingency_pct", "Contingency %", 5)}
           <div class="span3">${chk("include_components", "Include the analytics, AI & governance components from the Architecture tab")}</div>
         </div></fieldset>
+        </details>
         <button type="button" class="btn ghost small" id="wlReset">Load example values</button>
       </form>
-      <div class="wl-results" id="wlResults" aria-live="polite"></div>
+      <div class="wl-results"><div id="wlSummary" aria-live="polite"></div>
+        <details class="wl-adv"><summary>Standalone workload-only estimate (for comparison)</summary><div id="wlResults"></div></details></div>
     </div>`;
   ["data_region", "pipelines_region", "streaming_region"].forEach((k) => { const el = $(`[data-w="${k}"]`, host); if (el) el.value = wlGet(k) || ""; });
   toggleEditionsField();
   renderWorkloadResults();
+  renderWorkloadSummary();
+}
+
+/** Plain-language "what this means" next to the workload inputs (from the main estimate). */
+export function renderWorkloadSummary() {
+  const host = $("#wlSummary");
+  if (!host) return;
+  const b = S.result?.bigquery;
+  const used = S.scenario.bq?.scan_basis === "workload";
+  if (!b || !b.active) { host.innerHTML = `<p class="hint">Add source systems to see what this workload means for BigQuery.</p>`; return; }
+  const wlBasis = (b.bases || []).find((x) => x.id === "workload");
+  const editions = S.scenario.bq?.mode === "editions";
+  const bomBq = (S.result.bom || []).filter((x) => x.service === "BigQuery compute").reduce((a, x) => a + x.month12, 0);
+  host.innerHTML = `<div class="wl-mean"><h3>What this means</h3>
+    <div class="slot-totals">
+      <div><span>Data scanned per month</span><b>${(used ? b.scan_tib_month : wlBasis?.tib_month || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} TiB</b><small>${used ? "used for pricing" : `pricing uses ${b.scan_tib_month.toLocaleString(undefined, { maximumFractionDigits: 1 })} TiB (rule of thumb)`}</small></div>
+      <div><span>Computing power (production)</span><b>${used ? `${b.avg_slots} slots avg` : "-"}</b><small>${used ? `busiest hour ${Math.round(b.peak_slots)} slots` : "switch on to size from this workload"}</small></div>
+      <div><span>BigQuery compute, all environments</span><b>${money(bomBq)}</b><small>per month at month 12 · ${editions ? "editions (slots)" : "on-demand"}</small></div>
+    </div>
+    ${used ? `<ul class="slot-recs">${(b.scan_by_class || []).map((c) => `<li><b>${esc(c.class)}</b>: ${c.tib_month.toLocaleString(undefined, { maximumFractionDigits: 2 })} TiB scanned per month</li>`).join("")}</ul>` : ""}
+    <p><button type="button" class="link-btn" data-goto-tab="slots">See the BigQuery slots per environment ›</button> · <button type="button" class="link-btn" data-goto-tab="pricing">See the pricing plans ›</button></p></div>`;
 }
 
 export function toggleEditionsField() {
@@ -99,6 +127,13 @@ export function toggleEditionsField() {
 }
 
 export function onWorkloadInput(e) {
+  if (e.target.id === "wlUse") {
+    if (e.type !== "change") return;
+    (S.scenario.bq ||= { mode: "ondemand", edition: "auto" }).scan_basis = e.target.checked ? "workload" : "auto";
+    changed();
+    renderWorkloadForm();
+    return;
+  }
   const us = e.target.closest("[data-wunit]");
   if (us) {
     if (e.type !== "change") return;
@@ -120,9 +155,14 @@ export function onWorkloadInput(e) {
   } else v = el.value || null;
   wlSet(el.dataset.w, v);
   if (el.dataset.w === "bq_model") toggleEditionsField();
+  const standalone = ["bq_model", "slot_hours_per_tib", "contingency_pct", "data_region", "pipelines_region", "streaming_region", "include_components"].includes(el.dataset.w);
+  if (!standalone && S.scenario.bq && S.scenario.bq.scan_basis !== "workload") {
+    S.scenario.bq.scan_basis = "workload";
+    const sw = $("#wlUse"); if (sw) { sw.checked = true; sw.closest(".wl-switch")?.classList.add("on"); }
+  }
   save();
   clearTimeout(S.wlTimer);
-  S.wlTimer = setTimeout(runWorkload, 250);
+  S.wlTimer = setTimeout(standalone ? runWorkload : changed, 300);
 }
 
 export function renderWorkloadResults() {

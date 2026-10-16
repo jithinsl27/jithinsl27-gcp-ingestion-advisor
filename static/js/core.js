@@ -9,8 +9,21 @@ export function authHeaders() {
   return S.idToken ? { Authorization: `Bearer ${S.idToken}` } : {};
 }
 
+// Self-reported identity (name & email asked on the first visit) - sent with every call for usage logs.
+export const IDENTITY_KEY = "data-cloud-compass:identity";
+export function identity() {
+  try { return JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null"); } catch (_) { return null; }
+}
+export function identityHeaders() {
+  const id = S.identity || identity();
+  if (!id) return {};
+  // header values must be ISO-8859-1: drop anything else
+  const clean = (v) => String(v || "").replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "").slice(0, 120);
+  return { "X-Compass-User": clean(id.name), "X-Compass-Email": clean(id.email) };
+}
+
 export function call(method, path, body, opts = {}) {
-  const init = { method, headers: { ...authHeaders(), ...(opts.headers || {}) } };
+  const init = { method, headers: { ...authHeaders(), ...identityHeaders(), ...(opts.headers || {}) } };
   if (body instanceof FormData) init.body = body;
   else if (body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
   return fetch(API_BASE + path, init).then(okJson);
@@ -39,6 +52,18 @@ export const api = window.ADVISOR_API || {
   assistFile: (file) => { const f = new FormData(); f.append("file", file); return call("POST", "/api/assist/file", f); },
   templateUrl: () => API_BASE + "/api/assist/template.csv",
   pricingStatus: () => call("GET", "/api/pricing/status"),
+  usageEvent: (action, detail = "") => call("POST", "/api/usage/event", { action, detail: String(detail).slice(0, 300) }).catch(() => null),
+  adminUsage: (key, days = 30) => call("GET", `/api/admin/usage?days=${days}`, undefined, { headers: { "X-Admin-Key": key } }),
+  cbTemplate: (region) => call("GET", `/api/chargeback/template?region=${encodeURIComponent(region)}`),
+  cbTemplateCsvUrl: (region) => API_BASE + `/api/chargeback/template?format=csv&region=${encodeURIComponent(region)}`,
+  cbPricebook: () => call("GET", "/api/chargeback/pricebook"),
+  cbSavePricebook: (b) => call("PUT", "/api/chargeback/pricebook", b),
+  cbExtract: (file, region) => { const f = new FormData(); f.append("file", file); return call("POST", `/api/chargeback/pricebook/extract?region=${encodeURIComponent(region)}`, f); },
+  cbExtractLink: (url, region) => call("POST", "/api/chargeback/pricebook/extract-link", { url, region }),
+  cbPrice: (req) => call("POST", "/api/chargeback/price", req),
+  cbRequests: () => call("GET", "/api/chargeback/requests"),
+  cbSave: (req) => call("POST", "/api/chargeback/requests", req),
+  cbDelete: (id) => call("DELETE", `/api/chargeback/requests/${encodeURIComponent(id)}`),
 };
 
 export async function okJson(r) {

@@ -63,11 +63,15 @@
         { label: "3-year commitment", value: m(plans.commit_3y.total), note: plans.commit_3y.by_year.map((v, i) => `Y${i + 1} ${ms(v)}`).join(" · ") },
         { label: "All sources live", value: live ? `Month ${live}` : "-", note: plan ? `${plan.teams} delivery squad(s)` : "" },
       ] } : null,
+      ...(() => {
+        const ucs = (sc.use_cases || []).length ? sc.use_cases.map((u) => u.name) : (r.use_cases || []).map((u) => `${u.name} - ${u.value}`);
+        return ucs.length ? [{ type: "h", text: (sc.use_cases || []).length ? "Use cases" : "Recommended use cases" }, { type: "ul", items: ucs.slice(0, 6) }] : [];
+      })(),
       { type: "h", text: "What we recommend" },
       { type: "ul", items: [
         `GCP-native, serverless ingestion: ${[...new Set(recs.map((x) => ctx.tool(x.primary).name))].slice(0, 6).join(", ")}.`,
         lake.raw_zone ? `A Cloud Storage raw zone (${lake.raw_retention_months} months) feeding BigQuery bronze, silver (${lake.silver_pct}%) and gold (${lake.gold_pct}%) layers built with Dataform.` : `BigQuery bronze, silver and gold layers built with Dataform.`,
-        `${ctx.bqModelName()} in ${r.region.name}${sl ? `; workload sizing points to ${sl.model === "editions" ? `${ctx.EDITION_NAME[sl.edition]} edition with ${sl.baseline_slots} baseline and up to ${sl.max_slots} slots` : "on-demand pricing at today's volumes"}` : ""}.`,
+        `${ctx.bqModelName()} in ${r.region.name}${r.bigquery?.project_totals && sc.bq?.mode === "editions" ? `; across all environments up to ${r.bigquery.project_totals.cud1.max} slots with ${r.bigquery.project_totals.cud3.commitment ? `${r.bigquery.project_totals.cud3.commitment} slots committed on 3 years` : "no slot commitment until usage is steady"}` : ""}.`,
         `${sc.environments.length} environment${sc.environments.length > 1 ? "s" : ""} (${sc.environments.map((e) => e.name).join(", ")}), each sized as a share of production.`,
         plans ? `Commercially, a ${plans.commit_3y.saving > plans.commit_1y.saving ? "3-year" : "1-year"} commitment gives the best value once the ramp-up is complete.` : "",
       ].filter(Boolean) },
