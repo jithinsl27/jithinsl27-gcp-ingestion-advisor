@@ -21,6 +21,11 @@
 - **sizes from workloads** (Workload sizing tab): pipelines, simple/complex/periodic queries, ad-hoc reports, dashboards, data by type (KB … ZB), telemetry and a ramp-up phase - and **sizes BigQuery slots** (baseline, autoscale max, edition, commitment) with recommendations;
 - **itemises the bill of materials**: product, quantity, unit, unit price, cost and why each service is needed, per environment;
 - **prices by your chosen option**: switch between pay-as-you-go, 1-year commitment and 3-year commitment pricing; every figure, breakdown, environment cost, bill of materials and export follows the choice, with the saving versus pay-as-you-go;
+- **module-by-module workspace**: a left-hand navigation (Overview, Source systems, Architecture, Ingestion patterns, Platform, Pricing, Environments, Workload, Roadmap, Proposal, Settings) where every module opens with its key insights;
+- **commercial pricing plans for the whole programme**: *Pay as you go - 1 year* with the monthly ramp-up, *1-year commitment* and *3-year commitment* (year 1 / 2 / 3), each with product, unit, quantity, unit price and a month × product matrix (cost or quantity), downloadable as CSV;
+- **a target per source**: data platform (BigQuery bronze / silver / gold), data lake (Cloud Storage) or operational database (AlloyDB / Cloud SQL via Database Migration Service) - and **any product not in the list** by name, treated like the nearest known type;
+- **generates a customer proposal of up to 15 pages** as PDF, Word or Google Docs;
+- **trial link for business users**: share the Cloud Run URL - no console access needed - with an optional **Feedback** button that opens your Google Form;
 - **drills into every headline figure**: click the monthly, 1-year or 3-year total to see each product's quantity, unit price, cost and share, for all or one environment. Nothing is priced until a source system or a Google Cloud product is added;
 - **saves scenarios to the cloud** (Firestore, Google sign-in): version history, share with people or by link, view-only or edit, and **compare** any two scenarios or versions side by side;
 - **builds a month-by-month roadmap** (Roadmap tab): final architecture, phased plan by delivery squads, go-live per source and component, and ramped monthly consumption;

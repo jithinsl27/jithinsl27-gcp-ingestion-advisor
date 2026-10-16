@@ -83,6 +83,20 @@ From then on, `deploy.yml` runs the tests and deploys on every push to `main` (a
 - **Cloud Build** - `gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=me-central2` (tests, build, push, deploy). Run `deploy.sh` once first so the service account, secret and environment exist.
 - **Terraform** - `deploy/terraform/`: APIs, Artifact Registry, Firestore, runtime service account and roles, Cloud Run v2 service with environment, invoker IAM, optional Cloud Build trigger. Build an image first and pass it as `image`; add the Billing API key secret with `deploy.sh` or your own module.
 
+## Trial for business users
+
+Colleagues without Google Cloud console access can use the app straight from its **Cloud Run URL** - no console, no `gcloud`:
+
+1. Deploy as in section 1 (`./deploy.sh --region us-central1`). The service is public by default (`--allow-unauthenticated`); estimating, pricing plans, exports to file and the proposal work without signing in.
+2. Share the URL `deploy.sh` prints (`https://ingestion-advisor-….run.app`). To see it again: `gcloud run services describe ingestion-advisor --region us-central1 --format='value(status.url)'`.
+3. **Feedback button** - create a Google Form, then either
+   - set it on the service: `gcloud run services update ingestion-advisor --region us-central1 --update-env-vars FEEDBACK_URL=https://forms.gle/…`, or
+   - set `feedbackUrl` in `app/static/config.js` and redeploy (this also applies to the GitHub Pages demo).
+
+   A **Feedback** button then appears in the header for every user.
+
+Saving to the cloud, sharing and Drive export still need Google sign-in (an OAuth client, see above); trial users can save and reopen scenarios as JSON files instead. To stop the trial, turn on `--private` or an allow-list (below).
+
 ## Restricting access
 
 - **Allow-list in the app** (recommended): `--allowed-domains` (or `ALLOWED_EMAILS`) restricts who can sign in, save and use the AI assist; estimates stay open.

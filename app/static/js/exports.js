@@ -9,6 +9,7 @@ import { OPT, OPTIONS, OV, compMeta, emptyWorkload, hasEstimate, optShort } from
 import { freqName, recFor, tool } from "./render.js";
 import { syncForm, withDefaults } from "./scenario.js";
 import { EDITION_NAME } from "./workload.js";
+import { mergeEnvs } from "./modules.js";
 
 // ------------------------------------------------------------------ exports
 export const NO_DOWNLOAD = !!window.ADVISOR_NO_DOWNLOAD;
@@ -250,18 +251,18 @@ export async function diagramPng(sel, width) {
 }
 
 export async function workbookSpec() {
-  const S = window.CompassExports.STYLE;
+  const ST = window.CompassExports.STYLE;
   const t = S.result.totals, ccy = S.currency;
-  const H = (labels) => labels.map((v) => ({ v, s: S.head }));
-  const M = (usd) => ({ v: cur(usd), s: S.money });
+  const H = (labels) => labels.map((v) => ({ v, s: ST.head }));
+  const M = (usd) => ({ v: cur(usd), s: ST.money });
   const sheets = [];
   const today = new Date().toISOString().slice(0, 10);
 
   // Summary
   const groups = S.result.by_group.filter((g) => g.three_year > 0);
   const sum = [
-    [{ v: `Data Cloud Compass - ${S.scenario.customer || "Customer"}`, s: S.title }],
-    [{ v: `BigQuery region ${S.result.region.name} · ${bqModelName()} · growth ${S.scenario.annual_growth_pct}%/yr · ${S.scenario.environments.length} environment(s) · selected pricing ${OPTIONS.find((o) => o.id === OPT()).name} · currency ${ccy} · ${today}`, s: S.sub }],
+    [{ v: `Data Cloud Compass - ${S.scenario.customer || "Customer"}`, s: ST.title }],
+    [{ v: `BigQuery region ${S.result.region.name} · ${bqModelName()} · growth ${S.scenario.annual_growth_pct}%/yr · ${S.scenario.environments.length} environment(s) · selected pricing ${OPTIONS.find((o) => o.id === OPT()).name} · currency ${ccy} · ${today}`, s: ST.sub }],
     [],
     H(["Horizon", `Pay-as-you-go (${ccy})`, `1-year commitment (${ccy})`, `3-year commitment (${ccy})`, "Discussion range low", "Discussion range high"]),
     ["1 year", M(OV("payg").totals.year1), M(OV("cud1").totals.year1), M(OV("cud3").totals.year1), M(t.range_low_1y), M(t.range_high_1y)],
@@ -269,9 +270,9 @@ export async function workbookSpec() {
     [],
     H(["Capability", `Year 1 (${ccy})`, `3 years (${ccy})`]),
     ...groups.map((g) => [g.group, M(g.year1), M(g.three_year)]),
-    [{ v: "Total", s: S.bold }, { v: cur(t.year1_payg), s: S.moneyBold }, { v: cur(t.three_year_payg), s: S.moneyBold }],
+    [{ v: "Total", s: ST.bold }, { v: cur(t.year1_payg), s: ST.moneyBold }, { v: cur(t.three_year_payg), s: ST.moneyBold }],
     [],
-    [{ v: S.result.disclaimer, s: S.sub }],
+    [{ v: S.result.disclaimer, s: ST.sub }],
   ];
   sheets.push({ name: "Summary", rows: sum, widths: [34, 22, 22, 20, 20], merges: ["A1:E1", "A2:E2", `A${sum.length}:E${sum.length}`],
     charts: [{ type: "pie", title: `3-year consumption by capability (${ccy})`, catCol: 0, firstRow: 8, lastRow: 7 + groups.length, series: [{ col: 2 }],
@@ -279,7 +280,7 @@ export async function workbookSpec() {
 
   // Architecture
   const arch = await diagramPng("#archSvg", 1440);
-  const archRows = [[{ v: "Target architecture", s: S.title }], [{ v: "Diagram exported from Data Cloud Compass; the layers and products are listed below the picture.", s: S.sub }]];
+  const archRows = [[{ v: "Target architecture", s: ST.title }], [{ v: "Diagram exported from Data Cloud Compass; the layers and products are listed below the picture.", s: ST.sub }]];
   const imgRows = arch ? Math.ceil((arch.h * (1100 / arch.w)) / 20) + 1 : 0;
   for (let i = 0; i < imgRows; i++) archRows.push([]);
   archRows.push(H(["Layer", "Product", "Vendor", "How it connects / role", "Region", "Priced"]));
@@ -290,7 +291,7 @@ export async function workbookSpec() {
   (lake?.layers || []).forEach((l) => archRows.push(["BigQuery lakehouse", `${l.name} layer`, "Google Cloud", `${l.role} (${l.pct}% of bronze, ~${fmtGB(l.gib_month12)} at month 12)`, S.scenario.region, "Yes"]));
   comps.forEach(({ c, m }) => {
     const mode = m.modes ? ` - ${m.settings.find((f) => f.key === m.modes.key).options.find((o) => o.id === c.settings[m.modes.key])?.name || ""}` : "";
-    archRows.push([catName(m.category), m.name, m.vendor === "google" ? "Google Cloud" : "Partner", { v: m.method + mode, s: S.wrap }, m.costed ? (c.settings.region || S.scenario.region) : "-", m.costed ? (c.included === false ? "No (excluded)" : "Yes") : "Not costed"]);
+    archRows.push([catName(m.category), m.name, m.vendor === "google" ? "Google Cloud" : "Partner", { v: m.method + mode, s: ST.wrap }, m.costed ? (c.settings.region || S.scenario.region) : "-", m.costed ? (c.included === false ? "No (excluded)" : "Yes") : "Not costed"]);
   });
   sheets.push({ name: "Architecture", rows: archRows, widths: [22, 34, 14, 70, 16, 14],
     images: arch ? [{ png: arch.bytes, name: "Target architecture", anchor: { col: 0, row: 2, cols: 6, rows: imgRows } }] : [] });
@@ -300,7 +301,7 @@ export async function workbookSpec() {
   S.scenario.sources.forEach((s) => {
     const r = recFor(s.id);
     srcRows.push([s.name, S.catalog.source_types.find((x) => x.id === s.type)?.name || s.type, freqName(s.frequency), fmtGB(s.initial_volume_gb), fmtGB(s.daily_change_gb) + "/day",
-      s.region || S.scenario.region, s.included === false ? "No (later phase)" : "Yes", { v: r ? r.pattern : "-", s: S.wrap }, r ? r.chain.map((x) => tool(x).name).join(" → ") + " → BigQuery" : "-",
+      s.region || S.scenario.region, s.included === false ? "No (later phase)" : "Yes", { v: r ? r.pattern : "-", s: ST.wrap }, r ? r.chain.map((x) => tool(x).name).join(" → ") + " → BigQuery" : "-",
       s.type === "iot" ? (S.catalog.iot_options.find((o) => o.id === (s.iot_option || "native"))?.name || "") : ""]);
   });
   sheets.push({ name: "Sources & patterns", rows: srcRows, widths: [28, 24, 14, 14, 14, 16, 14, 50, 50, 36], freeze: 1 });
@@ -308,11 +309,11 @@ export async function workbookSpec() {
   // Bill of materials
   const bom = S.result.bom || [];
   const bomRows = [H(["Environment", "Capability", "Product / service", "Why it is needed", "Qty / month (M12)", "Qty, year 1", "Unit", `Unit price (${ccy})`, `Month 12 (${ccy})`, `Year 1 (${ccy})`, `3 years (${ccy})`])];
-  bom.forEach((b) => bomRows.push([b.environment_name, b.group, b.service, { v: b.why, s: S.wrap },
-    b.qty_month12 == null ? "-" : { v: b.qty_month12, s: S.num }, b.qty_year1 == null ? "-" : { v: b.qty_year1, s: S.num }, b.unit || "-",
-    b.unit_price == null ? "-" : { v: Math.round(b.unit_price * fx() * 10000) / 10000, s: S.price }, M(b.month12), M(b.year1), M(b.three_year)]));
+  bom.forEach((b) => bomRows.push([b.environment_name, b.group, b.service, { v: b.why, s: ST.wrap },
+    b.qty_month12 == null ? "-" : { v: b.qty_month12, s: ST.num }, b.qty_year1 == null ? "-" : { v: b.qty_year1, s: ST.num }, b.unit || "-",
+    b.unit_price == null ? "-" : { v: Math.round(b.unit_price * fx() * 10000) / 10000, s: ST.price }, M(b.month12), M(b.year1), M(b.three_year)]));
   const n = bom.length;
-  bomRows.push([{ v: "Total", s: S.bold }, "", "", "", "", "", "", "", { f: `SUM(I2:I${n + 1})`, s: S.moneyBold }, { f: `SUM(J2:J${n + 1})`, s: S.moneyBold }, { f: `SUM(K2:K${n + 1})`, s: S.moneyBold }]);
+  bomRows.push([{ v: "Total", s: ST.bold }, "", "", "", "", "", "", "", { f: `SUM(I2:I${n + 1})`, s: ST.moneyBold }, { f: `SUM(J2:J${n + 1})`, s: ST.moneyBold }, { f: `SUM(K2:K${n + 1})`, s: ST.moneyBold }]);
   sheets.push({ name: "Bill of materials", rows: bomRows, widths: [16, 22, 36, 70, 16, 16, 16, 16, 16, 16, 16], freeze: 1 });
 
   // Monthly
@@ -321,10 +322,32 @@ export async function workbookSpec() {
   sheets.push({ name: "Monthly", rows: mon, widths: [10, 24, 28], freeze: 1,
     charts: [{ type: "line", title: `Monthly consumption, 36 months (${ccy})`, catCol: 0, firstRow: 1, lastRow: 36, series: [{ col: 1, color: "1A73E8" }, { col: 2, color: "188038", dash: true }], anchor: { col: 4, row: 1, cols: 10, rows: 20 } }] });
 
+  // Commercial options: whole programme with the ramp-up plan
+  const pr = S.planResult?.pricing?.ramped;
+  if (pr) {
+    const PL = pr.plans, prods = mergeEnvs(pr.products, true);
+    const yr = (a, y) => a.slice((y - 1) * 12, y * 12).reduce((x, v) => x + v, 0);
+    const opt = [[{ v: "Commercial options - whole programme, ramp-up plan", s: ST.title }],
+      [{ v: `First data live month ${S.planResult.pricing.go_live?.first ?? "-"} · all sources live month ${S.planResult.pricing.go_live?.all ?? "-"} · ${ccy}`, s: ST.sub }], [],
+      H(["Option", "Year 1", "Year 2", "Year 3", "Total", "Saving vs pay-as-you-go"])];
+    [["payg_1y", "Pay as you go - 1 year"], ["commit_1y", "1-year commitment"], ["payg_3y", "Pay as you go - 3 years"], ["commit_3y", "3-year commitment"]].forEach(([k, n]) => {
+      const b = PL[k].by_year; opt.push([n, M(b[0] || 0), b[1] != null ? M(b[1]) : "-", b[2] != null ? M(b[2]) : "-", M(PL[k].total), PL[k].saving != null ? M(PL[k].saving) : "-"]);
+    });
+    sheets.push({ name: "Pricing plans", rows: opt, widths: [30, 18, 18, 18, 18, 24], merges: ["A1:F1", "A2:F2"] });
+    [["PAYG 1 year", "payg", 12], ["1-yr commitment", "cud1", 12], ["3-yr commitment", "cud3", 36]].forEach(([name, key, n]) => {
+      const rows = [H(["Product", "Group", "Unit", "Qty month 12", ...Array.from({ length: n }, (_, i) => `M${i + 1}`), ...(n > 12 ? ["Year 1", "Year 2", "Year 3"] : []), "Total"])];
+      prods.filter((r) => r[key].slice(0, n).some((v) => Math.abs(v) >= 0.005)).forEach((r) => rows.push([r.service, r.group, r.unit || "-", r.qty[11] ? fmtQty(r.qty[11]) : "-",
+        ...r[key].slice(0, n).map((v) => M(v)), ...(n > 12 ? [1, 2, 3].map((y) => M(yr(r[key], y))) : []), M(r[key].slice(0, n).reduce((a, v) => a + v, 0))]));
+      const tot = Array.from({ length: n }, (_, i) => prods.reduce((a, r) => a + r[key][i], 0));
+      rows.push([{ v: "Total", s: ST.bold }, "", "", "", ...tot.map((v) => ({ v: cur(v), s: ST.moneyBold })), ...(n > 12 ? [1, 2, 3].map((y) => ({ v: cur(yr(tot, y)), s: ST.moneyBold })) : []), { v: cur(tot.reduce((a, v) => a + v, 0)), s: ST.moneyBold }]);
+      sheets.push({ name, rows, widths: [34, 20, 14, 14, ...Array(n + (n > 12 ? 3 : 0) + 1).fill(13)], freeze: 1 });
+    });
+  }
+
   // Environments
   const envs = S.result.environments || [];
   const envRows = [H(["Environment", ...S.catalog.environment_factors.map((f) => f.name), "BigQuery slots", `Per month, yr 1 (${ccy})`, `Year 1 (${ccy})`, `3 years (${ccy})`])];
-  envs.forEach((e) => envRows.push([e.name, ...S.catalog.environment_factors.map((f) => ({ v: e.factors[f.id] / 100, s: S.pct })), e.slots ? `${e.slots.baseline} → ${e.slots.max}` : "-", M(e.monthly_year1), M(e.year1), M(e.three_year)]));
+  envs.forEach((e) => envRows.push([e.name, ...S.catalog.environment_factors.map((f) => ({ v: e.factors[f.id] / 100, s: ST.pct })), e.slots ? `${e.slots.baseline} → ${e.slots.max}` : "-", M(e.monthly_year1), M(e.year1), M(e.three_year)]));
   const nf = S.catalog.environment_factors.length;
   sheets.push({ name: "Environments", rows: envRows, widths: [22, ...S.catalog.environment_factors.map(() => 16), 14, 20, 18, 18], freeze: 1,
     charts: envs.length ? [{ type: "bar", title: `Consumption by environment (${ccy})`, catCol: 0, firstRow: 1, lastRow: envs.length, series: [{ col: nf + 3, color: "1A73E8" }, { col: nf + 4, color: "F9AB00" }], anchor: { col: 0, row: envs.length + 3, cols: 8, rows: 16 } }] : [] });
@@ -332,7 +355,7 @@ export async function workbookSpec() {
   // Workload sizing + slots
   if (S.wlResult) {
     const w = S.wlResult, wt = w.totals;
-    const wr = [[{ v: "Workload-based sizing", s: S.title }], [],
+    const wr = [[{ v: "Workload-based sizing", s: ST.title }], [],
       H(["Period", `Pay-as-you-go (${ccy})`, `With commitments (${ccy})`]),
       ["Ramp-up (per month)", M(wt.ramp_monthly), ""], ["Steady state (per month)", M(wt.steady_monthly), ""], ["1 year", M(wt.year1_payg), M(wt.year1_cud1)], ["3 years", M(wt.three_year_payg), M(wt.three_year_cud3)], [],
       H(["Category", `Steady month (${ccy})`, `Year 1 (${ccy})`, `3 years (${ccy})`])];
@@ -345,13 +368,13 @@ export async function workbookSpec() {
       charts: [{ type: "bar", horizontal: true, title: `Steady-state month by category (${ccy})`, catCol: 0, firstRow: c0, lastRow: c1, series: [{ col: 1, color: "1A73E8" }], anchor: { col: 6, row: 1, cols: 8, rows: 16 } }] });
     const sl = w.slots;
     if (sl) {
-      const sr = [[{ v: "BigQuery slot sizing", s: S.title }], [],
+      const sr = [[{ v: "BigQuery slot sizing", s: ST.title }], [],
         H(["Measure", "Value"]),
         ["Average demand (slots)", sl.avg_slots], ["Peak hour (slots)", sl.peak_slots], ["Heavy query burst (slots)", sl.heavy_burst_slots],
         ["Recommended baseline (slots)", sl.baseline_slots], ["Max autoscale (slots)", sl.max_slots], ["Edition", EDITION_NAME[sl.edition]], ["Pricing model", sl.model === "editions" ? "Editions (slots)" : "On-demand"],
         [`On-demand per month (${ccy})`, M(sl.costs.ondemand_month)], [`Autoscaling only per month (${ccy})`, M(sl.costs.autoscale_only_month)],
         [`Baseline + autoscale, 1-yr commit (${ccy})`, M(sl.costs.recommended_month)], [`Baseline + autoscale, 3-yr commit (${ccy})`, M(sl.costs.recommended_month_3yr)], [],
-        H(["Recommendation"]), ...sl.recommendations.map((x) => [{ v: x, s: S.wrap }]), ...sl.edition_reasons.map((x) => [{ v: x, s: S.wrap }]), [],
+        H(["Recommendation"]), ...sl.recommendations.map((x) => [{ v: x, s: ST.wrap }]), ...sl.edition_reasons.map((x) => [{ v: x, s: ST.wrap }]), [],
         H(["Job type", "TiB / month", "Slot-hours / month", "Avg slots"]), ...sl.by_class.map((b) => [b.class, b.tib_month, b.slot_hours_month, b.avg_slots]), [],
         H(["Hour", "Slots"])];
       const h0 = sr.length;
@@ -365,14 +388,14 @@ export async function workbookSpec() {
   if (S.planResult) {
     const p = S.planResult;
     const gs = p.group_order.filter((g) => p.months.some((m) => m.by_group[g]));
-    const rr = [[{ v: "Ramp-up roadmap", s: S.title }], [{ v: `${p.teams} delivery squad(s) · ${p.horizon} months · year 1 with ramp-up ${money(p.totals.ramped_year1)} vs ${money(p.totals.steady_year1)} at full run-rate`, s: S.sub }], [],
+    const rr = [[{ v: "Ramp-up roadmap", s: ST.title }], [{ v: `${p.teams} delivery squad(s) · ${p.horizon} months · year 1 with ramp-up ${money(p.totals.ramped_year1)} vs ${money(p.totals.steady_year1)} at full run-rate`, s: ST.sub }], [],
       H(["Month", ...gs.map((g) => `${g} (${ccy})`), `Ramped total (${ccy})`, `Steady state (${ccy})`, "Goes live"])];
     const m0 = rr.length;
     p.months.forEach((m) => rr.push([`M${m.month}`, ...gs.map((g) => M(m.by_group[g] || 0)), M(m.total), M(m.steady),
-      { v: [...p.milestones.filter((x) => x.month === m.month).map((x) => x.name), ...m.sources_live, ...m.components_started].join(" · "), s: S.wrap }]));
+      { v: [...p.milestones.filter((x) => x.month === m.month).map((x) => x.name), ...m.sources_live, ...m.components_started].join(" · "), s: ST.wrap }]));
     const m1 = rr.length - 1;
     rr.push([], H(["Phase", "Start month", "End month", "Scope"]));
-    p.phases.forEach((ph) => rr.push([ph.name, ph.start, ph.end, { v: ph.items.join("; "), s: S.wrap }]));
+    p.phases.forEach((ph) => rr.push([ph.name, ph.start, ph.end, { v: ph.items.join("; "), s: ST.wrap }]));
     sheets.push({ name: "Roadmap", rows: rr, widths: [32, ...gs.map(() => 18), 18, 18, 60], freeze: 4,
       charts: [{ type: "stacked", title: `Ramped monthly consumption by capability (${ccy})`, catCol: 0, firstRow: m0, lastRow: m1,
         series: gs.map((g, i) => ({ col: i + 1, color: (GROUP_COLORS[g] || "#9AA0A6").slice(1) })), anchor: { col: gs.length + 5, row: 3, cols: 10, rows: 20 } }] });
@@ -389,7 +412,7 @@ export async function workbookSpec() {
     ["Environments", S.scenario.environments.map((e) => e.name).join(", ")],
     ["Partner products", "Never costed (Power BI, Tableau, Litmus, ClearBlade, Collibra …)"],
     ["Prices", `${S.result.pricing_meta.note} Reviewed ${S.result.pricing_meta.last_reviewed}.`],
-    ["Disclaimer", { v: S.result.disclaimer, s: S.wrap }]], widths: [30, 110] });
+    ["Disclaimer", { v: S.result.disclaimer, s: ST.wrap }]], widths: [30, 110] });
   return sheets;
 }
 
@@ -478,6 +501,22 @@ export async function buildDeck() {
       { x: 0.4, y: 3.0, w: 6.3, h: 3.9, barDir: "bar", chartColors: [BLUE, "F9AB00"], showLegend: true, legendPos: "b", legendFontFace: FONT, catAxisLabelFontFace: FONT, valAxisLabelFormatCode: "#,##0", catAxisLabelFontSize: 9, valAxisLabelFontSize: 8, showTitle: true, title: "By capability", titleFontSize: 12, titleFontFace: FONT });
     s.addChart(P.ChartType.line, [{ name: "Pay-as-you-go", labels: S.result.monthly.map((m) => `M${m.month}`), values: S.result.monthly.map((m) => cv(m.payg)) }, { name: "With 3-yr commitments", labels: S.result.monthly.map((m) => `M${m.month}`), values: S.result.monthly.map((m) => cv(m.cud3)) }],
       { x: 6.9, y: 3.0, w: 6.0, h: 3.9, chartColors: [BLUE, "188038"], lineDataSymbol: "none", lineSize: 2, showLegend: true, legendPos: "b", legendFontFace: FONT, valAxisLabelFormatCode: "#,##0", catAxisLabelFontSize: 8, valAxisLabelFontSize: 8, showTitle: true, title: `Monthly run-rate (${ccy})`, titleFontSize: 12, titleFontFace: FONT });
+  }
+  // 5b. Commercial options (whole programme, ramp-up plan)
+  {
+    const pr = S.planResult?.pricing?.ramped;
+    if (pr) {
+      const PL = pr.plans;
+      const s = slide("Commercial options", `Whole programme with the ramp-up plan · first data live month ${S.planResult.pricing.go_live?.first ?? "-"} · ${ccy}`);
+      const rows = [head(["Option", "Year 1", "Year 2", "Year 3", "Total", "Saving vs pay-as-you-go"])];
+      [["payg_1y", "Pay as you go - 1 year"], ["commit_1y", "1-year commitment"], ["payg_3y", "Pay as you go - 3 years"], ["commit_3y", "3-year commitment"]].forEach(([k, n]) => {
+        const b = PL[k].by_year; rows.push([n, money(b[0] || 0), b[1] != null ? money(b[1]) : "-", b[2] != null ? money(b[2]) : "-", money(PL[k].total), PL[k].saving != null ? money(PL[k].saving) : "-"]);
+      });
+      s.addTable(rows, { ...tableOpts([3.2, 1.8, 1.8, 1.8, 1.9, 2.0]), fontSize: 11 });
+      const lab = Array.from({ length: 36 }, (_, i) => `M${i + 1}`);
+      s.addChart(P.ChartType.line, [{ name: "Pay as you go", labels: lab, values: PL.payg_3y.monthly.map(cv) }, { name: "3-year commitment", labels: lab, values: PL.commit_3y.monthly.map(cv) }],
+        { x: 0.4, y: 3.4, w: 12.5, h: 3.5, chartColors: [BLUE, "188038"], lineDataSymbol: "none", lineSize: 2, showLegend: true, legendPos: "b", legendFontFace: FONT, valAxisLabelFormatCode: "#,##0", catAxisLabelFontSize: 8, valAxisLabelFontSize: 8, showTitle: true, title: `Monthly consumption ramp-up (${ccy})`, titleFontSize: 12, titleFontFace: FONT });
+    }
   }
   // 6. Environments
   const envs = S.result.environments || [];

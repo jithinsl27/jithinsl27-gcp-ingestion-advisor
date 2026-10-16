@@ -60,10 +60,22 @@ def page(browser, base_url):
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(base_url + "/")
-    pg.wait_for_selector("#summaryStrip .fig", timeout=10_000)
+    pg.wait_for_selector("#summaryStrip .fig", state="attached", timeout=10_000)
     yield pg
     ctx.close()
     assert not errors, errors
+
+
+def goto(page, tab):
+    """Open a module from the left-hand menu."""
+    page.click(f'.modnav [data-tab="{tab}"]')
+
+
+def pricing_detail(page):
+    """Pricing module -> Detailed breakdown (headline figures, drill-down, consumption tables)."""
+    goto(page, "pricing")
+    page.click('[data-pview="detail"]')
+    page.wait_for_selector("#summaryStrip .fig, #summaryStrip .empty-sum")
 
 
 @pytest.fixture(scope="session")

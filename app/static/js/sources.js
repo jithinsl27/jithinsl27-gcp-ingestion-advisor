@@ -32,9 +32,23 @@ export const TYPE_DEFAULTS = {
   unstructured: { data_type: "unstructured", frequency: "daily", location: "on_prem" },
 };
 
+const effType = () => ($("#f_type").value === "custom" ? $("#f_like_type").value : $("#f_type").value);
+
+export function refreshTargets(keep) {
+  const allowed = S.catalog.allowed_targets[effType()] || ["data_platform"];
+  const cur = keep ?? $("#f_target").value;
+  $("#f_target").innerHTML = (S.editingId ? "" : `<option value="" disabled${cur ? "" : " selected"}>Choose where this source lands…</option>`)
+    + S.catalog.targets.filter((t) => allowed.includes(t.id)).map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
+  if (cur && allowed.includes(cur)) $("#f_target").value = cur;
+  else if (S.editingId) $("#f_target").value = "data_platform";
+  $("#f_custom_wrap").hidden = $("#f_type").value !== "custom";
+  $("#f_iot_wrap").hidden = effType() !== "iot";
+}
+
 export function applyTypeDefaults() {
+  refreshTargets();
   if (S.editingId) return updateHint();
-  const t = S.catalog.source_types.find((s) => s.id === $("#f_type").value);
+  const t = S.catalog.source_types.find((s) => s.id === effType());
   const d = TYPE_DEFAULTS[t?.category] || {};
   Object.entries(d).forEach(([k, v]) => ($("#f_" + k).value = v));
   updateHint();
@@ -70,15 +84,19 @@ export function openDialog(id) {
     setVol("#f_initial_volume_gb", "#f_initial_unit", s.initial_volume_gb, s.units?.initial);
     setVol("#f_daily_change_gb", "#f_daily_unit", s.daily_change_gb, s.units?.daily);
     $("#f_iot_option").value = s.iot_option || "native";
+    $("#f_custom_name").value = s.custom_name || "";
+    $("#f_like_type").value = s.like_type || "rest_api";
+    refreshTargets(s.target || "data_platform");
   } else {
     $("#f_type").value = "oracle"; $("#f_name").value = ""; $("#f_notes").value = ""; $("#f_region").value = "";
     $("#f_transform").value = "none";
     setVol("#f_initial_volume_gb", "#f_initial_unit", 500, "GB");
     setVol("#f_daily_change_gb", "#f_daily_unit", 5, "GB");
     $("#f_iot_option").value = "native";
+    $("#f_custom_name").value = ""; $("#f_like_type").value = "rest_api";
+    $("#f_target").innerHTML = "";
     applyTypeDefaults();
   }
-  $("#f_iot_wrap").hidden = $("#f_type").value !== "iot";
   updateHint();
   $("#sourceDialog").showModal();
   $("#f_type").focus();
@@ -86,7 +104,9 @@ export function openDialog(id) {
 
 export function saveSource() {
   const v = (k) => $("#f_" + k).value;
-  const typeName = S.catalog.source_types.find((s) => s.id === v("type"))?.name || v("type");
+  if (!v("target")) { $("#f_hint").textContent = "Choose the target for this source: data platform (BigQuery), data lake or operational database."; $("#f_target").focus(); return; }
+  if (v("type") === "custom" && !v("custom_name").trim()) { $("#f_hint").textContent = "Enter the product name of the source that is not in the list."; $("#f_custom_name").focus(); return; }
+  const typeName = v("type") === "custom" ? v("custom_name").trim() : S.catalog.source_types.find((s) => s.id === v("type"))?.name || v("type");
   const src = {
     id: S.editingId || uid("s"),
     name: v("name").trim() || typeName,
@@ -98,7 +118,9 @@ export function saveSource() {
     notes: v("notes"),
     region: v("region") || "",
   };
-  if (src.type === "iot") src.iot_option = v("iot_option");
+  src.target = v("target");
+  if (src.type === "custom") { src.custom_name = v("custom_name").trim(); src.like_type = v("like_type"); }
+  if ((src.type === "custom" ? src.like_type : src.type) === "iot") src.iot_option = v("iot_option");
   const prevSrc = S.editingId && S.scenario.sources.find((x) => x.id === S.editingId);
   if (prevSrc) { src.included = prevSrc.included !== false; if (prevSrc.start_month) src.start_month = prevSrc.start_month; }
   if (S.editingId) S.scenario.sources = S.scenario.sources.map((s) => (s.id === S.editingId ? src : s));

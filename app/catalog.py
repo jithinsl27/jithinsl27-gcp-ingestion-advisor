@@ -94,6 +94,7 @@ SOURCE_TYPES = [
     {"id": "rest_api", "name": "Custom REST / GraphQL API", "category": "api", "icon": "saas"},
     # Unstructured
     {"id": "documents", "name": "Documents / images / media", "category": "unstructured", "icon": "file"},
+    {"id": "custom", "name": "Other - not in this list (enter the product name)", "category": "custom", "icon": "db"},
 ]
 
 # --------------------------------------------------------------------------- #
@@ -190,6 +191,24 @@ TOOLS = {
         "layer": "process",
         "summary": "Google Cloud Manufacturing Data Engine: common manufacturing data model and pipelines to BigQuery, Bigtable and Cloud Storage.",
         "doc": "https://cloud.google.com/solutions/manufacturing-data-engine",
+    },
+    "gcs_lake": {
+        "name": "Cloud Storage data lake",
+        "layer": "land",
+        "summary": "Data lake in Cloud Storage in open formats (Parquet, Avro, Iceberg); BigQuery reads it through BigLake tables.",
+        "doc": "https://cloud.google.com/bigquery/docs/biglake-intro",
+    },
+    "dms": {
+        "name": "Database Migration Service",
+        "layer": "ingest",
+        "summary": "Serverless migration and continuous replication into Cloud SQL and AlloyDB, with schema conversion for Oracle and SQL Server.",
+        "doc": "https://cloud.google.com/database-migration/docs",
+    },
+    "op_db": {
+        "name": "AlloyDB / Cloud SQL",
+        "layer": "target",
+        "summary": "Managed operational database target (PostgreSQL / MySQL compatible).",
+        "doc": "https://cloud.google.com/alloydb/docs/overview",
     },
     "gcs_raw": {
         "name": "Cloud Storage raw zone",
@@ -384,6 +403,7 @@ def catalog_payload(regions):
     from .workload import DEFAULT_WORKLOAD, FREQ_RUNS
     from .environments import DEFAULT_ENVIRONMENTS, ENV_PRESETS, FACTOR_HELP, FACTOR_LABELS
     from .estimator import LAKEHOUSE_DEFAULTS
+    from .recommender import TARGETS, allowed_targets
     return {
         "components": COMPONENTS,
         "component_categories": CATEGORIES,
@@ -400,6 +420,8 @@ def catalog_payload(regions):
         "tools": TOOLS,
         "regions": regions,
         "iot_options": IOT_OPTIONS,
+        "targets": TARGETS,
+        "allowed_targets": {s["id"]: allowed_targets(s["id"]) for s in SOURCE_TYPES if s["id"] != "custom"},
         "volume_units": VOLUME_UNITS,
         "environment_presets": ENV_PRESETS,
         "environment_factors": [{"id": k, "name": v, "help": FACTOR_HELP[k]} for k, v in FACTOR_LABELS.items()],

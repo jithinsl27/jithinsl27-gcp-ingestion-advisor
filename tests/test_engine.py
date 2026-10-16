@@ -399,3 +399,48 @@ def test_commercial_discount_support_and_range():
     assert support_fee(500, "enhanced", p) == 100            # minimum
     assert abs(support_fee(20000, "enhanced", p) - (1000 + 700)) < 1e-6
     assert support_fee(1000, "premium", p) == 15000
+# --------------------------------------------------------------------------- targets, custom sources, pricing plans
+from app.plan import build_plan  # noqa: E402
+
+
+def test_custom_source_follows_like_type():
+    r = recommend(src(type="custom", custom_name="Workday", like_type="saas_other", frequency="daily"), {})
+    assert "Workday" in r.rationale[0]
+    assert r.primary == recommend(src(type="saas_other", frequency="daily"), {}).primary
+    res = client.post("/api/estimate", json={"sources": [src(type="custom", custom_name="Workday", like_type="saas_other", target="data_lake")]})
+    assert res.status_code == 200
+    rec = res.json()["recommendations"][0]
+    assert "Workday" in rec["rationale"][1] and rec["target"] == "data_lake"
+
+
+def test_targets_change_pattern_and_cost():
+    lake = recommend(src(type="files_onprem", frequency="daily", target="data_lake"), {})
+    assert lake.target == "data_lake" and lake.chain[-1] == "gcs_lake"
+    opdb = recommend(src(type="postgresql", target="operational_db"), {})
+    assert opdb.engine == "dms_native"
+    hetero = recommend(src(type="oracle", target="operational_db"), {})
+    assert hetero.engine == "dms_hetero"
+    # not allowed -> falls back to the data platform
+    assert recommend(src(type="salesforce", target="data_lake"), {}).target == "data_platform"
+    e_lake = estimate({"sources": [src(type="files_onprem", frequency="daily", daily_change_gb=50, target="data_lake")]})
+    svcs = {s["service"] for s in e_lake["by_service"]}
+    assert "Cloud Storage (data lake)" in svcs and "BigQuery storage" not in svcs and "BigQuery compute" not in svcs
+    e_ora = estimate({"sources": [src(type="oracle", daily_change_gb=50, initial_volume_gb=2000, target="operational_db")]})
+    svcs = {s["service"] for s in e_ora["by_service"]}
+    assert "Database Migration Service (CDC)" in svcs and "Database Migration Service (backfill)" in svcs
+    assert e_ora["platform"]["targets"]["operational_db"]
+
+
+def test_pricing_plans_are_consistent():
+    sc = json.loads((Path(__file__).parents[1] / "samples" / "retail-bank-ksa.json").read_text())
+    pr = build_plan(sc)["pricing"]
+    for view in ("ramped", "steady"):
+        p = pr[view]["plans"]
+        assert p["commit_1y"]["total"] <= p["payg_1y"]["total"]
+        assert p["commit_3y"]["total"] <= p["payg_3y"]["total"]
+        assert sum(p["commit_3y"]["by_year"]) == pytest.approx(p["commit_3y"]["total"], abs=0.1)
+        prods = pr[view]["products"]
+        assert sum(sum(x["payg"][:12]) for x in prods) == pytest.approx(p["payg_1y"]["total"], abs=1)
+        assert any(x["commit_eligible"] for x in prods)
+    # ramp-up makes year 1 cheaper than running everything from month 1
+    assert pr["ramped"]["plans"]["payg_1y"]["total"] < pr["steady"]["plans"]["payg_1y"]["total"]

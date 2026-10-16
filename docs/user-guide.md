@@ -20,6 +20,7 @@ Click **Add source** for each system the customer wants in BigQuery.
 
 | Field | Meaning | Why it matters |
 |---|---|---|
+| Target | **Data platform** (BigQuery bronze / silver / gold), **Data lake** (Cloud Storage only) or **Operational database** (AlloyDB / Cloud SQL via Database Migration Service, for relational sources) | Decides the landing zone, the ingestion pattern and what is priced |
 | Source system type | 35 types across databases, warehouses, SAP, mainframe, NoSQL, files, streams, SaaS, APIs, documents | Selects the rule set |
 | Name | The customer's own name for it | Shown on the diagram and in the proposal |
 | Data type | Structured, semi-structured, unstructured, events | Load format and notes |
@@ -29,6 +30,8 @@ Click **Add source** for each system the customer wants in BigQuery.
 | Processing region | Where this source's ingestion runs (default: BigQuery region) | Regional price and cross-region transfer |
 | Initial volume / Daily change | Historical load and ongoing change, in KB, MB, GB, TB, PB, EB or ZB | One-time and ongoing cost, storage growth |
 | IoT integration (IoT sources only) | Google Cloud native (Pub/Sub direct, MQTT broker on GKE, Manufacturing Data Engine) or ISV (Litmus Edge, ClearBlade IoT Core) | Pattern, diagram and cost (ISV licences are not costed; the MQTT broker is costed as an HA pair of VMs) |
+
+**A product that is not in the list**: choose *Other - not in this list*, type the product name (for example *Infor M3* or *Temenos T24*) and pick **Treat it like** the closest known type (database, SaaS API, files …). Ingestion is recommended and priced as that type; the diagram, proposal and exports use the name you typed.
 
 The colour bar shows the flow: green dashed = streaming/CDC, orange = scheduled batch, red dotted = one-time.
 
@@ -81,7 +84,43 @@ The diagram edges, the Integrations narrative, the bill of materials and the exp
 - **Products**: the checkbox on each costed pill (or *Include in pricing* in its settings) keeps the product in the architecture but takes it out of the numbers; it shows as *Not priced*.
 - **Service lines**: on the Consumption estimate tab, untick any service (e.g. Datastream, Composer, contingency) to leave it out of every total, the roadmap and workload sizing; unticked lines stay listed so you can tick them back.
 
-## 5. Tabs
+## 5. Modules
+
+The app is organised as modules in the left-hand navigation. Click a module to open it; each one starts with a short description and a row of **insights** (the key figures for that module), and the navigation shows a badge with the count or headline figure.
+
+| Module | What you see |
+|---|---|
+| **Overview** | One card per module with its key insight - click a card to open that module, or a pricing figure to open that plan |
+| **Source systems** | Add, edit, import and include / exclude sources; each card shows its target and ingestion chain |
+| **Architecture** | Product picker and the presentation-ready diagram (targets: BigQuery lakehouse, Cloud Storage data lake, AlloyDB / Cloud SQL) |
+| **Ingestion patterns** | Per-source pattern, rationale, alternatives and discovery checks |
+| **Platform & integrations** | How each selected product connects to BigQuery |
+| **Pricing** | Commercial plans (below) and the detailed breakdown |
+| **Environments** | Cost per environment and the per-environment sizing |
+| **Workload sizing**, **Roadmap** | See sections 6 and 7 |
+| **Proposal** | Generate a customer proposal of up to 15 pages |
+| **Settings** | Engagement settings, BigQuery model, commercial terms, lakehouse layers and assumptions |
+
+### Pricing plans
+
+The **Pricing** module opens on four plan cards for the **whole programme**:
+
+- **Pay as you go - 1 year** - click it to see the **monthly consumption ramp-up** for months 1-12;
+- **1-year commitment** - the same months priced with 1-year committed-use discounts, with the saving;
+- **3-year commitment** - 36 months, with **what you pay in year 1, year 2 and year 3**;
+- **Pay as you go - 3 years** - for comparison.
+
+Each plan shows a stacked monthly chart by capability, year tiles, and a **product table** with product name, unit, quantity, unit price, cost and saving. Switch the table to the **month × product matrix** to see cost or quantity per product per month (pick the year for 3-year plans), and **Download CSV**. Toggle **With ramp-up plan** (services start consuming when the roadmap brings them live; BigQuery compute starts at the first data-platform go-live) or **Full scope from month 1**, and filter by environment. **Detailed breakdown** keeps the earlier views (by capability, service, region, source and the bill of materials).
+
+### Proposal (up to 15 pages)
+
+Open **Proposal**, fill in who prepared it (name and company) and tick the sections to include: cover, executive summary, current landscape & scope, target architecture, ingestion & data movement, lakehouse / governance / security, analytics / AI / integration, environments, BigQuery capacity, commercial options, product breakdown, monthly ramp-up, roadmap, assumptions and next steps. The preview is laid out as A4 pages and is capped at **15 pages** - long tables are trimmed with a pointer to the exports. Download it as **PDF** (print), **Word (.docx)** or create it in **Google Docs**.
+
+### Feedback
+
+When a feedback form is configured (see [deployment](deployment.md#trial-for-business-users)), a **Feedback** button appears in the header and opens the form in a new tab.
+
+## 5b. Tabs (detail)
 
 The **Consumption estimate** tab includes cost **by environment** and the **bill of materials**: product, quantity per month (month 12) and for year 1, unit, blended unit price, month-12 / year-1 / 3-year cost, and why the service is needed (with the sources that drive it).
 
@@ -128,8 +167,8 @@ Generated automatically from the sources and components:
 
 **Export**:
 
-- **Google Sheets** - a workbook with summary, the architecture picture and layer list, sources and patterns, bill of materials, monthly consumption, environments, workload and slot sizing, roadmap and assumptions, with native charts.
-- **Google Slides** - a customer deck: title, target architecture, ingestion patterns, integrations, consumption KPIs and charts, environments, bill of materials, slot sizing, roadmap, assumptions and next steps.
+- **Google Sheets** - a workbook with summary, the architecture picture and layer list, sources and patterns, bill of materials, monthly consumption, **pricing plans** (plus one sheet per plan - PAYG 1 year, 1-year commitment, 3-year commitment - with every product per month), environments, workload and slot sizing, roadmap and assumptions, with native charts.
+- **Google Slides** - a customer deck: title, target architecture, ingestion patterns, integrations, consumption KPIs and charts, **commercial options** (PAYG vs 1- and 3-year commitments by year), environments, bill of materials, slot sizing, roadmap, assumptions and next steps.
 
 Choose **Create in my Google Drive** to upload and convert to Sheets / Slides (needs an OAuth client ID once - see [deployment](deployment.md#google-sheets--slides-export)), or **Download** the .xlsx / .pptx and open it with Google Sheets / Slides.
 

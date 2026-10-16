@@ -39,15 +39,17 @@ export function renderDiagram() {
   const ge = comps.find((x) => x.c.type === "gemini_enterprise");
   const geMode = ge ? ge.c.settings.grounding || "bigquery" : null;
 
-  const flowH = Math.max(400, top + srcs.length * rowH + 30, top + consume.length * 58 + groupGap * Math.max(0, nGroups - 1) + 40);
+  const nTargets = new Set(srcs.map((x) => recFor(x.id)?.target).filter(Boolean)).size;
+  const flowH = Math.max(400 + (nTargets > 1 ? (nTargets - 1) * 62 : 0), top + srcs.length * rowH + 30, top + consume.length * 58 + groupGap * Math.max(0, nGroups - 1) + 40);
   const H = flowH + 100;
 
   const srcNodes = srcs.map((s, i) => ({ s, x: col.src, y: top + i * rowH, r: recFor(s.id) }));
   const ingKeys = [], procKeys = [];
   srcNodes.forEach((n) => {
     if (!n.r) return;
-    n.ing = n.r.chain[0];
-    n.proc = n.r.chain.length > 1 ? n.r.chain.slice(1).join(">") : null;
+    const ch = n.r.chain.filter((t) => t !== "gcs_lake" && t !== "op_db");
+    n.ing = ch[0] || n.r.chain[0];
+    n.proc = ch.length > 1 ? ch.slice(1).join(">") : null;
     if (!ingKeys.includes(n.ing)) ingKeys.push(n.ing);
     if (n.proc && !procKeys.includes(n.proc)) procKeys.push(n.proc);
   });
@@ -57,7 +59,16 @@ export function renderDiagram() {
   };
   const ingPos = spread(ingKeys, col.ing, cw.ing);
   const procPos = spread(procKeys, col.proc, cw.proc);
-  const bqY = top, bqH = flowH - top - 20;
+  const tgtOf = (n) => n.r?.target || "data_platform";
+  const hasBQ = srcNodes.some((n) => n.r && tgtOf(n) === "data_platform");
+  const hasLake = srcNodes.some((n) => n.r && tgtOf(n) === "data_lake");
+  const hasOpdb = srcNodes.some((n) => n.r && tgtOf(n) === "operational_db");
+  const extraH = (hasLake ? nodeH + 14 : 0) + (hasOpdb ? nodeH + 14 : 0);
+  const bqY = top, bqH = flowH - top - 20 - extraH;
+  let ey = bqY + bqH + 14;
+  const lakePos = hasLake ? { x: col.bq, y: ey } : null;
+  if (hasLake) ey += nodeH + 14;
+  const opdbPos = hasOpdb ? { x: col.bq, y: ey } : null;
   const midY = (p) => p.y + nodeH / 2;
   const avgY = (list) => list.reduce((a, n) => a + n.y, 0) / list.length;
   const connSrc = srcNodes.filter((n) => n.r?.needs_connectivity);
@@ -78,7 +89,7 @@ export function renderDiagram() {
 
   // which flows land in the Cloud Storage raw zone first
   const RAW_ENG = ["files_transfer", "dataflow_batch", "datafusion", "dataproc", "cloud_run", "app_integration", "dts_migration"];
-  const inRaw = (s) => lake.raw_zone && s.included !== false && (lake.raw_scope === "all" || (!STREAMING.has(s.frequency) && (recFor(s.id)?.engine || "").split("+").some((e) => RAW_ENG.includes(e))));
+  const inRaw = (s) => lake.raw_zone && s.included !== false && recFor(s.id)?.target === "data_platform" && (lake.raw_scope === "all" || (!STREAMING.has(s.frequency) && (recFor(s.id)?.engine || "").split("+").some((e) => RAW_ENG.includes(e))));
   const flows = [];
   srcNodes.forEach((n) => {
     const fc = flowClass(n.s.frequency);
@@ -95,7 +106,8 @@ export function renderDiagram() {
     const ip = ingPos[n.ing];
     hops.push({ x: ip.x, w: ip.w, y: midY(ip) });
     if (n.proc) { const pp = procPos[n.proc]; hops.push({ x: pp.x, w: pp.w, y: midY(pp) }); }
-    flows.push({ n, fc, hops, raw: inRaw(n.s) });
+    if (n.r.target === "operational_db") hops.length = 0, hops.push({ x: ingPos[n.ing].x, w: ingPos[n.ing].w, y: midY(ingPos[n.ing]) });
+    flows.push({ n, fc, hops, raw: inRaw(n.s), tgt: tgtOf(n) });
   });
   const rawFlows = flows.filter((f) => f.raw);
   let rawPos = null;
@@ -112,8 +124,12 @@ export function renderDiagram() {
       const ry = Math.max(rawPos.y + 12, Math.min(rawPos.y + rawPos.h - 12, y));
       edges += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.raw, ry)}"/>`;
       edges += `<path class="dg-edge ${f.fc}" d="${curve(col.raw + cw.raw, ry, col.bq, ry)}"/>`;
+    } else if (f.tgt === "data_lake") {
+      over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, midY(lakePos))}"/>`;
+    } else if (f.tgt === "operational_db") {
+      over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, midY(opdbPos))}"/>`;
     } else {
-      over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, y)}"/>`;  // bypasses the raw zone (CDC / streaming)
+      over += `<path class="dg-edge ${f.fc}" d="${curve(x, y, col.bq, Math.min(y, bqY + bqH - 10))}"/>`;  // bypasses the raw zone (CDC / streaming)
     }
   });
   if (connSrc.length) nodes += node(connPos.x, connPos.y, cw.conn, tool(plat.connectivity).name.replace("Cloud ", ""), "Private link", "");
@@ -142,7 +158,13 @@ export function renderDiagram() {
       <text x="${col.bq + 22}" y="${bandY + i * (bandH + 4) + 19}"><tspan style="font-weight:700">${esc(l.name)}</tspan> · ${esc(fmtGB(l.gib_month12))}</text><title>${esc(l.name)}: ${esc(l.role)} (${esc(l.pct)}% of bronze)</title></g>`).join("");
   const chipY = bandY + (lake.layers || []).length * (bandH + 4) + 10;
   const chipH = Math.min(24, Math.max(18, (bqY + bqH - 34 - chipY) / inside.length - 4));
-  nodes += `<g class="dg-node bq" data-drop="bigquery"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
+  inside.splice(Math.max(0, Math.floor((bqY + bqH - 30 - chipY) / (chipH + 4))));
+  if (hasLake) nodes += node(lakePos.x, lakePos.y, cw.bq, "Cloud Storage data lake", `Target · ${fmtGB(plat.data_lake_gib_month12 || 0)} at M12 · BigLake`, "raw", "");
+  if (hasOpdb) nodes += node(opdbPos.x, opdbPos.y, cw.bq, "AlloyDB / Cloud SQL", "Target · operational database (DMS)", "comp google database", "");
+  if (!hasBQ) nodes += `<g class="dg-node bq-empty" data-drop="bigquery"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
+    <text x="${col.bq + cw.bq / 2}" y="${bqY + bqH / 2 - 8}" text-anchor="middle">No source targets the</text>
+    <text x="${col.bq + cw.bq / 2}" y="${bqY + bqH / 2 + 10}" text-anchor="middle">BigQuery data platform yet</text></g>`;
+  else nodes += `<g class="dg-node bq" data-drop="bigquery"><rect x="${col.bq}" y="${bqY}" width="${cw.bq}" height="${bqH}" rx="10"/>
     <text x="${col.bq + 14}" y="${bqY + 26}" style="font-weight:700">BigQuery</text>
     <text class="sub" x="${col.bq + 14}" y="${bqY + 44}">${esc(S.result.region.id)} · Iceberg lakehouse</text>
     ${layers}

@@ -1,6 +1,7 @@
 """Browser tests for BigQuery slots, commercial terms, saved scenarios, compare and discovery."""
 import re
 
+from conftest import goto, pricing_detail
 from test_ui import money
 
 
@@ -12,6 +13,7 @@ def wait_estimate(page):
 
 
 def test_bigquery_editions_slots_auto_and_editable(page):
+    goto(page, "settings")
     page.click('[data-bq-mode="editions"]')
     page.wait_for_selector('#bqPanel [data-slot-i="0"][data-slot-k="max"]')
     wait_estimate(page)
@@ -25,7 +27,11 @@ def test_bigquery_editions_slots_auto_and_editable(page):
     assert page.locator('#bqPanel [data-slot-i="0"][data-slot-k="max"]').input_value() == "2000"
     page.select_option("#bqEdition", "standard")
     wait_estimate(page)
-    y1b = money(page.locator('#summaryStrip [data-drill="year1"] b').inner_text())
+    for _ in range(25):                     # the plan request (pricing plans) can finish after the estimate
+        y1b = money(page.locator('#summaryStrip [data-drill="year1"] b').inner_text())
+        if y1b != y1:
+            break
+        page.wait_for_timeout(200)
     assert y1b != y1
     # dialog: edition comparison and calibration
     page.click("[data-bq-open]")
@@ -39,7 +45,7 @@ def test_bigquery_editions_slots_auto_and_editable(page):
 
 def test_commercial_discount_lowers_totals(page):
     before = money(page.locator('#summaryStrip [data-drill="year1"] b').inner_text())
-    page.click("#commercialPanel summary")
+    goto(page, "settings")
     page.fill("#cm_discount_pct", "20")
     page.press("#cm_discount_pct", "Tab")
     wait_estimate(page)
@@ -110,6 +116,6 @@ def test_spreadsheet_template_import(page, tmp_path):
 
 
 def test_environment_runtime_factor_is_editable(page):
-    page.click('[data-tab="cost"]')
+    pricing_detail(page)
     page.wait_for_selector('[data-szk="runtime_pct"]')
     assert re.search(r"Running hours", page.inner_text("#costBody"))

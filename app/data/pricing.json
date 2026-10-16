@@ -29,7 +29,8 @@
       "https://cloud.google.com/bigtable/pricing",
       "https://cloud.google.com/firestore/pricing",
       "https://cloud.google.com/memorystore/docs/redis/pricing",
-      "https://cloud.google.com/apigee/pricing"
+      "https://cloud.google.com/apigee/pricing",
+      "https://cloud.google.com/database-migration/pricing"
     ]
   },
   "bigquery": {
@@ -441,5 +442,29 @@
         ]
       ]
     }
+  },
+  "database_migration": {
+    "regional": false,
+    "note": "Homogeneous (MySQL/PostgreSQL to Cloud SQL / AlloyDB): no charge. Heterogeneous (Oracle / SQL Server to PostgreSQL): per GiB processed, tiered per billing account.",
+    "cdc_tiers_gib": [
+      [
+        2500,
+        2.0
+      ],
+      [
+        5000,
+        1.5
+      ],
+      [
+        10000,
+        1.2
+      ],
+      [
+        null,
+        0.8
+      ]
+    ],
+    "backfill_free_gib": 500,
+    "backfill_gib": 0.4
   }
 }

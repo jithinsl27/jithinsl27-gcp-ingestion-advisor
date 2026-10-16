@@ -96,6 +96,20 @@ Entries flagged `"verify": true` are approximations (Composer environment size i
 
 Partner components (Power BI, Tableau, MicroStrategy, Qlik, ThoughtSpot, DataRobot, Dataiku, SageMaker, Azure ML, Databricks, Collibra, Alation, Atlan, Informatica) are never costed.
 
+## Targets
+
+Each source has a target:
+
+- **Data platform** - lands in BigQuery (bronze, then silver and gold), with the optional Cloud Storage raw zone. BigQuery compute is priced only from the month the first data-platform source goes live (ramp-up plan).
+- **Data lake** - lands in Cloud Storage only: cumulative storage (initial load + monthly change, growing with the growth rate) at the raw-zone storage class; no BigQuery storage or compute for that source.
+- **Operational database** - MySQL / PostgreSQL / Cloud SQL / AlloyDB sources move with **Database Migration Service** (homogeneous: no charge), Oracle and SQL Server with DMS heterogeneous migration, priced like Datastream (tiered per GiB, first 500 GiB of backfill free, then $0.40 / GiB). Add AlloyDB or Cloud SQL from the product picker to price the target database.
+
+Custom sources (*Other - not in this list*) are priced as the type chosen in *Treat it like*.
+
+## Pricing plans
+
+Plans are computed from the monthly cost of every product line and environment (`product_months`), in three prices: pay-as-you-go, 1-year and 3-year committed-use (only commitment-eligible lines - BigQuery edition baselines, Cloud SQL / AlloyDB, Spanner, Compute Engine, GKE … - get the discount). *PAYG 1 year* and *1-year commitment* sum months 1-12; *3-year commitment* and *PAYG 3 years* sum months 1-36 and are split by year. *With ramp-up plan* uses the roadmap's go-live months; *Full scope from month 1* uses the steady-state estimate.
+
 ## Environments
 
 The scenario describes the primary environment. Each additional environment adds a copy of every service line scaled by one factor: storage, Cloud Storage and initial loads by *data %*; CDC, pipelines, streaming, Write API and transfer by *ingestion %*; on-demand BigQuery compute by *compute %*; BI, Gemini Enterprise, agents and GPU endpoints by *AI %*; Apigee and operational databases by *apps %*; orchestration, Data Fusion, governance and security by *platform %*. Services billed while running (streaming Dataflow, Composer, Data Fusion instance, VMs, Integration Connectors nodes, GPU endpoints, Agent Engine, Apigee environment, AlloyDB, Cloud SQL, Spanner, Bigtable, Memorystore) are further multiplied by *running hours %* (hours per week ÷ 168). HA VPN / Interconnect and the Looker licence are shared (factor 0). Contingency applies to the total.

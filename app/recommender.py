@@ -31,9 +31,15 @@ class Recommendation:
     caveats: list[str] = field(default_factory=list)
     needs_connectivity: bool = False
     needs_datafusion: bool = False
+    target: str = "data_platform"     # data_platform | data_lake | operational_db
 
     def to_dict(self):
         return asdict(self)
+
+
+def _tool_names():
+    from .catalog import TOOLS
+    return {k: v["name"] for k, v in TOOLS.items()}
 
 
 def _alt(tool, why):
@@ -74,7 +80,77 @@ def _iot(r, option):
     return r
 
 
+TARGETS = [
+    {"id": "data_platform", "name": "Data platform - BigQuery lakehouse (bronze, silver, gold)"},
+    {"id": "data_lake", "name": "Data lake - Cloud Storage (open formats, BigLake)"},
+    {"id": "operational_db", "name": "Operational database - AlloyDB / Cloud SQL (Database Migration Service)"},
+]
+LAKE_EXCLUDED = {"saas_google", "saas_salesforce", "dwh", "sap"}
+OPDB_HOMOGENEOUS = {"mysql", "postgresql", "cloudsql", "alloydb"}
+OPDB_ALLOWED = OPDB_HOMOGENEOUS | {"oracle", "sqlserver"}
+
+
+def effective_type(src: dict) -> str:
+    """Custom (not catalogued) sources follow the pattern of the source type they behave like."""
+    if src.get("type") == "custom":
+        like = src.get("like_type")
+        return like if like in SOURCE_BY_ID and like != "custom" else "rest_api"
+    return src.get("type")
+
+
+def allowed_targets(stype: str) -> list[str]:
+    cat = SOURCE_BY_ID.get(stype, {}).get("category", "api")
+    out = ["data_platform"]
+    if cat not in LAKE_EXCLUDED:
+        out.append("data_lake")
+    if stype in OPDB_ALLOWED:
+        out.append("operational_db")
+    return out
+
+
 def recommend(src: dict, prefs: dict | None = None) -> Recommendation:
+    """Recommendation for one source, honouring custom source types and the chosen target."""
+    stype = effective_type(src)
+    eff = {**src, "type": stype} if stype != src.get("type") else src
+    r = _recommend(eff, prefs)
+    if src.get("type") == "custom":
+        nm = src.get("custom_name") or src.get("name") or "This source"
+        r.rationale.insert(0, f"{nm} is not in the catalogue, so it follows the pattern for {SOURCE_BY_ID[stype]['name']} sources - confirm the connector (driver, API or export) during discovery.")
+    target = src.get("target") or "data_platform"
+    if target not in allowed_targets(stype):
+        target = "data_platform"
+    return _apply_target(r, stype, target)
+
+
+def _apply_target(r: Recommendation, stype: str, target: str) -> Recommendation:
+    r.target = target
+    if target == "data_lake":
+        chain = [t for t in r.chain if t not in ("gcs_load", "object_tables", "bq_dts", "sap_connector")]
+        if not chain:
+            chain = ["dataflow"]
+        r.chain = chain + ["gcs_lake"]
+        names = _tool_names()
+        r.pattern = " -> ".join(names.get(t, t) for t in r.chain)
+        r.rationale.insert(0, "Target is the Cloud Storage data lake: data lands in open formats (Parquet, Avro or Iceberg) and can be queried from BigQuery through BigLake tables when needed.")
+    elif target == "operational_db":
+        homogeneous = stype in OPDB_HOMOGENEOUS
+        r.primary = "dms"
+        r.chain = ["dms", "op_db"]
+        r.engine = "dms_native" if homogeneous else "dms_hetero"
+        r.pattern = ("Database Migration Service (continuous replication) -> Cloud SQL / AlloyDB" if homogeneous
+                     else "Database Migration Service (conversion workspace + CDC) -> AlloyDB / Cloud SQL for PostgreSQL")
+        r.rationale = [("Native MySQL / PostgreSQL replication with Database Migration Service: no charge for the migration itself, minimal downtime cut-over."
+                        if homogeneous else
+                        "Heterogeneous migration: Database Migration Service converts the schema and code (Gemini-assisted conversion workspace) and keeps the target in sync with CDC until cut-over."),
+                       "Add AlloyDB or Cloud SQL from the product search to price the target database; Datastream can still feed BigQuery from the new database later."]
+        r.alternatives = [_alt("datastream", "Keep the source as-is and replicate to BigQuery instead (target: data platform).")]
+        r.caveats = ["Validate source version, extensions and network connectivity (Private Service Connect / VPC peering) for the migration job."]
+        if not homogeneous:
+            r.caveats.append("Heterogeneous migrations are priced per GiB of change data and backfill beyond 500 GiB.")
+    return r
+
+
+def _recommend(src: dict, prefs: dict | None = None) -> Recommendation:
     prefs = prefs or {}
     skill = prefs.get("skill", "sql")
     stype = src.get("type")

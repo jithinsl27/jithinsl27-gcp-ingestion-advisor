@@ -97,6 +97,9 @@ class Source(BaseModel):
     included: bool = True                    # False = kept in the scenario but left out of this phase's estimate
     start_month: Optional[int] = Field(None, ge=1, le=36)
     iot_option: Optional[Literal["native", "mqtt_broker", "litmus", "clearblade", "mde"]] = None
+    target: Literal["data_platform", "data_lake", "operational_db"] = "data_platform"
+    custom_name: str = Field("", max_length=120)         # product name when type == "custom"
+    like_type: Optional[str] = Field(None, max_length=40)  # catalogued type the custom source behaves like
 
 
 class Environment(BaseModel):
@@ -274,7 +277,8 @@ def get_config():
     st = LP.status()
     return {"google_client_id": auth.client_id(), "auth": auth.enabled(), "store": get_store().kind,
             "assist": os.environ.get("ASSIST", "on") != "off" and auth.enabled(), "version": VERSION,
-            "pricing": {"source": st["source"], "fetched_at": st["fetched_at"]}}
+            "pricing": {"source": st["source"], "fetched_at": st["fetched_at"]},
+            "feedback_url": os.environ.get("FEEDBACK_URL", "")}
 
 
 @app.get("/api/pricing/status")
