@@ -20,6 +20,7 @@ import { bindReadiness, readiness, readinessProgress, renderReadiness } from "./
 import { bindBomEditor, ed as bomEd, envSpecSection, renderBomEditor } from "./bomedit.js";
 import { bindSlotsPage, renderSlotsPage } from "./slotspage.js";
 import { showBeta } from "./beta.js";
+import { reviewThen } from "./review.js";
 import { bindUseCases, renderUseCases } from "./usecases.js";
 import { bindChargeback, loadChargeback, renderChargeback } from "./cbpage.js";
 import { bindUsage, loadUsage, renderUsage } from "./usagepage.js";
@@ -500,9 +501,9 @@ export function renderProposal() {
     $$("[data-pp-sec]", f).forEach((cb) => (cb.checked = o.sections.includes(cb.dataset.ppSec)));
     f.addEventListener("input", onProposalInput);
     f.addEventListener("change", onProposalInput);
-    $("#ppPdf").addEventListener("click", printProposal);
-    $("#ppWord").addEventListener("click", () => proposalWord(false));
-    $("#ppGdoc").addEventListener("click", () => proposalWord(true));
+    $("#ppPdf").addEventListener("click", () => reviewThen("Proposal (PDF)", printProposal));
+    $("#ppWord").addEventListener("click", () => reviewThen("Proposal (Word)", () => proposalWord(false)));
+    $("#ppGdoc").addEventListener("click", () => reviewThen("Proposal (Google Doc)", () => proposalWord(true)));
     if (NO_DOWNLOAD) ["#ppPdf", "#ppWord", "#ppGdoc"].forEach((s2) => ($(s2).disabled = true));
   }
   clearTimeout(proposalTimer);

@@ -15,6 +15,7 @@ import { loadSamples, restore, syncForm, withDefaults } from "./scenario.js";
 import { showModule } from "./modules.js";
 import { initTips } from "./tips.js";
 import { bindBeta } from "./beta.js";
+import { bindReview } from "./review.js";
 
 // ------------------------------------------------------------------ boot
 export async function boot() {
@@ -42,6 +43,7 @@ export async function boot() {
   bindEvents();
   initTips();
   bindBeta();
+  bindReview();
   bindBq();
   bindNotices();
   bindAccount(openCompare);

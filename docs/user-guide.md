@@ -84,6 +84,8 @@ The diagram edges, the Integrations narrative, the bill of materials and the exp
 - **Products**: the checkbox on each costed pill (or *Include in pricing* in its settings) keeps the product in the architecture but takes it out of the numbers; it shows as *Not priced*.
 - **Service lines**: on the Consumption estimate tab, untick any service (e.g. Datastream, Composer, contingency) to leave it out of every total, the roadmap and workload sizing; unticked lines stay listed so you can tick them back.
 
+**Review before export.** Every customer-facing export - Google Slides and Sheets, Print / PDF, the proposal (PDF, Word, Google Doc), Markdown, CSV and SVG - first opens *Review before you export*: the key figures (customer, region, sources, environments, pricing option, 1-year and 3-year totals as shown on the Overview) and four confirmations (sources confirmed with the customer, architecture reviewed, pricing inputs checked, estimates understood as ballpark). **Export** stays disabled until all four are ticked. The confirmation is kept until the scenario changes; saving the scenario file (JSON) needs no review.
+
 **Beta.** Data Cloud Compass is in beta: a notice explains this once per browser session (after the welcome screen or sign-in). Send feedback - with a screenshot or a note - to **jithinsl@google.com**; the **Feedback** button (marked *Beta*) opens the notice again.
 
 ## 5. Modules
@@ -98,7 +100,6 @@ The app is organised as modules in the left-hand navigation. Click a module to o
 | **Use cases** | What the customer wants to achieve, in two routes: **A** - the customer already has use cases, so you type them in; **B** - the customer has none yet, so you add the data sources and the tool recommends the top 5 from each source's type and system (with the reason), and you add the ones they like. The list feeds the proposal and exports |
 | **Source systems** | Add, edit, import and include / exclude sources; each card shows its target and ingestion chain |
 | **Architecture** | Product picker and the presentation-ready diagram (targets: BigQuery lakehouse, Cloud Storage data lake, AlloyDB / Cloud SQL) |
-| **Data flow & integrations** | One page: (1) ingestion - per-source pattern, rationale, alternatives and discovery checks; (2) integrations - how each BI, AI, API, database and governance product connects to BigQuery |
 | **Workload** | What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms, and what it means for BigQuery |
 | **Environments** | Cost per environment and the per-environment sizing |
 | **Pricing** | The three commercial plans with the recommended specification per environment and the editable bill of materials (below) |
@@ -108,6 +109,7 @@ The app is organised as modules in the left-hand navigation. Click a module to o
 | **Charge-back** | Negotiated price book and pricing of department requests (below) |
 | **Usage (admin)** | Who uses the tool and what they do (admin key) |
 | **Settings** | Engagement settings, BigQuery model, commercial terms, lakehouse layers and assumptions |
+| **Data flow & integrations** | One page: (1) ingestion - per-source pattern, rationale, alternatives and discovery checks; (2) integrations - how each BI, AI, API, database and governance product connects to BigQuery |
 
 ### Pricing plans
 

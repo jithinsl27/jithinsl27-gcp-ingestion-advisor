@@ -14,6 +14,7 @@ import { renderRoadmap } from "./roadmap.js";
 import { markDirty } from "./account.js";
 import { importScenario, inUnit, save, syncForm, unitGb } from "./scenario.js";
 import { bindModules, nav, renderEnvBody, renderHead, renderModules, renderPlans, showModule } from "./modules.js";
+import { reviewThen } from "./review.js";
 import { applyTypeDefaults, openDialog, saveSource, updateHint, showDomain } from "./sources.js";
 import { onWorkloadInput, renderWorkloadForm, renderWorkloadResults } from "./workload.js";
 
@@ -243,7 +244,10 @@ export function bindEvents() {
     const b = e.target.closest("[data-export]");
     if (!b) return;
     $("#exportMenu").hidden = true;
-    doExport(b.dataset.export);
+    const kind = b.dataset.export;
+    // saving the scenario file or starting over needs no review; anything the customer may see does
+    if (kind === "json" || kind === "reset" || !hasEstimate()) return doExport(kind);
+    reviewThen(b.textContent.trim(), () => doExport(kind));
   });
   $("#importFile").addEventListener("change", importScenario);
 

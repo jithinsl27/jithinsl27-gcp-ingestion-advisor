@@ -294,3 +294,32 @@ def test_beta_notice_with_feedback_email(browser, base_url):
     pg.click("#feedbackBtn")                                      # Feedback (marked Beta) opens it again
     pg.wait_for_selector("#betaDialog[open]")
     ctx.close()
+
+
+def test_export_needs_a_human_review_first(page):
+    assert page.locator(".modnav button").last.get_attribute("data-tab") == "recs"   # Data flow & integrations is last
+    page.click("#exportBtn")
+    assert "review" in page.inner_text("#exportMenu .menu-note")
+    page.click('[data-export="csv"]')
+    page.wait_for_selector("#reviewDialog[open]")
+    assert "Cost breakdown (CSV)" in page.inner_text("#reviewWhat")
+    assert page.is_disabled("#reviewGo")
+    boxes = page.locator("#reviewDialog [data-rv-check]")
+    assert boxes.count() == 4
+    for i in range(3):
+        boxes.nth(i).check()
+    assert page.is_disabled("#reviewGo")                       # every point must be confirmed
+    boxes.nth(3).check()
+    with page.expect_download() as dl:
+        page.click("#reviewGo")
+    assert dl.value.suggested_filename.endswith("-costs.csv")
+    # the same scenario does not ask again ...
+    page.click("#exportBtn")
+    with page.expect_download():
+        page.click('[data-export="csv"]')
+    assert page.locator("#reviewDialog[open]").count() == 0
+    # ... and saving the scenario file never asks
+    page.click("#exportBtn")
+    with page.expect_download():
+        page.click('[data-export="json"]')
+    assert page.locator("#reviewDialog[open]").count() == 0
