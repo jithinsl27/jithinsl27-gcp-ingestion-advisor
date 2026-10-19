@@ -10,7 +10,12 @@ import { archInventory, bqModelName } from "./diagram.js";
 import { EDITION_NAME } from "./bigquery.js";
 import { NO_DOWNLOAD, diagramPng, download, googleClientId, slug } from "./exports.js";
 import { envSizingSection } from "./environments.js";
-import { save } from "./scenario.js";
+import { save, syncForm, withDefaults } from "./scenario.js";
+import { bindMonitor, monitorSummary, renderMonitor } from "./monitor.js";
+import { bindEnquiry, enquiryCount, renderEnquiry } from "./enquiry.js";
+import { forgetCloud } from "./account.js";
+import { changed } from "./events.js";
+import { clone, toast } from "./core.js";
 import { bindReadiness, readiness, readinessProgress, renderReadiness } from "./readiness.js";
 import { bindBomEditor, ed as bomEd, envSpecSection, renderBomEditor } from "./bomedit.js";
 import { renderSlotsPage } from "./slotspage.js";
@@ -29,8 +34,9 @@ export const MODULES = {
   chargeback: ["Charge-back", "Price a department's request - sources, pipelines, reports and AI use cases - on the negotiated Google Cloud prices."],
   usage: ["Usage", "Who is using Data Cloud Compass and what they do (admin key required)."],
   arch: ["Target architecture", "Sources, ingestion, raw zone, BigQuery bronze / silver / gold and the BI, AI, API and governance layers."],
-  recs: ["Ingestion patterns", "The recommended GCP-native ETL / ELT per source, with rationale, alternatives and discovery checks."],
-  platform: ["Integrations", "How each BI, AI, API, database and governance product connects to the platform."],
+  recs: ["Data flow & integrations", "How every source system gets into Google Cloud (the recommended GCP-native ETL / ELT, with rationale and alternatives) and how each BI, AI, API, database and governance product connects to BigQuery."],
+  monitor: ["Product monitor", "Which key Google Cloud products this project uses - BigQuery slots, Looker, Apigee, Gemini Enterprise, Agent Platform and more - how much and what they cost."],
+  enquiry: ["Customer technical enquiry", "Ask any technical question in plain language - answers come only from Google's public documentation, with the reference links."],
   pricing: ["Pricing", "Whole-programme cost: pay as you go, 1-year or 3-year commitment - by month, product and quantity."],
   env: ["Environments", "Production, development, test, DR … each sized as a share of production."],
   workload: ["Workload", "What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms. It drives BigQuery sizing and pricing."],
@@ -48,6 +54,7 @@ const sumArr = (a, lo = 0, hi = a.length) => a.slice(lo, hi).reduce((x, y) => x 
 export const pp = () => S.planResult?.pricing?.[plans.basis] || S.planResult?.pricing?.ramped;
 
 export function showModule(id) {
+  if (id === "platform") id = "recs";              // Integrations now live on the Data flow & integrations page
   if (!$("#tab-" + id)) id = "overview";
   nav.tab = id;
   $$(".modnav button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
@@ -75,6 +82,8 @@ export function renderModules() {
   if (nav.tab === "chargeback") renderChargeback();
   if (nav.tab === "usage") renderUsage();
   if (nav.tab === "workload") renderWorkloadSummary();
+  if (nav.tab === "monitor") renderMonitor();
+  if (nav.tab === "enquiry") renderEnquiry();
   if (bomEd.open) renderBomEditor();
 }
 
@@ -107,6 +116,11 @@ function insightChips(id) {
     chip("Google Cloud", String(inv.google));
     chip("Partners (not costed)", String(inv.partner));
   }
+  if (id === "monitor") {
+    const m = monitorSummary();
+    if (m) { chip("Products used", `${m.used} of ${m.total}`); chip("BigQuery", esc(m.slots)); }
+  }
+  if (id === "enquiry") chip("Questions answered", String(enquiryCount()));
   if (id === "recs") {
     chip("CDC sources", String(recs.filter((r) => r.engine.includes("datastream")).length));
     chip("Distinct services", String(new Set(recs.flatMap((r) => r.chain)).size));
@@ -156,6 +170,7 @@ export function renderHead() {
   badge("pricing", pp() ? moneyShort(pp().plans.payg_1y.total) : "");
   badge("env", String(S.scenario.environments.length));
   badge("roadmap", S.planResult ? `${S.planResult.horizon} mo` : "");
+  { const m = monitorSummary(); badge("monitor", m ? `${m.used}/${m.total}` : ""); }
   { const p = readinessProgress(); badge("kickoff", p ? `${p.done}/${p.total}` : ""); }
   badge("usecases", (S.scenario.use_cases || []).length ? String(S.scenario.use_cases.length) : "");
   badge("slots", S.scenario.bq?.mode === "editions" && S.result?.bigquery?.project_totals ? String(S.result.bigquery.project_totals.cud1.max) : "");
@@ -201,7 +216,7 @@ export function renderOverview() {
   html += card("arch", "Architecture", kv("Products", `${inv.total} (${inv.google} Google Cloud, ${inv.partner} partner)`)
     + kv("Lakehouse", r?.platform?.lakehouse?.raw_zone ? "Raw zone + bronze / silver / gold" : "Bronze / silver / gold")
     + kv("BigQuery", esc(r?.region?.name || "")));
-  html += card("recs", "Ingestion patterns", recs.slice(0, 3).map((x) => kv(S.scenario.sources.find((s) => s.id === x.source_id)?.name || "", esc(tool(x.primary).name))).join("") || "<p>-</p>");
+  html += card("recs", "Data flow & integrations", recs.slice(0, 3).map((x) => kv(S.scenario.sources.find((s) => s.id === x.source_id)?.name || "", esc(tool(x.primary).name))).join("") || "<p>-</p>");
   html += card("pricing", "Where the money goes", groups.map((g) => `<div class="bar-row"><span>${esc(g.group)}</span><i style="width:${Math.max(3, (100 * g.year1) / maxG)}%;background:${GROUP_COLORS[g.group] || "#9AA0A6"}"></i><b>${moneyShort(g.year1)}</b></div>`).join("")
     + (top.length ? `<p class="ov-note">Biggest lines: ${top.map((t) => esc(t.service || t.key)).join(", ")}</p>` : ""));
   html += card("env", "Environments", (r?.environments || []).map((e) => kv(e.name, `${moneyShort(e.year1)}/yr`)).join(""));
@@ -211,6 +226,11 @@ export function renderOverview() {
     + kv("First data live", `Month ${S.planResult.pricing?.go_live?.first ?? "-"}`) + kv("All sources live", `Month ${S.planResult.pricing?.go_live?.all ?? "-"}`) : "<p>Calculating…</p>");
   { const r = readiness(), p = readinessProgress();
     html += card("kickoff", "Kickoff readiness", r ? kv("Checklist", `${p.done} of ${p.total} ready`) + kv("Critical open", String(p.critOpen)) + kv("Partner team", `${r.team.partner_fte} FTE, ${r.team.squads} squad(s)`) : "<p>Calculating…</p>"); }
+  { const m = monitorSummary();
+    html += card("monitor", "Product monitor", m ? kv("Key products used", `${m.used} of ${m.total}`) + kv("BigQuery", esc(m.slots))
+      + ["looker", "apigee", "gemini_enterprise", "agent_platform"].map((t) => kv(compMeta(t)?.name.replace(/ \(.*\)| API management.*| data agents/g, "") || t,
+        S.scenario.components.some((c) => (c.type === t || (t === "looker" && c.type.startsWith("looker"))) && c.included !== false) ? "Used" : "Not used")).join("") : "<p>Calculating…</p>"); }
+  html += card("enquiry", "Customer technical enquiry", `<p>Ask a technical question in plain language - answered only from Google's public documentation, with links.</p>`);
   html += card("proposal", "Proposal", `<p>Generate a customer-ready proposal (up to 15 pages) as PDF, Word or Google Docs.</p>`);
   html += `</div>`;
   host.innerHTML = html;
@@ -355,7 +375,24 @@ function planCsv() {
   return lines.join("\n");
 }
 
+/** Clear everything - sources, architecture, settings, edits and results - and start a new discovery. */
+export function resetAll() {
+  const prev = clone(S.scenario);
+  const prevCloud = S.cloud;
+  S.scenario = withDefaults({ components: [], environments: [] });
+  forgetCloud();
+  syncForm();
+  changed();
+  showModule("overview");
+  toast("Everything cleared - start a new discovery", 9000, { label: "Undo", run: () => { S.scenario = prev; S.cloud = prevCloud; syncForm(); changed(); toast("Restored"); } });
+}
+
 export function bindModules(showTab) {
+  bindMonitor(showTab);
+  bindEnquiry();
+  $("#resetBtn")?.addEventListener("click", () => {
+    if (window.confirm("Reset Data Cloud Compass?\n\nThis clears all source systems, the architecture, environments, settings, edits and results so you can start a new discovery. Saved scenarios in the cloud are not deleted.")) resetAll();
+  });
   bindReadiness();
   bindBomEditor(() => plans.plan);
   bindUseCases();
