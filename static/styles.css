@@ -1172,10 +1172,6 @@ button.plan-total em { font-style: normal; color: var(--blue); font-size: 12.5px
 .id-dialog { width: min(440px, 94vw); } .id-dialog label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; }
 .id-err { color: #C5221F; min-height: 1em; margin: 4px 0; font-size: 13px; }
 .nav-admin { opacity: .75; }
-.nav-group { font: 600 11px var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 14px 12px 4px; }
-.nav-credit { margin-top: auto; position: sticky; bottom: -16px; background: var(--surface); padding: 12px 12px 18px; font: 400 12px var(--font-body); color: var(--muted); border-top: 1px solid var(--line); }
-.nav-credit b { font-weight: 600; color: var(--ink-2); }
-@media (max-width: 860px) { .nav-group, .nav-credit { display: none; } }
 .opt-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; min-width: 170px; }
 .opt-list li { display: flex; justify-content: space-between; gap: 10px; } .opt-list span { color: var(--muted); }
 .slot-env td { vertical-align: top; }
