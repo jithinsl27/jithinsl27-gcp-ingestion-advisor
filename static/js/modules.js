@@ -29,7 +29,7 @@ import { renderWorkloadForm, renderWorkloadSummary } from "./workload.js";
 export const MODULES = {
   overview: ["Overview", "The whole engagement at a glance - click any card to open that module."],
   sources: ["Source systems", "What the customer has today, where each source lands on Google Cloud, and which are in this phase."],
-  usecases: ["Use cases", "The top 5 use cases recommended from the customer's data, and the use cases the customer wants."],
+  usecases: ["Use cases", "What the customer wants to achieve. Type in the customer's own use cases - or, if they have none yet, add their data sources and the top 5 are recommended from each source's type and system."],
   slots: ["BigQuery slots", "How much BigQuery computing power each environment needs, what to reserve or commit, and why."],
   chargeback: ["Charge-back", "Price a department's request - sources, pipelines, reports and AI use cases - on the negotiated Google Cloud prices."],
   usage: ["Usage", "Who is using Data Cloud Compass and what they do (admin key required)."],

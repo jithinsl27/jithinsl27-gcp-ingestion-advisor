@@ -1260,3 +1260,16 @@ button.plan-total em { font-style: normal; color: var(--blue); font-size: 12.5px
 .bq-ed { display: inline-flex; flex-direction: column; gap: 4px; }
 .warn-txt { color: var(--danger); font-weight: 600; }
 .slot-years .sy small b { font-size: inherit; font-weight: 600; }
+
+/* ================================================================ owner credit (pinned to the menu bottom) */
+.nav-credit { margin-top: auto; position: sticky; bottom: -16px; background: var(--surface); padding: 12px 12px 18px;
+  font: 400 12px var(--font-body); color: var(--muted); border-top: 1px solid var(--line); }
+.nav-credit b { font-weight: 600; color: var(--ink-2); }
+@media (max-width: 860px) { .nav-credit { display: none; } }
+.uc-routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+.uc-routes > div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
+.uc-routes p { margin: 4px 0 0; color: var(--ink-2); }
+.uc-step { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; margin-right: 8px;
+  background: var(--blue); color: #fff; font: 600 11.5px var(--font-body); vertical-align: 1px; }
+.uc-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.uc-empty p { margin: 0; }
