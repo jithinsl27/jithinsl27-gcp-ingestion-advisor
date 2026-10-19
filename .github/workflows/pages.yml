@@ -22,7 +22,8 @@ jobs:
       - run: python -m pytest -q --ignore=tests/ui
       - run: python demo/build_demo.py
         env:
-          COMPASS_API_URL: ${{ vars.COMPASS_API_URL }}
+          # the repository variable wins; otherwise the project's Cloud Run service
+          COMPASS_API_URL: ${{ vars.COMPASS_API_URL || 'https://data-cloud-compass-jtscxxu3wa-uc.a.run.app' }}
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
