@@ -55,7 +55,7 @@ export function renderSources() {
       <button class="source-item" data-id="${esc(s.id)}" type="button">
       <i class="bar ${flowClass(s.frequency)}"></i>
       <div><b>${esc(s.name)}</b><span>${esc(typeName)} · ${esc(freqName(s.frequency))} · ${fmtGB(s.initial_volume_gb)} + ${fmtGB(s.daily_change_gb)}/day${reg}${on ? "" : " · not in this phase"}</span></div>
-      <div class="src-target t-${esc(tgt)}">${esc(TARGET_SHORT[tgt] || tgt)}</div>
+      <div class="src-target t-${esc(tgt)}">${esc(tgt === "data_mesh" ? `Mesh · ${r?.domain || s.domain || "domain"}` : TARGET_SHORT[tgt] || tgt)}</div>
       <div class="tool">${r ? esc(r.chain.map((t) => tool(t).name).join(" → ")) : on ? "" : "Later phase"}</div>
     </button></li>`;
   }).join("");

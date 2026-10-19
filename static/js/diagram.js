@@ -139,12 +139,16 @@ export function renderDiagram() {
   info.forEach((o, k) => { o.x = col.src; o.y = top + k * rowH; o.my = o.y + nodeH / 2; });
 
   const tgtOf = (o) => o.r?.target || "data_platform";
-  const hasBQ = info.some((o) => o.r && tgtOf(o) === "data_platform");
+  const hasMesh = info.some((o) => o.r && tgtOf(o) === "data_mesh");
+  const hasBQ = info.some((o) => o.r && (tgtOf(o) === "data_platform" || tgtOf(o) === "data_mesh"));
   const hasLake = info.some((o) => o.r && tgtOf(o) === "data_lake");
   const hasOpdb = info.some((o) => o.r && tgtOf(o) === "operational_db");
-  const extraH = (hasLake ? nodeH + 14 : 0) + (hasOpdb ? nodeH + 14 : 0);
+  const meshH = nodeH + 16;
+  const extraH = (hasMesh ? meshH + 14 : 0) + (hasLake ? nodeH + 14 : 0) + (hasOpdb ? nodeH + 14 : 0);
   const bqY = top, bqH = flowH - top - 20 - extraH;
   let ey = bqY + bqH + 14;
+  const meshPos = hasMesh ? { x: col.bq, y: ey } : null;
+  if (hasMesh) ey += meshH + 14;
   const lakePos = hasLake ? { x: col.bq, y: ey } : null;
   if (hasLake) ey += nodeH + 14;
   const opdbPos = hasOpdb ? { x: col.bq, y: ey } : null;
@@ -222,6 +226,7 @@ export function renderDiagram() {
     }
     let tx = col.bq, ty;
     if (tgtOf(o) === "data_lake") ty = lakePos.y + nodeH / 2;
+    else if (tgtOf(o) === "data_mesh") ty = meshPos.y + meshH / 2;
     else if (tgtOf(o) === "operational_db") ty = opdbPos.y + nodeH / 2;
     else ty = Math.max(bqY + 14, Math.min(y, bqY + bqH - 14));
     const d = `<path class="dg-edge ${fc}" d="${curve(x, y, tx, ty)}"/>`;
@@ -261,7 +266,17 @@ export function renderDiagram() {
   const chipY = bandY + (lake.layers || []).length * (bandH + 4) + 10;
   const chipH = Math.min(24, Math.max(18, (bqY + bqH - 34 - chipY) / inside.length - 4));
   inside.splice(Math.max(0, Math.floor((bqY + bqH - 30 - chipY) / (chipH + 4))));
-  if (hasLake) nodes += node(lakePos.x, lakePos.y, cw.bq, "Cloud Storage data lake", `Target · ${fmtGB(plat.data_lake_gib_month12 || 0)} at M12 · BigLake`, "raw", "", "", nodeH, pi("gcs_lake"));
+  if (hasMesh) {
+    const doms = (S.result.domains || []).map((d) => d.domain);
+    const f = fitText(doms.join(" · "), cw.bq - 24, 11, 9.5, 600);
+    nodes += `<g class="dg-node mesh" data-drop="mesh"><title>Data mesh - each domain owns its BigQuery project and publishes data products through BigQuery sharing (Analytics Hub), governed by Dataplex: ${esc(doms.join(", "))}</title>
+      <rect x="${meshPos.x}" y="${meshPos.y}" width="${cw.bq}" height="${meshH}" rx="8"/>
+      <g class="dg-ico">${productIcon(meshPos.x + cw.bq - 30, meshPos.y + 8, 18, "bigquery")}</g>
+      <text x="${meshPos.x + 12}" y="${meshPos.y + 19}" style="font-weight:700">Data mesh · ${doms.length} domain${doms.length === 1 ? "" : "s"}</text>
+      <text class="sub" x="${meshPos.x + 12}" y="${meshPos.y + 36}" style="font-size:${f.fs}px;font-weight:600">${esc(f.t)}</text>
+      <text class="sub" x="${meshPos.x + 12}" y="${meshPos.y + 52}">Data products · BigQuery sharing</text></g>`;
+  }
+  if (hasLake) nodes += node(lakePos.x, lakePos.y, cw.bq, "Cloud Storage data lake", `Target · ${fmtGB(plat.data_lake_gib_month12 || 0)} at M12 · BigLake`, "raw", `data-drop="lake"`, "", nodeH, pi("gcs_lake"));
   if (hasOpdb) nodes += node(opdbPos.x, opdbPos.y, cw.bq, "AlloyDB / Cloud SQL", "Target · operational database (DMS)", "comp google database", "", "", nodeH, pi("op_db"));
   const bqFoot = fitText(bqModelName(), cw.bq - 28, 11, 9.5, 400);
   const bqSub = fitText(`${S.result.region.id} · medallion lakehouse · month 12`, cw.bq - 54, 11, 9.5, 400);
@@ -327,9 +342,18 @@ export function renderDiagram() {
   const by = flowH + 6, bh = 84;
   {
     const have = new Set(comps.map((x) => x.c.type));
-    const chips = govComps.map(({ c, m }) => ({ t: m.name, s: c.included === false ? "Not priced" : m.category === "security" ? "Security & compliance" : m.vendor === "partner" ? "Partner catalog" : "Lineage, quality, glossary",
-      cls: `gov clickable ${m.vendor} ${m.category}${c.included === false ? " excluded" : ""}`, attrs: `data-comp="${esc(c.id)}" tabindex="0" role="button" aria-label="Configure ${esc(m.name)}"`, tag: m.vendor === "partner" ? "Partner" : "", icon: pi(c.type) }));
-    RECOMMENDED_CONTROLS.filter((t) => !have.has(t) && compMeta(t)).forEach((t) => chips.push({ t: "+ " + compMeta(t).name, s: "Recommended - click to add", cls: "gov ghost clickable", attrs: `data-addcomp="${t}" tabindex="0" role="button" aria-label="Add ${esc(compMeta(t).name)}"`, tag: "" }));
+    const scope = plat.dataplex_scope || [];
+    const chips = govComps.map(({ c, m }) => {
+      const kc = c.type === "knowledge_catalog";
+      const sub = c.included === false ? "Not priced" : kc ? "Governs " + (scope.map((l) => LAYER_SHORT[l]).join(" + ") || "BigQuery") : m.category === "security" ? "Security & compliance" : m.vendor === "partner" ? "Partner catalog" : "Lineage, quality, glossary";
+      return { t: m.name, s: sub, cls: `gov clickable ${m.vendor} ${m.category}${c.included === false ? " excluded" : ""}${kc ? " draggable" : ""}`,
+        attrs: `data-comp="${esc(c.id)}"${kc ? ` data-dragmode="knowledge_catalog"` : ""} tabindex="0" role="button" aria-label="Configure ${esc(m.name)}${kc ? " - or drag it onto BigQuery, the data mesh, the data lake or the sources to choose what it governs" : ""}"`,
+        tag: m.vendor === "partner" ? "Partner" : "", icon: pi(c.type) };
+    });
+    RECOMMENDED_CONTROLS.filter((t) => !have.has(t) && compMeta(t)).forEach((t) => chips.push({ t: "+ " + compMeta(t).name,
+      s: t === "knowledge_catalog" ? "Recommended - click, or drag onto a layer" : "Recommended - click to add",
+      cls: `gov ghost clickable${t === "knowledge_catalog" ? " draggable" : ""}`,
+      attrs: `data-addcomp="${t}"${t === "knowledge_catalog" ? ` data-dragmode="knowledge_catalog"` : ""} tabindex="0" role="button" aria-label="Add ${esc(compMeta(t).name)}"`, tag: "" }));
     band = `<g class="dg-band"><rect x="16" y="${by}" width="${W - 32}" height="${bh}" rx="12"/>
       <text class="band-title" x="30" y="${by + 20}">Governance & security across every layer</text></g>`;
     const cw2 = Math.min(230, (W - 48 - (chips.length - 1) * 8) / Math.max(1, chips.length));
@@ -360,12 +384,23 @@ export function renderDiagram() {
   const headSvg = heads.map(([t, x]) => `<text class="dg-col-title" x="${x}" y="22">${esc(t)}</text>`).join("");
 
   renderArchInventory();
-  host.innerHTML = `<svg id="archSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Target data and AI architecture on Google Cloud" xmlns="http://www.w3.org/2000/svg">${headSvg}${edges}${band}${nodes}${over}${legendSvg}</svg>`;
+  // layers governed by Knowledge Catalog (Dataplex) carry a small badge, so the drag-and-drop scope is visible
+  const govd = new Set(comps.some((x) => x.c.type === "knowledge_catalog" && x.c.included !== false) ? plat.dataplex_scope || [] : []);
+  const badge = (x, y) => `<g class="dg-gov-badge"><title>Governed by Knowledge Catalog (Dataplex): catalog, lineage, profiling and quality</title><rect x="${x}" y="${y}" width="66" height="17" rx="8.5"/><text x="${x + 33}" y="${y + 12}" text-anchor="middle">Dataplex</text></g>`;
+  let govSvg = "";
+  if (govd.has("bigquery") && info.some((o) => o.r && tgtOf(o) === "data_platform")) govSvg += badge(col.bq + cw.bq - 76, bqY + 12);
+  if (govd.has("mesh") && meshPos) govSvg += badge(meshPos.x + cw.bq - 76, meshPos.y + meshH - 24);
+  if (govd.has("lake") && lakePos) govSvg += badge(lakePos.x + cw.bq - 76, lakePos.y + 6);
+  if (govd.has("sources")) govSvg += badge(col.src + 112, 9);
+  host.innerHTML = `<svg id="archSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Target data and AI architecture on Google Cloud" xmlns="http://www.w3.org/2000/svg">${headSvg}${edges}${band}${nodes}${over}${govSvg}${legendSvg}</svg>`;
   $("#canvasTip").hidden = !(ge || apigee);
 }
 
 // ---------------- drag Gemini Enterprise / Apigee onto a target to change how they connect
+const LAYER_SHORT = { bigquery: "BigQuery", mesh: "data mesh", lake: "data lake", sources: "sources" };
 export const DROP_MODES = {
+  knowledge_catalog: { key: "governs", toggle: true, map: { bigquery: "bigquery", mesh: "mesh", lake: "lake", sources: "sources" },
+    msg: { bigquery: "Dataplex now governs the BigQuery data platform", mesh: "Dataplex now governs the data mesh domains", lake: "Dataplex now governs the Cloud Storage data lake", sources: "Dataplex now harvests metadata from the source systems" } },
   gemini_enterprise: { key: "grounding", map: { looker: "looker", bigquery: "bigquery", agents: "agents" },
     msg: { looker: "Gemini Enterprise now answers from Looker's semantic layer", bigquery: "Gemini Enterprise now grounded on BigQuery", agents: "Gemini Enterprise now reaches data through agents" } },
   apigee: { key: "role", map: { sources: "integration", bigquery: "integration", agents: "agents" },
@@ -382,6 +417,18 @@ export function applyDropMode(comp, target) {
   const v = modeForDrop(comp.type, target);
   if (!d || !v) return false;
   const prev = comp.settings[d.key];
+  if (d.toggle) {
+    // a set of layers: dropping on a layer adds it, dropping again removes it (at least one stays)
+    const cur = String(prev || (S.result?.platform?.dataplex_scope || []).join(",")).split(",").filter(Boolean);
+    const on = cur.includes(v);
+    if (on && cur.length === 1) { toast("Dataplex must govern at least one layer"); return true; }
+    const order = Object.keys(d.map);
+    const next = (on ? cur.filter((x) => x !== v) : [...cur, v]).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    comp.settings[d.key] = next.join(",");
+    changed();
+    toast(on ? `Dataplex no longer governs the ${LAYER_SHORT[v]}` : d.msg[v], 5000, { label: "Undo", run: () => { comp.settings[d.key] = prev; changed(); } });
+    return true;
+  }
   if (prev === v) { toast("Already connected that way"); return true; }
   comp.settings[d.key] = v;
   if (comp.type === "gemini_enterprise" && v !== "bigquery" && v !== "agents" && !S.scenario.components.some((c) => c.type === "looker")) addComponent("looker", null, true);
@@ -396,7 +443,8 @@ export function bindDiagramDrag() {
   diagram.addEventListener("pointerdown", (e) => {
     const g = e.target.closest("[data-dragmode]");
     if (!g || e.button !== 0) return;
-    drag = { type: g.dataset.dragmode, id: g.dataset.comp, x: e.clientX, y: e.clientY, active: false, ghost: null };
+    e.preventDefault();                  // no text selection while dragging
+    drag = { type: g.dataset.dragmode, id: g.dataset.comp, add: !!g.dataset.addcomp, x: e.clientX, y: e.clientY, active: false, ghost: null };
   });
   window.addEventListener("pointermove", (e) => {
     if (!drag) return;
@@ -429,7 +477,8 @@ export function bindDiagramDrag() {
     setTimeout(() => (S.suppressClick = false), 50);
     const over = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-drop]");
     const comp = S.scenario.components.find((c) => c.id === d.id);
-    if (comp && over && !applyDropMode(comp, over.dataset.drop)) toast("Drop it on Looker, BigQuery, an agent or the source systems");
+    if (!comp && d.add && over && modeForDrop(d.type, over.dataset.drop)) { addComponent(d.type, modeForDrop(d.type, over.dataset.drop)); return; }
+    if (comp && over && !applyDropMode(comp, over.dataset.drop)) toast(d.type === "knowledge_catalog" ? "Drop Dataplex on BigQuery, the data mesh, the data lake or a source" : "Drop it on Looker, BigQuery, an agent or the source systems");
   });
 }
 

@@ -43,6 +43,18 @@ export function refreshTargets(keep) {
   else if (S.editingId) $("#f_target").value = "data_platform";
   $("#f_custom_wrap").hidden = $("#f_type").value !== "custom";
   $("#f_iot_wrap").hidden = effType() !== "iot";
+  showDomain();
+}
+
+/** Data mesh: ask for the business domain, suggesting the domains already used in this scenario. */
+export function showDomain() {
+  const mesh = $("#f_target").value === "data_mesh";
+  $("#f_domain_wrap").hidden = !mesh;
+  if (mesh) {
+    const used = [...new Set(S.scenario.sources.map((x) => (x.domain || "").trim()).filter(Boolean))];
+    const ideas = ["Finance", "Sales", "Marketing", "Customer", "Risk", "Operations", "Supply chain", "HR", "Product"];
+    $("#f_domain_list").innerHTML = [...used, ...ideas.filter((d) => !used.includes(d))].map((d) => `<option value="${d.replace(/"/g, "&quot;")}">`).join("");
+  }
 }
 
 export function applyTypeDefaults() {
@@ -86,8 +98,10 @@ export function openDialog(id) {
     $("#f_iot_option").value = s.iot_option || "native";
     $("#f_custom_name").value = s.custom_name || "";
     $("#f_like_type").value = s.like_type || "rest_api";
+    $("#f_domain").value = s.domain || "";
     refreshTargets(s.target || "data_platform");
   } else {
+    $("#f_domain").value = "";
     $("#f_type").value = "oracle"; $("#f_name").value = ""; $("#f_notes").value = ""; $("#f_region").value = "";
     $("#f_transform").value = "none";
     setVol("#f_initial_volume_gb", "#f_initial_unit", 500, "GB");
@@ -104,7 +118,8 @@ export function openDialog(id) {
 
 export function saveSource() {
   const v = (k) => $("#f_" + k).value;
-  if (!v("target")) { $("#f_hint").textContent = "Choose the target for this source: data platform (BigQuery), data lake or operational database."; $("#f_target").focus(); return; }
+  if (!v("target")) { $("#f_hint").textContent = "Choose the target for this source: data platform (BigQuery), data mesh domain, data lake or operational database."; $("#f_target").focus(); return; }
+  if (v("target") === "data_mesh" && !v("domain").trim()) { $("#f_hint").textContent = "Enter the business domain that will own this data (e.g. Finance)."; $("#f_domain").focus(); return; }
   if (v("type") === "custom" && !v("custom_name").trim()) { $("#f_hint").textContent = "Enter the product name of the source that is not in the list."; $("#f_custom_name").focus(); return; }
   const typeName = v("type") === "custom" ? v("custom_name").trim() : S.catalog.source_types.find((s) => s.id === v("type"))?.name || v("type");
   const src = {
@@ -119,6 +134,7 @@ export function saveSource() {
     region: v("region") || "",
   };
   src.target = v("target");
+  if (src.target === "data_mesh") src.domain = v("domain").trim();
   if (src.type === "custom") { src.custom_name = v("custom_name").trim(); src.like_type = v("like_type"); }
   if ((src.type === "custom" ? src.like_type : src.type) === "iot") src.iot_option = v("iot_option");
   const prevSrc = S.editingId && S.scenario.sources.find((x) => x.id === S.editingId);

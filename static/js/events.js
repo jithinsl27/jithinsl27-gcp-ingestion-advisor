@@ -14,7 +14,7 @@ import { renderRoadmap } from "./roadmap.js";
 import { markDirty } from "./account.js";
 import { importScenario, inUnit, save, syncForm, unitGb } from "./scenario.js";
 import { bindModules, nav, renderEnvBody, renderHead, renderModules, renderPlans, showModule } from "./modules.js";
-import { applyTypeDefaults, openDialog, saveSource, updateHint } from "./sources.js";
+import { applyTypeDefaults, openDialog, saveSource, updateHint, showDomain } from "./sources.js";
 import { onWorkloadInput, renderWorkloadForm, renderWorkloadResults } from "./workload.js";
 
 // ------------------------------------------------------------------ events
@@ -206,6 +206,7 @@ export function bindEvents() {
   $("#sourceForm").addEventListener("submit", (e) => { e.preventDefault(); saveSource(); });
   $("#f_type").addEventListener("change", applyTypeDefaults);
   $("#f_like_type").addEventListener("change", applyTypeDefaults);
+  $("#f_target").addEventListener("change", showDomain);
   ["f_frequency", "f_location", "f_transform", "f_type"].forEach((id) => $("#" + id).addEventListener("change", updateHint));
 
   $("#c_cancel").addEventListener("click", () => $("#compDialog").close());

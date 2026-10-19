@@ -47,7 +47,7 @@ export const MODULES = {
 };
 export const nav = { tab: "overview" };
 const GROUP_ORDER_UI = ["Data ingestion & CDC", "BigQuery & storage", "Analytics & AI", "APIs & databases", "Governance & security", "Platform & network", "Contingency"];
-const TARGET_SHORT = { data_platform: "Data platform", data_lake: "Data lake", operational_db: "Operational DB" };
+const TARGET_SHORT = { data_platform: "Data platform", data_lake: "Data lake", operational_db: "Operational DB", data_mesh: "Data mesh" };
 export { TARGET_SHORT };
 const pct = (a, b) => (b ? Math.round((100 * a) / b) + "%" : "0%");
 const sumArr = (a, lo = 0, hi = a.length) => a.slice(lo, hi).reduce((x, y) => x + y, 0);
@@ -115,6 +115,7 @@ function insightChips(id) {
     chip("To data platform", String((tg.data_platform || []).length));
     if ((tg.data_lake || []).length) chip("To data lake", String(tg.data_lake.length));
     if ((tg.operational_db || []).length) chip("To operational DB", String(tg.operational_db.length));
+    if ((tg.data_mesh || []).length) chip("Data mesh domains", String((S.result?.domains || []).length));
   }
   if (id === "arch" || id === "platform") {
     const inv = archInventory();
