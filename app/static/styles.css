@@ -1273,3 +1273,15 @@ button.plan-total em { font-style: normal; color: var(--blue); font-size: 12.5px
   background: var(--blue); color: #fff; font: 600 11.5px var(--font-body); vertical-align: 1px; }
 .uc-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .uc-empty p { margin: 0; }
+.src-target.t-data_mesh { background: #E6F4EA; color: #137333; }
+.dg-node.mesh rect { fill: #E6F4EA; stroke: #188038; stroke-width: 1.4; }
+.dg-node.mesh text { fill: var(--ink); }
+.dg-node.draggable { cursor: grab; }
+.dg-node.draggable:active { cursor: grabbing; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dg-node.mesh rect { fill: #1E3A2B; } :root:not([data-theme="light"]) .src-target.t-data_mesh { background: #1E3A2B; color: #81C995; } }
+:root[data-theme="dark"] .dg-node.mesh rect { fill: #1E3A2B; }
+:root[data-theme="dark"] .src-target.t-data_mesh { background: #1E3A2B; color: #81C995; }
+.dg-gov-badge rect { fill: #E0F7FA; stroke: #12A4AF; stroke-width: 1; }
+.dg-gov-badge text { font: 600 10px var(--font-body); fill: #007B83; }
+#diagram svg text { user-select: none; -webkit-user-select: none; }
+.dragging-mode, .dragging-mode * { user-select: none; -webkit-user-select: none; }

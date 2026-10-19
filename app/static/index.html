@@ -294,6 +294,11 @@
         <label class="span2">Target on Google Cloud
           <select id="f_target" required></select>
         </label>
+        <label class="span2" id="f_domain_wrap" hidden>Business domain (data mesh)
+          <input id="f_domain" type="text" list="f_domain_list" maxlength="60" placeholder="e.g. Finance, Sales, Risk, Supply chain">
+          <datalist id="f_domain_list"></datalist>
+          <small class="hint">The domain team owns this data in its own BigQuery project and publishes it as a data product.</small>
+        </label>
         <label class="span2">Name used in the customer's estate
           <input id="f_name" type="text" placeholder="e.g. Core banking (Oracle 19c)" maxlength="120">
         </label>

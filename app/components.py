@@ -28,6 +28,17 @@ CATEGORIES = [
 # --------------------------------------------------------------------------- #
 # Settings field helpers
 # --------------------------------------------------------------------------- #
+def _govern_options():
+    from itertools import combinations
+    names = {"bigquery": "BigQuery", "mesh": "Data mesh", "lake": "Data lake", "sources": "Source systems"}
+    keys = list(names)
+    out = [("", "Every data layer in use (default)")]
+    for n in range(1, len(keys) + 1):
+        for combo in combinations(keys, n):
+            out.append((",".join(combo), " + ".join(names[k] for k in combo)))
+    return out
+
+
 def num(key, label, default, step=1):
     return {"key": key, "label": label, "type": "number", "default": default, "step": step}
 
@@ -35,6 +46,9 @@ def num(key, label, default, step=1):
 def sel(key, label, default, options):
     return {"key": key, "label": label, "type": "select", "default": default,
             "options": [{"id": i, "name": n} for i, n in options]}
+
+
+_GOVERN_OPTIONS = _govern_options()
 
 
 USERS = num("users", "Users", 50, 10)
@@ -371,7 +385,8 @@ COMPONENTS = [
     {
         "id": "knowledge_catalog", "name": "Knowledge Catalog (Dataplex)", "category": "governance", "vendor": "google", "costed": True,
         "method": "Automatic BigQuery metadata, lineage, profiling and quality scans",
-        "settings": [num("dq_share_pct", "Tables with quality scans (%)", 20, 5), num("dq_scans_per_month", "Scans per month", 30, 1)],
+        "settings": [sel("governs", "Governs (or drag it onto a layer in the diagram)", "", _GOVERN_OPTIONS),
+                     num("dq_share_pct", "Tables with quality scans (%)", 20, 5), num("dq_scans_per_month", "Scans per month", 30, 1)],
         "steps": [
             "BigQuery, Cloud Storage, AlloyDB, Spanner and Cloud SQL metadata is harvested automatically.",
             "Lineage is captured from BigQuery jobs, Dataflow, Dataproc and Composer.",
@@ -576,8 +591,32 @@ def normalized(scenario):
 # --------------------------------------------------------------------------- #
 # Costing
 # --------------------------------------------------------------------------- #
+DATAPLEX_LAYERS = {"bigquery": "BigQuery data platform", "mesh": "Data mesh domains", "lake": "Cloud Storage data lake",
+                   "sources": "Source systems (metadata harvest)"}
+
+
+def dataplex_scope(settings: dict, layer_tables: dict | None) -> list[str]:
+    """Layers Knowledge Catalog (Dataplex) governs: as set by dragging it in the diagram, else every data layer in use."""
+    raw = settings.get("governs")
+    picked = [x for x in (raw.split(",") if isinstance(raw, str) else raw or []) if x in DATAPLEX_LAYERS]
+    if picked:
+        return picked
+    lt = layer_tables or {}
+    return [k for k in ("bigquery", "mesh", "lake") if lt.get(k)] or ["bigquery"]
+
+
+def dataplex_tables(settings: dict, layer_tables: dict | None, curated_overhead: float, fallback: float) -> float:
+    """Tables in scope: BigQuery and mesh tables x (1 + silver/gold share x 3); lake and source tables once."""
+    if not layer_tables:
+        return fallback
+    t = 0.0
+    for k in dataplex_scope(settings, layer_tables):
+        t += layer_tables.get(k, 0.0) * ((1 + curated_overhead * 3) if k in ("bigquery", "mesh") else 1)
+    return t
+
+
 def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, add, curated_overhead,
-                    set_region=lambda r: None, home_region=None, sec_start=1):
+                    set_region=lambda r: None, home_region=None, sec_start=1, layer_tables=None):
     """Add monthly line items for costed Google components and security controls.
 
     Each component may carry its own `region` setting; partner components are never costed.
@@ -679,10 +718,11 @@ def cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, ad
                     float(s["key_versions"]) * k["key_version_month"] + float(s["operations_million"]) * 100 * k["ops_per_10k"], q=(float(s["key_versions"]), "key versions"))
             elif t == "knowledge_catalog":
                 dp = pricing["dataplex"]
-                dq_tables = tables * float(s["dq_share_pct"]) / 100
-                dcu = dq_tables * float(s["dq_scans_per_month"]) * dp["dq_dcu_hr_per_table_scan"] + tables * dp["lineage_dcu_hr_per_table_month"]
+                gt = dataplex_tables(s, layer_tables, curated_overhead, tables)
+                dq_tables = gt * float(s["dq_share_pct"]) / 100
+                dcu = dq_tables * float(s["dq_scans_per_month"]) * dp["dq_dcu_hr_per_table_scan"] + gt * dp["lineage_dcu_hr_per_table_month"]
                 u = up("dataplex")
-                meta_gib = max(1.0, tables / 1000)
+                meta_gib = max(1.0, gt / 1000)
                 add(m, "Knowledge Catalog (Dataplex) - quality, profiling, lineage", "_governance",
                     (dcu * dp["premium_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u,
                     cud1=(dcu * dp["premium_cud1_dcu_hr"] + meta_gib * dp["metadata_gib_month"]) * u,

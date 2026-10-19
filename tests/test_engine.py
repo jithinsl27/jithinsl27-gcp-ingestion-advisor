@@ -692,3 +692,39 @@ def test_chargeback_price_book_and_ledger_are_per_person(monkeypatch):
     # Ana goes back to the default
     client.delete("/api/chargeback/pricebook", headers=a)
     assert client.get("/api/chargeback/pricebook", headers=a).json()["scope"] == "default"
+
+
+# ---------------------------------------------------------------- data mesh target and Dataplex scope
+def _mesh_sample():
+    sc = json.loads((Path(__file__).parents[1] / "samples" / "retail-bank-ksa.json").read_text())
+    sc = sc.get("scenario", sc)
+    for s, d in zip(sc["sources"][:3], ["Finance", "Risk", "Finance"]):
+        s["target"], s["domain"] = "data_mesh", d
+    return sc
+
+
+def test_data_mesh_target_groups_sources_by_domain():
+    r = estimate(_mesh_sample())
+    assert [d["domain"] for d in r["domains"]] == ["Finance", "Risk"]
+    assert len(r["domains"][0]["sources"]) == 2 and r["domains"][0]["year1"] > 0
+    rec = next(x for x in r["recommendations"] if x["target"] == "data_mesh")
+    assert rec["domain"] and "data product" in rec["pattern"] and "BigQuery sharing" in rec["rationale"][0]
+    chk = client.post("/api/plan", json=_mesh_sample()).json()["readiness"]["checklist"]
+    assert any("domain owners named for Finance, Risk" in i["item"] for i in chk)
+    # a mesh domain lands in BigQuery, so it costs the same as the data platform target
+    base = estimate({**_mesh_sample(), "sources": [{**s, "target": "data_platform"} for s in _mesh_sample()["sources"]]})
+    assert abs(base["totals"]["year1_payg"] - r["totals"]["year1_payg"]) < 1
+    assert "data_mesh" in client.get("/api/catalog").json()["allowed_targets"]["oracle"]
+
+
+def test_dataplex_scope_follows_the_layers_it_governs():
+    def kc_cost(sc):
+        return sum(b["year1"] for b in estimate(sc)["bom"] if b["service"].startswith("Knowledge Catalog"))
+    sc = _mesh_sample()
+    full = kc_cost(sc)
+    assert estimate(sc)["platform"]["dataplex_scope"] == ["bigquery", "mesh"]
+    for c in sc["components"]:
+        if c["type"] == "knowledge_catalog":
+            c["settings"]["governs"] = "mesh"
+    assert 0 < kc_cost(sc) < full
+    assert estimate(sc)["platform"]["dataplex_scope"] == ["mesh"]

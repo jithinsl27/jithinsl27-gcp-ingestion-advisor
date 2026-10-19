@@ -31,7 +31,8 @@ class Recommendation:
     caveats: list[str] = field(default_factory=list)
     needs_connectivity: bool = False
     needs_datafusion: bool = False
-    target: str = "data_platform"     # data_platform | data_lake | operational_db
+    target: str = "data_platform"     # data_platform | data_lake | operational_db | data_mesh
+    domain: str = ""                  # data mesh: the business domain that owns this source's data products
 
     def to_dict(self):
         return asdict(self)
@@ -84,7 +85,9 @@ TARGETS = [
     {"id": "data_platform", "name": "Data platform - BigQuery lakehouse (bronze, silver, gold)"},
     {"id": "data_lake", "name": "Data lake - Cloud Storage (open formats, BigLake)"},
     {"id": "operational_db", "name": "Operational database - AlloyDB / Cloud SQL (Database Migration Service)"},
+    {"id": "data_mesh", "name": "Data mesh - domain data products (BigQuery per domain, Dataplex, BigQuery sharing)"},
 ]
+DEFAULT_DOMAIN = "Shared"
 LAKE_EXCLUDED = {"saas_google", "saas_salesforce", "dwh", "sap"}
 OPDB_HOMOGENEOUS = {"mysql", "postgresql", "cloudsql", "alloydb"}
 OPDB_ALLOWED = OPDB_HOMOGENEOUS | {"oracle", "sqlserver"}
@@ -100,7 +103,7 @@ def effective_type(src: dict) -> str:
 
 def allowed_targets(stype: str) -> list[str]:
     cat = SOURCE_BY_ID.get(stype, {}).get("category", "api")
-    out = ["data_platform"]
+    out = ["data_platform", "data_mesh"]
     if cat not in LAKE_EXCLUDED:
         out.append("data_lake")
     if stype in OPDB_ALLOWED:
@@ -119,7 +122,21 @@ def recommend(src: dict, prefs: dict | None = None) -> Recommendation:
     target = src.get("target") or "data_platform"
     if target not in allowed_targets(stype):
         target = "data_platform"
-    return _apply_target(r, stype, target)
+    r = _apply_target(r, stype, target)
+    if target == "data_mesh":
+        _apply_mesh(r, (src.get("domain") or "").strip() or DEFAULT_DOMAIN)
+    return r
+
+
+def _apply_mesh(r: Recommendation, domain: str) -> None:
+    """Data mesh: same ingestion, landing in the domain's own BigQuery project and published as a data product."""
+    r.domain = domain[:60]
+    base = r.pattern[: -len(" -> BigQuery")] if r.pattern.endswith(" -> BigQuery") else r.pattern
+    r.pattern = f"{base} -> BigQuery ({r.domain} domain) -> data product"
+    r.rationale.insert(0, f"Target is the {r.domain} domain of the data mesh: the data lands in the domain's own BigQuery project "
+                          "(bronze, silver, gold) owned by the domain team, is published as a data product through BigQuery sharing "
+                          "(Analytics Hub) and is registered in Dataplex for discovery, data contracts, quality and access.")
+    r.caveats.append(f"Agree the {r.domain} domain owner, the data product's contract (schema, freshness, quality SLOs) and who may subscribe.")
 
 
 def _apply_target(r: Recommendation, stype: str, target: str) -> Recommendation:

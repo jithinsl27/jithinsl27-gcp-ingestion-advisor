@@ -167,6 +167,14 @@ def build_readiness(scenario: dict, sources: list, recs: list, comp_rows: list, 
         ck.append(_item("Source systems", "Customer", f"Named data owner and system SME for {name} (about 10-20% of their time during its build)", "Answers mapping questions and signs off reconciliation"))
     if "data_lake" in targets:
         ck.append(_item("Source systems", "Joint", "Data lake conventions: bucket layout, open file formats (Parquet / Avro / Iceberg), retention and lifecycle rules", "Sources targeted at the lake land in Cloud Storage only"))
+    if "data_mesh" in targets:
+        doms = sorted({getattr(r, "domain", "") for r in recs if getattr(r, "target", "") == "data_mesh"} - {""})
+        ck.append(_item("Programme & commercial", "Customer", f"Data mesh domain owners named for {', '.join(doms) or 'each domain'} - one accountable owner and team per domain",
+                        "Each domain owns its BigQuery project and data products", critical=True))
+        ck.append(_item("Data platform", "Joint", "Data product contracts per domain: schema, freshness and quality SLOs, access policy and who may subscribe (BigQuery sharing)",
+                        "Consumers rely on the contract, not on the source system"))
+        ck.append(_item("Security & governance", "Joint", "Federated governance: global policies (tags, masking, retention) set centrally in Dataplex, applied by every domain",
+                        "Keeps domains autonomous but consistent"))
     if "operational_db" in targets:
         ck.append(_item("Source systems", "Joint", "Operational database migration: target AlloyDB / Cloud SQL sizing, downtime window and application cut-over plan", "Database Migration Service keeps the target in sync until cut-over", critical=True))
     # ---------------- data platform

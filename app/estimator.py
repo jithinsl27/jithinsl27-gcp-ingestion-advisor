@@ -31,6 +31,7 @@ from .environments import env_summary, normalized_envs, replicate
 from .usecases import recommend_use_cases
 from .bom import apply_overrides, build_bom, product_months
 from . import slots as SL
+from . import components as CM
 from . import live_pricing as LP
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -324,7 +325,8 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
     dms_cdc = defaultdict(lambda: defaultdict(float))   # month -> source -> GiB (heterogeneous DMS)
     dms_backfill = defaultdict(lambda: defaultdict(float))
     bq_starts = []
-    targets = {"data_platform": [], "data_lake": [], "operational_db": []}
+    targets = {"data_platform": [], "data_lake": [], "operational_db": [], "data_mesh": []}
+    layer_tables = {"bigquery": 0.0, "mesh": 0.0, "lake": 0.0, "sources": 0.0}   # tables Dataplex can govern, per layer
     lk = lakehouse_settings(scenario)
     curated = (lk["silver_pct"] + lk["gold_pct"]) / 100.0
     per_source_meta = []
@@ -334,9 +336,13 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
         etype = effective_type(src)
         name = src.get("name") or src.get("custom_name") or SOURCE_BY_ID.get(etype, {}).get("name", etype)
         cat = SOURCE_BY_ID.get(etype, {}).get("category", "api")
-        to_bq = rec.target == "data_platform"
+        to_bq = rec.target in ("data_platform", "data_mesh")       # a mesh domain lands in its own BigQuery datasets
         to_lake = rec.target == "data_lake"
         targets[rec.target].append(name)
+        if src.get("included") is not False:
+            nt = float(src.get("tables") or 50)
+            layer_tables["sources"] += nt
+            layer_tables[{"data_platform": "bigquery", "data_mesh": "mesh", "data_lake": "lake"}.get(rec.target, "sources")] += nt if rec.target != "operational_db" else 0
         freq = src.get("frequency", "daily")
         transform = src.get("transform", "none")
         daily0 = float(src.get("daily_change_gb") or 0)
@@ -778,7 +784,7 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
         ctx["rid"] = rid_of(r or region_id)
 
     tables = cost_components(comps, sec, pricing, up, sources, new_by_month, bq_model, add,
-                             curated, set_region, region_id)
+                             curated, set_region, region_id, layer_tables=layer_tables)
     ctx["rid"] = region_id
     platform["layer"] = {
         "components": [component_view(c) for c in comps],
@@ -896,6 +902,20 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
     out["excluded_services"] = sorted(excluded)
     out["bom_edits"] = edits_applied
     out["use_cases"] = recommend_use_cases(scenario)
+    # data mesh: sources and ingestion cost per business domain
+    doms = {}
+    cost_of = {b["id"]: b for b in out.get("by_source", [])}
+    for src, rec in zip(sources, recs):
+        if rec.target != "data_mesh":
+            continue
+        d = doms.setdefault(rec.domain, {"domain": rec.domain, "sources": [], "year1": 0.0, "three_year": 0.0})
+        d["sources"].append(src.get("name") or src["type"])
+        c = cost_of.get(src.get("id") or src["type"], {})
+        d["year1"] = round(d["year1"] + c.get("year1", 0.0), 2)
+        d["three_year"] = round(d["three_year"] + c.get("three_year", 0.0), 2)
+    out["domains"] = sorted(doms.values(), key=lambda d: d["domain"])
+    kc = next((c for c in comps if c["type"] == "knowledge_catalog" and c.get("included") is not False), None)
+    out["platform"]["dataplex_scope"] = CM.dataplex_scope(kc["settings"], layer_tables) if kc else []
     slots_by_env = None
     if bq_model == "editions":
         slots_by_env = {e["id"]: {"baseline": b, "max": mx, "auto_baseline": ab, "auto_max": am, "edition": sizing["edition"],

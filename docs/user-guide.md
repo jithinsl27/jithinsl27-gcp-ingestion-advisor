@@ -20,7 +20,7 @@ Click **Add source** for each system the customer wants in BigQuery.
 
 | Field | Meaning | Why it matters |
 |---|---|---|
-| Target | **Data platform** (BigQuery bronze / silver / gold), **Data lake** (Cloud Storage only) or **Operational database** (AlloyDB / Cloud SQL via Database Migration Service, for relational sources) | Decides the landing zone, the ingestion pattern and what is priced |
+| Target | **Data platform** (BigQuery bronze / silver / gold), **Data mesh** (a business **domain** - Finance, Sales, Risk… - owns the data in its own BigQuery project and publishes it as a data product through BigQuery sharing, governed by Dataplex), **Data lake** (Cloud Storage only) or **Operational database** (AlloyDB / Cloud SQL via Database Migration Service, for relational sources). Choosing *Data mesh* asks for the domain; the diagram shows a *Data mesh* box with the domains, the estimate gives cost per domain and the kickoff checklist adds domain owners, data product contracts and federated governance | Decides the landing zone, the ingestion pattern and what is priced |
 | Source system type | 35 types across databases, warehouses, SAP, mainframe, NoSQL, files, streams, SaaS, APIs, documents | Selects the rule set |
 | Name | The customer's own name for it | Shown on the diagram and in the proposal |
 | Data type | Structured, semi-structured, unstructured, events | Load format and notes |
@@ -157,7 +157,7 @@ Every box carries an icon for its kind of service; install Google's official pro
 
 Underneath are two bands:
 
-- **Governance & security** - the controls you added, plus dashed *Recommended* chips for enterprise controls that are still missing (Knowledge Catalog, policy tags / masking, CMEK, VPC Service Controls, Sensitive Data Protection). Click one to add it - it is priced and appears in the checklist.
+- **Governance & security** - the controls you added, plus dashed *Recommended* chips for enterprise controls that are still missing (Knowledge Catalog, policy tags / masking, CMEK, VPC Service Controls, Sensitive Data Protection). Click one to add it - it is priced and appears in the checklist. **Knowledge Catalog (Dataplex) is drag and drop**: drag its chip (or the dashed *Recommended* one) onto **BigQuery**, the **Data mesh** box, the **data lake** or a **source system** to choose what it governs; drop it on a governed layer again to remove that layer. Governed layers carry a small *Dataplex* badge, and the price follows the tables in scope (BigQuery and mesh tables include silver and gold). The same choice is in its settings (*Governs*) for keyboard users.
 - **Platform foundation & operations** - the landing-zone practices every enterprise deployment needs (org policies and projects per environment, IAM and Workload Identity, Terraform + Cloud Build, Logging & Monitoring, backup & DR, FinOps guardrails). They are not separately priced.
 
 A legend explains the line styles. AI components show the Gemini model in use - **Gemini 3.8 Flash** by default (Gemini 3.5 Flash-Lite and Gemini 3.1 Pro preview can be chosen per agent component).
