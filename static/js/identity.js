@@ -1,6 +1,7 @@
 /* Data Cloud Compass - identity.js: name & email on the first visit (self-reported, no sign-in) for usage logs. */
 import { S } from "./state.js";
 import { $, IDENTITY_KEY, api, esc, identity } from "./core.js";
+import { showBeta } from "./beta.js";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -44,13 +45,14 @@ export function initIdentity() {
     $("#idDialog").close();
     renderIdentityChip();
     api.usageEvent(first ? "first visit" : "identity changed", org);
+    if (first) showBeta(true);
   });
   // the dialog cannot be dismissed with Escape on the first visit
   $("#idDialog").addEventListener("cancel", (e) => { if (!S.identity) e.preventDefault(); });
   $("#id_cancel").addEventListener("click", () => $("#idDialog").close());
   $("#whoBtn")?.addEventListener("click", () => open(true));
   if (enabled && !S.identity) open(false);
-  else if (S.identity) api.usageEvent("visit", location.pathname);
+  else { if (S.identity) api.usageEvent("visit", location.pathname); showBeta(); }
 }
 
 export function track(action, detail) { api.usageEvent(action, detail); }

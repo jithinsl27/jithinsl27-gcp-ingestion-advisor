@@ -14,6 +14,7 @@ import { bindDiscover } from "./discover.js";
 import { loadSamples, restore, syncForm, withDefaults } from "./scenario.js";
 import { showModule } from "./modules.js";
 import { initTips } from "./tips.js";
+import { bindBeta } from "./beta.js";
 
 // ------------------------------------------------------------------ boot
 export async function boot() {
@@ -40,6 +41,7 @@ export async function boot() {
   restoreCloudRef();
   bindEvents();
   initTips();
+  bindBeta();
   bindBq();
   bindNotices();
   bindAccount(openCompare);

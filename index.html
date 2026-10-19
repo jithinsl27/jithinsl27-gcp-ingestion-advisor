@@ -75,7 +75,7 @@
           <button role="menuitem" data-export="reset">Start a new scenario</button>
         </div>
       </div>
-      <button class="btn ghost" id="feedbackBtn" type="button" hidden>Feedback</button>
+      <button class="btn ghost" id="feedbackBtn" type="button" title="Data Cloud Compass is in beta - send feedback to jithinsl@google.com">Feedback <span class="beta-pill">Beta</span></button>
       <button class="btn ghost who-btn" id="whoBtn" type="button" hidden></button>
       <div class="account" id="account"></div>
     </div>
@@ -352,6 +352,18 @@
       <label>Team or company (optional)<input id="id_org" autocomplete="organization" maxlength="80"></label>
       <p class="id-err" id="id_err" role="alert"></p>
       <div class="dlg-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="id_cancel" hidden>Cancel</button><button type="submit" class="btn primary">Continue</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="betaDialog" aria-labelledby="betaTitle" class="beta-dialog">
+    <form method="dialog">
+      <p class="beta-tag">Beta</p>
+      <h2 id="betaTitle">Data Cloud Compass is in beta</h2>
+      <p>Testing is in progress, so some figures and features may still change. Treat estimates as ballpark figures for discovery conversations.</p>
+      <p>If you have any feedback, please email <a href="mailto:jithinsl@google.com?subject=Data%20Cloud%20Compass%20feedback" id="betaMail"><b>jithinsl@google.com</b></a> with a screenshot or a note.</p>
+      <div class="dlg-actions"><span class="spacer"></span>
+        <a class="btn ghost" href="mailto:jithinsl@google.com?subject=Data%20Cloud%20Compass%20feedback" id="betaMailBtn">Email feedback</a>
+        <button class="btn primary" value="ok" autofocus>Got it</button></div>
     </form>
   </dialog>
 
