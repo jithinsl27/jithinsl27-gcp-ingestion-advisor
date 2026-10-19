@@ -62,6 +62,7 @@
       <div class="menu">
         <button class="btn primary" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export</button>
         <div class="menu-pop right" id="exportMenu" role="menu" hidden>
+          <p class="menu-note" role="note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-9 14l-5-5 1.4-1.4 3.6 3.6 7.6-7.6L19 8l-9 9z"/></svg>You confirm a quick review before anything is exported</p>
           <button role="menuitem" data-export="gsheets">Google Sheets - architecture, sizing &amp; charts</button>
           <button role="menuitem" data-export="gslides">Google Slides - customer presentation</button>
           <hr>
@@ -89,7 +90,6 @@
       <button role="tab" data-tab="enquiry" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H7l-3 3V4zm2 2v8.2l.2-.2H18V6H6zm5 1.5h2v4h-2v-4zm0 5h2v1.5h-2V12.5z"/></svg><span>Technical enquiry</span></button>
       <button role="tab" data-tab="sources" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C7.6 3 4 4.3 4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6c0-1.7-3.6-3-8-3zm6 15c0 .1-2.1 1-6 1s-6-.9-6-1v-2.2c1.5.8 3.7 1.2 6 1.2s4.5-.4 6-1.2V18zm0-4.5c0 .1-2.1 1-6 1s-6-.9-6-1v-2.2c1.5.8 3.7 1.2 6 1.2s4.5-.4 6-1.2v2.2zM12 9.5C8.1 9.5 6 8.6 6 8.5V6c0-.1 2.1-1 6-1s6 .9 6 1v2.5c0 .1-2.1 1-6 1z"/></svg><span>Sources</span><small data-badge="sources"></small></button>
       <button role="tab" data-tab="arch" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h6v5H3V4zm12 0h6v5h-6V4zM9 15h6v5H9v-5zM6 9v3h12V9h-2v1H8V9H6zm5 3h2v3h-2v-3z"/></svg><span>Architecture</span></button>
-      <button role="tab" data-tab="recs" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2zm14-12l3 3-3 3V4zm0 10l3 3-3 3v-6z"/></svg><span>Data flow &amp; integrations</span></button>
             <button role="tab" data-tab="workload" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h3v11H5V9zm5.5-5h3v16h-3V4zM16 13h3v7h-3v-7z"/></svg><span>Workload</span></button>
       <button role="tab" data-tab="env" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v4H4V5zm0 5h16v4H4v-4zm0 5h16v4H4v-4zm2-8v1h2V7H6zm0 5v1h2v-1H6zm0 5v1h2v-1H6z"/></svg><span>Environments</span><small data-badge="env"></small></button>
       <button role="tab" data-tab="pricing" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15.9V19h-2v-1.1c-1.7-.3-3-1.3-3.1-3h1.9c.1.9.8 1.5 2.2 1.5 1.5 0 1.9-.7 1.9-1.2 0-.6-.3-1.2-2.1-1.6-2-.5-3.4-1.3-3.4-3 0-1.4 1.1-2.4 2.6-2.7V6.8h2v1.2c1.6.4 2.4 1.6 2.4 2.8h-1.9c0-.9-.5-1.5-1.8-1.5-1.2 0-1.9.5-1.9 1.3 0 .7.5 1.1 2.1 1.5 1.6.4 3.4 1.1 3.4 3.1 0 1.5-1.1 2.4-2.6 2.7z"/></svg><span>Pricing</span><small data-badge="pricing"></small></button>
@@ -99,6 +99,7 @@
       <button role="tab" data-tab="chargeback" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3V6zm2 2v2h14V8H5zm0 5v3h6v-3H5zm8 0v1.5h6V13h-6z"/></svg><span>Charge-back</span></button>
       <button role="tab" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 000-2l2.1-1.6-2-3.5-2.5 1a7.7 7.7 0 00-1.7-1L15 3h-4l-.4 2.7a7.7 7.7 0 00-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 000 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5-2.2-1.8zM13 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"/></svg><span>Settings</span></button>
       <button role="tab" data-tab="usage" aria-selected="false" class="nav-admin"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5z"/></svg><span>Usage (admin)</span></button>
+      <button role="tab" data-tab="recs" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2zm14-12l3 3-3 3V4zm0 10l3 3-3 3v-6z"/></svg><span>Data flow &amp; integrations</span></button>
       <div class="nav-credit" role="presentation">Created by <b>Jithin S L</b></div>
     </nav>
 
@@ -352,6 +353,23 @@
       <label>Team or company (optional)<input id="id_org" autocomplete="organization" maxlength="80"></label>
       <p class="id-err" id="id_err" role="alert"></p>
       <div class="dlg-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="id_cancel" hidden>Cancel</button><button type="submit" class="btn primary">Continue</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="reviewDialog" aria-labelledby="reviewTitle" class="review-dialog">
+    <form id="reviewForm" method="dialog">
+      <h2 id="reviewTitle">Review before you export</h2>
+      <p class="hint" id="reviewWhat"></p>
+      <div class="review-figs" id="reviewFigs"></div>
+      <fieldset class="review-checks"><legend>Confirm each point (human in the loop)</legend>
+        <label><input type="checkbox" data-rv-check> Source systems, volumes and targets are confirmed with the customer</label>
+        <label><input type="checkbox" data-rv-check> The architecture is reviewed - products, governance and regions are right</label>
+        <label><input type="checkbox" data-rv-check> Pricing inputs are checked - region, pricing option, discount, environments and BigQuery slots</label>
+        <label><input type="checkbox" data-rv-check> I understand these are ballpark list-price estimates from a beta tool and I will validate them before they are sent</label>
+      </fieldset>
+      <p class="hint">Your confirmation is kept until the scenario changes.</p>
+      <div class="dlg-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="reviewCancel">Cancel</button>
+        <button type="submit" class="btn primary" id="reviewGo" disabled>Export</button></div>
     </form>
   </dialog>
 
