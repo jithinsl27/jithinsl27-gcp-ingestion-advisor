@@ -6,6 +6,7 @@ import { money } from "./cost.js";
 import { addComponent, openComp } from "./components.js";
 import { changed } from "./events.js";
 import { bomCost, compMeta, optShort } from "./pricing.js";
+import { tip } from "./tips.js";
 
 const comp = (type) => S.scenario.components.find((c) => c.type === type && c.included !== false);
 const anyComp = (types) => types.map(comp).find(Boolean);
@@ -22,25 +23,25 @@ function cards() {
   const r = S.result;
   const bq = r?.bigquery;
   const envs = r?.environments || [];
-  const opt = S.scenario.pricing_option || "payg";
   const specs = bq?.env_specs || [];
   const out = [];
 
   // BigQuery
   const bqCost = cost((s) => s.startsWith("BigQuery"));
   const editions = S.scenario.bq?.mode === "editions";
-  const maxSlots = specs.reduce((a, e) => a + (e.by_option?.[opt]?.max || 0), 0);
-  const commit = specs.reduce((a, e) => a + (e.by_option?.[opt]?.commitment || 0), 0);
+  const pl = bq?.plan?.totals;
+  const yrs = (f) => (pl ? pl.map(f).map((v) => fmt(v)).join(" / ") : "-");
   const gold = r?.platform?.lakehouse?.layers || [];
-  out.push({ key: "bigquery", name: "BigQuery", used: !!(r && S.scenario.sources.some((s) => s.included !== false)), big: editions ? `${fmt(maxSlots)} slots` : "On-demand",
+  out.push({ key: "bigquery", name: "BigQuery", used: !!(r && S.scenario.sources.some((s) => s.included !== false)),
+    big: editions && pl ? `${fmt(pl[0].max)} → ${fmt(pl[2].max)} slots` : "On-demand",
     lines: [
-      editions ? ["Total slots (max, all environments)", fmt(maxSlots)] : ["Pricing", "per TiB scanned"],
-      editions ? ["Committed baseline", commit ? `${fmt(commit)} slots` : "none (autoscaling)"] : ["Scanned / month (prod)", `${fmt(bq?.scan_tib_month, 1)} TiB`],
+      editions ? ["Max slots, year 1 / 2 / 3", yrs((t) => t.max)] : ["Pricing", "per TiB scanned"],
+      editions ? ["Committed (3-yr), year 1 / 2 / 3", yrs((t) => t.commitment.cud3)] : ["Scanned / month (prod)", `${fmt(bq?.scan_tib_month, 1)} TiB`],
       ["Edition", editions ? (bq?.edition || "").replace("_", " ") : "-"],
       ["Average / peak demand (prod)", specs[0] ? `${fmt(specs[0].avg_slots, 1)} / ${fmt(specs[0].peak_slots)} slots` : "-"],
       ["Bronze / silver / gold (M12)", gold.length ? gold.map((l) => `${fmt(l.gib_month12 / 1024, 1)} TB`).join(" / ") : "-"],
       ["Environments", String(envs.length)],
-    ], monthly: bqCost.monthly, goto: "slots" });
+    ], monthly: bqCost.monthly, goto: "slots", gotoLabel: "Slots by year ›" });
 
   // Looker family
   const lk = anyComp(["looker", "looker_studio_pro", "looker_studio"]);
@@ -105,10 +106,10 @@ export function renderMonitor() {
   const card = (c) => `<article class="mon-card${c.used ? " on" : " off"}${c.small ? " small" : ""}" data-mon="${c.key}">
       <header><h3>${esc(c.name)}</h3><span class="pill ${c.used ? "used" : "unused"}">${c.used ? "Used" : "Not used"}</span></header>
       <p class="mon-big">${esc(c.big)}</p>
-      ${c.lines.length ? `<dl>${c.lines.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
+      ${c.lines.length ? `<dl>${c.lines.map(([k, v]) => `<div><dt>${esc(k)}${tip(MON_TIPS[k])}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
       <footer><span>${c.used ? `<b>${money(c.monthly)}</b> / month at month 12` : "&nbsp;"}</span>
         ${c.used && c.id ? `<button type="button" class="link-btn" data-mon-open="${esc(c.id)}">Configure ›</button>`
-          : c.used && c.goto ? `<button type="button" class="link-btn" data-mon-goto="${c.goto}">Details ›</button>`
+          : c.used && c.goto ? `<button type="button" class="link-btn" data-mon-goto="${c.goto}">${esc(c.gotoLabel || "Details ›")}</button>`
           : !c.used && c.add ? `<button type="button" class="btn small" data-mon-add="${c.add}">Add to the architecture</button>` : ""}</footer>
     </article>`;
   host.innerHTML = `<p class="lede">${used} of ${cs.length} key products are used in this project. Costs follow the selected pricing option (${esc(optShort())}) and include every environment.</p>
@@ -121,6 +122,14 @@ export function monitorSummary() {
   if (!S.result) return null;
   const cs = cards();
   return { used: cs.filter((c) => c.used).length, total: cs.length, slots: cs[0].big };
+}
+
+/** The BigQuery card's figures, with how each is derived (shown on hover). */
+export const MON_TIPS = {
+  "Max slots, year 1 / 2 / 3": "Sum over environments of each reservation's maximum (baseline + autoscaling) for the year, sized on that year's busiest hour.",
+  "Committed (3-yr), year 1 / 2 / 3": "Slots under the 3-year commitment in each year (it can only grow). See BigQuery slots for 1-year and pay-as-you-go.",
+  "Average / peak demand (prod)": "Production slots in use in the steady-state month: average over the month, and the busiest hour of an average day.",
+  "Bronze / silver / gold (M12)": "Data stored in each BigQuery layer at month 12; silver and gold are set as a share of bronze in Settings.",
 }
 
 export function bindMonitor(showTab) {

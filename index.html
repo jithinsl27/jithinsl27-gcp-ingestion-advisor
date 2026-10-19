@@ -90,7 +90,6 @@
       <button role="tab" data-tab="arch" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h6v5H3V4zm12 0h6v5h-6V4zM9 15h6v5H9v-5zM6 9v3h12V9h-2v1H8V9H6zm5 3h2v3h-2v-3z"/></svg><span>Architecture</span></button>
       <button role="tab" data-tab="recs" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2zm14-12l3 3-3 3V4zm0 10l3 3-3 3v-6z"/></svg><span>Data flow &amp; integrations</span></button>
             <button role="tab" data-tab="workload" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h3v11H5V9zm5.5-5h3v16h-3V4zM16 13h3v7h-3v-7z"/></svg><span>Workload</span></button>
-      <button role="tab" data-tab="slots" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"/></svg><span>BigQuery slots</span><small data-badge="slots"></small></button>
       <button role="tab" data-tab="env" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v4H4V5zm0 5h16v4H4v-4zm0 5h16v4H4v-4zm2-8v1h2V7H6zm0 5v1h2v-1H6zm0 5v1h2v-1H6z"/></svg><span>Environments</span><small data-badge="env"></small></button>
       <button role="tab" data-tab="pricing" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15.9V19h-2v-1.1c-1.7-.3-3-1.3-3.1-3h1.9c.1.9.8 1.5 2.2 1.5 1.5 0 1.9-.7 1.9-1.2 0-.6-.3-1.2-2.1-1.6-2-.5-3.4-1.3-3.4-3 0-1.4 1.1-2.4 2.6-2.7V6.8h2v1.2c1.6.4 2.4 1.6 2.4 2.8h-1.9c0-.9-.5-1.5-1.8-1.5-1.2 0-1.9.5-1.9 1.3 0 .7.5 1.1 2.1 1.5 1.6.4 3.4 1.1 3.4 3.1 0 1.5-1.1 2.4-2.6 2.7z"/></svg><span>Pricing</span><small data-badge="pricing"></small></button>
       <button role="tab" data-tab="roadmap" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h8v3H3V5zm4 5h9v3H7v-3zm6 5h8v3h-8v-3z"/></svg><span>Roadmap</span><small data-badge="roadmap"></small></button>
@@ -153,7 +152,12 @@
         <h2 class="sec-title"><span class="step">2</span>Integrations - how each BI, AI, API, database and governance product connects</h2>
         <div id="platformBody"></div>
       </section>
-      <section class="tabpanel" id="tab-monitor" role="tabpanel" hidden><div id="monitorBody"></div></section>
+      <section class="tabpanel" id="tab-monitor" role="tabpanel" hidden>
+        <div class="seg small mon-sub" role="tablist" aria-label="Product monitor views">
+          <button type="button" role="tab" data-mon-sub="products" aria-selected="true">Products</button>
+          <button type="button" role="tab" data-mon-sub="slots" aria-selected="false">BigQuery slots</button>
+        </div>
+        <div id="monitorBody"></div><div id="slotsBody" hidden></div></section>
       <section class="tabpanel" id="tab-enquiry" role="tabpanel" hidden><div id="enquiryBody"></div></section>
 
       <section class="tabpanel" id="tab-pricing" role="tabpanel" hidden>
@@ -181,7 +185,6 @@
 
       <section class="tabpanel" id="tab-usecases" role="tabpanel" hidden><div id="useCasesBody"></div></section>
       <section class="tabpanel" id="tab-workload" role="tabpanel" hidden><div id="workloadBody"></div></section>
-      <section class="tabpanel" id="tab-slots" role="tabpanel" hidden><div id="slotsBody"></div></section>
       <section class="tabpanel" id="tab-chargeback" role="tabpanel" hidden><div id="cbBody"></div></section>
       <section class="tabpanel" id="tab-usage" role="tabpanel" hidden><div id="usageBody"></div></section>
       <section class="tabpanel" id="tab-roadmap" role="tabpanel" hidden><div id="roadmapBody"></div></section>
