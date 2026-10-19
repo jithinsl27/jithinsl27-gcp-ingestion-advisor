@@ -52,6 +52,14 @@ def test_availability_fallbacks():
     assert LP.availability("datastream", "me-central2", live) is False
 
 
+def test_baseline_service_not_flagged_by_lagging_catalog():
+    # The Billing Catalog may omit a region from a baseline service's SKUs; Cloud KMS is
+    # still offered in Dammam (me-central2), so no "not offered" warning must appear.
+    live = {"availability": {"kms": {"me-central2": False}, "gcs": {"me-central2": False}}}
+    assert LP.availability("kms", "me-central2", live) is True
+    assert LP.availability("gcs", "me-central2", live) is True
+
+
 def test_estimate_flags_unavailable_service(monkeypatch):
     from app.estimator import estimate
     live = {"fetched_at": 1, "base": {}, "regional": {}, "availability": {"datastream": {"me-central2": False, "me-central1": True}}}

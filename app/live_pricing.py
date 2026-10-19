@@ -289,11 +289,16 @@ def apply_regions(regions: list[dict], live: dict | None) -> list[dict]:
 
 def availability(family: str, region: str, live: dict | None):
     """True / False / None (unknown)."""
+    # Launch-baseline services exist in every Google Cloud region. The Billing Catalog
+    # often lags new regions in serviceRegions (e.g. Cloud KMS in me-central2), so a
+    # missing SKU there is not evidence the service is unavailable.
+    if family in LAUNCH_BASELINE:
+        return True
     if live and family in (live.get("availability") or {}):
         v = live["availability"][family].get(region)
         if v is not None:
             return v
-    if family in LAUNCH_BASELINE or region in MULTI:
+    if region in MULTI:
         return True
     return None
 
