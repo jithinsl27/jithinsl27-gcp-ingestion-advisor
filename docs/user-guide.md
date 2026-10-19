@@ -86,27 +86,27 @@ The diagram edges, the Integrations narrative, the bill of materials and the exp
 
 ## 5. Modules
 
-The app is organised as modules in the left-hand navigation, grouped in the order of an engagement: **Discover**, **Design**, **Size & cost**, **Plan & deliver** and **Admin**. Click a module to open it; each one starts with a short description and a row of **insights** (the key figures for that module), and the navigation shows a badge with the count or headline figure.
+The app is organised as modules in the left-hand navigation. Click a module to open it; each one starts with a short description and a row of **insights** (the key figures for that module), and the navigation shows a badge with the count or headline figure.
 
-| Section | Module | What you see |
-|---|---|---|
-|  | **Overview** | One card per module with its key insight - click a card to open that module, or a pricing figure to open that plan. **Reset - start fresh** clears everything (sources, architecture, environments, settings, edits and results) for a new discovery; *Undo* brings it back, and scenarios saved in the cloud are not touched |
-| Discover | **Use cases** | The top 5 use cases recommended from the customer's data, plus the customer's own list (feeds the proposal and exports) |
-|  | **Customer technical enquiry** | Ask a technical question in plain language. Gemini 3.8 Flash searches Google's public documentation only (cloud.google.com and related Google sites) and answers with the reference links; if the documentation does not cover it you are told so. Suggested questions follow the architecture |
-|  | **Source systems** | Add, edit, import and include / exclude sources; each card shows its target and ingestion chain |
-| Design | **Architecture** | Product picker and the presentation-ready diagram (targets: BigQuery lakehouse, Cloud Storage data lake, AlloyDB / Cloud SQL) |
-|  | **Data flow & integrations** | One page: (1) ingestion - per-source pattern, rationale, alternatives and discovery checks; (2) integrations - how each BI, AI, API, database and governance product connects to BigQuery |
-| Size & cost | **Workload** | What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms, and what it means for BigQuery |
-|  | **BigQuery slots** | Slots per environment: demand, recommended baseline / commitment for each plan, max, monthly cost and assumptions |
-|  | **Environments** | Cost per environment and the per-environment sizing |
-|  | **Pricing** | The three commercial plans with the recommended specification per environment and the editable bill of materials (below) |
-|  | **Product monitor** | One card per key product - BigQuery (total slots across environments, committed baseline, demand, layer sizes), Looker, Apigee, Gemini Enterprise, Gemini Enterprise Agent Platform, plus ingestion and platform services - showing *Used* / *Not used*, how much and the monthly cost; add a missing product with one click |
-|  | **Charge-back** | Negotiated price book and pricing of department requests (below) |
-| Plan & deliver | **Roadmap** | See section 7 |
-|  | **Proposal** | Generate a customer proposal of up to 15 pages |
-|  | **Kickoff** | Pre-kickoff checklist for customer and partner, milestones with exit criteria, team size and skills |
-| Admin | **Settings** | Engagement settings, BigQuery model, commercial terms, lakehouse layers and assumptions |
-|  | **Usage (admin)** | Who uses the tool and what they do (admin key) |
+| Module | What you see |
+|---|---|
+| **Overview** | One card per module with its key insight - click a card to open that module, or a pricing figure to open that plan. **Reset - start fresh** clears everything (sources, architecture, environments, settings, edits and results) for a new discovery; *Undo* brings it back, and scenarios saved in the cloud are not touched |
+| **Product monitor** | One card per key product - BigQuery (total slots across environments, committed baseline, demand, layer sizes), Looker, Apigee, Gemini Enterprise, Gemini Enterprise Agent Platform, plus ingestion and platform services - showing *Used* / *Not used*, how much and the monthly cost; add a missing product with one click |
+| **Customer technical enquiry** | Ask a technical question in plain language. Gemini 3.8 Flash searches Google's public documentation only (cloud.google.com and related Google sites) and answers with the reference links; if the documentation does not cover it you are told so. Suggested questions follow the architecture |
+| **Use cases** | The top 5 use cases recommended from the customer's data, plus the customer's own list (feeds the proposal and exports) |
+| **Source systems** | Add, edit, import and include / exclude sources; each card shows its target and ingestion chain |
+| **Architecture** | Product picker and the presentation-ready diagram (targets: BigQuery lakehouse, Cloud Storage data lake, AlloyDB / Cloud SQL) |
+| **Data flow & integrations** | One page: (1) ingestion - per-source pattern, rationale, alternatives and discovery checks; (2) integrations - how each BI, AI, API, database and governance product connects to BigQuery |
+| **Workload** | What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms, and what it means for BigQuery |
+| **BigQuery slots** | Slots per environment: demand, recommended baseline / commitment for each plan, max, monthly cost and assumptions |
+| **Environments** | Cost per environment and the per-environment sizing |
+| **Pricing** | The three commercial plans with the recommended specification per environment and the editable bill of materials (below) |
+| **Roadmap** | See section 7 |
+| **Kickoff** | Pre-kickoff checklist for customer and partner, milestones with exit criteria, team size and skills |
+| **Proposal** | Generate a customer proposal of up to 15 pages |
+| **Charge-back** | Negotiated price book and pricing of department requests (below) |
+| **Usage (admin)** | Who uses the tool and what they do (admin key) |
+| **Settings** | Engagement settings, BigQuery model, commercial terms, lakehouse layers and assumptions |
 
 ### Pricing plans
 
