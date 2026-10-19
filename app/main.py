@@ -443,6 +443,7 @@ def _emails(xs):
 
 @app.get("/api/me")
 def me(user: dict = Depends(auth.current_user)):
+    US.signin(get_store(), user["email"], user.get("name", ""), "Google sign-in")
     return {**user, "store": get_store().kind}
 
 
@@ -529,6 +530,9 @@ class UsageEvent(BaseModel):
 @app.post("/api/usage/event")
 def usage_event(ev: UsageEvent, request: Request):
     US.record(get_store(), request, 200, 0.0, action=ev.action, detail=ev.detail)
+    if ev.action == "first visit":                     # name and e-mail entered on the welcome screen
+        name, email = US.identity(request)
+        US.signin(get_store(), email, name, "first visit (name and e-mail entered)", ev.detail)
     return {"ok": True}
 
 

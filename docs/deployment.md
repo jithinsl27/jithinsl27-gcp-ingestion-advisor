@@ -57,6 +57,10 @@ Sign-in gives every tester their own saved scenarios (Firestore, under their Goo
 
 The browser signs in with Google Identity Services and sends the ID token; the service verifies it against the client ID and the allow-list. Without a client ID the app works fully for estimating - only saving, sharing and the AI assist are off (Export → Save scenario JSON still works).
 
+### Sign-in e-mails
+
+`deploy.sh` e-mails **jithinsl@google.com** (the app owner) whenever someone signs in with Google or enters their name and e-mail on the first visit. Use `--notify-email someone@example.com` for another address, or `--notify-email ""` to turn it off. It works without a mail server: the service writes a `compass_signin` log line, and a Cloud Monitoring **log-based alert** sends the e-mail to an e-mail notification channel. Each person is reported at most once every 12 hours, and Cloud Monitoring sends at most one e-mail every 5 minutes (sign-ins in between are listed in the incident). The e-mail shows the person's e-mail, name and how they signed in. To set it up by hand instead: Monitoring → Alerting → *Edit notification channels* → add an e-mail channel; then Logging → Logs Explorer → query `jsonPayload.kind="compass_signin"` → *Create alert*.
+
 **Working side by side.** The scenario someone is working on lives in their own browser, so testers never overwrite each other. Saved scenarios belong to their owner. The Charge-back price book and ledger are also per person (below).
 
 ### Live prices and availability

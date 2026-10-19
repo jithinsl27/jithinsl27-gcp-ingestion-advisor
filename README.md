@@ -1,6 +1,6 @@
 # Data Cloud Compass
 
-*Created by **Jithin S L**.*
+*Created by **Jithin S L**. Beta - testing in progress; feedback (with a screenshot or a note) to jithinsl@google.com.*
 
 **From discovery to blueprint on Google Cloud.** A tool for Data & AI architects to use live in customer discovery sessions. Add the customer's source systems and the tools they already use - by hand, through a **guided interview**, from **meeting notes (Gemini)** or an **inventory spreadsheet** - and Data Cloud Compass:
 

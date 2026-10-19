@@ -728,3 +728,15 @@ def test_dataplex_scope_follows_the_layers_it_governs():
             c["settings"]["governs"] = "mesh"
     assert 0 < kc_cost(sc) < full
     assert estimate(sc)["platform"]["dataplex_scope"] == ["mesh"]
+
+
+def test_signin_notification_is_logged_once_per_person(monkeypatch, capsys):
+    from app import usage as USG
+    from app.store import get_store
+    monkeypatch.setenv("LOG_REQUESTS", "on")
+    st = get_store()
+    assert USG.signin(st, "New.Person@Example.com", "New Person", "Google sign-in") is True
+    assert USG.signin(st, "new.person@example.com", "New Person", "Google sign-in") is False      # within 12 h
+    out = [json.loads(l) for l in capsys.readouterr().out.splitlines() if "compass_signin" in l]
+    assert len(out) == 1 and out[0]["email"] == "new.person@example.com" and out[0]["kind"] == "compass_signin"
+    assert USG.signin(st, "", "nobody") is False

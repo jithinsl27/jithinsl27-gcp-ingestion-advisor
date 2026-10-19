@@ -1285,3 +1285,12 @@ button.plan-total em { font-style: normal; color: var(--blue); font-size: 12.5px
 .dg-gov-badge text { font: 600 10px var(--font-body); fill: #007B83; }
 #diagram svg text { user-select: none; -webkit-user-select: none; }
 .dragging-mode, .dragging-mode * { user-select: none; -webkit-user-select: none; }
+
+/* ================================================================ beta notice */
+.beta-pill { font: 600 10px var(--font-body); letter-spacing: .04em; text-transform: uppercase; color: #B06000; background: #FEF7E0;
+  border: 1px solid #F9AB00; border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: 2px; cursor: pointer; }
+.beta-pill:hover, .beta-pill:focus-visible { background: #FDE293; outline: none; }
+.beta-dialog { max-width: 480px; }
+.beta-dialog p { margin: 8px 0; line-height: 1.5; }
+.beta-dialog .beta-tag { display: inline-block; margin: 0 0 4px; font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .05em;
+  color: #B06000; background: #FEF7E0; border: 1px solid #F9AB00; border-radius: 999px; padding: 2px 9px; }

@@ -107,3 +107,39 @@ def summary(events: list[dict]) -> dict:
             "actions": [{"action": a, "count": c} for a, c in actions.most_common(20)],
             "by_day": [{"day": d, "events": c} for d, c in sorted(by_day.items())][-60:],
             "recent": sorted(events, key=lambda e: -e.get("ts", 0))[:200]}
+
+
+# --------------------------------------------------------------------------- sign-in notifications
+SIGNIN_EVERY = 12 * 3600       # at most one notification per person every 12 hours
+
+
+def signin(store, email: str, name: str = "", method: str = "google", org: str = "") -> bool:
+    """Write one structured `compass_signin` log line when someone signs in (or registers on the first visit).
+
+    deploy.sh turns these lines into an e-mail (Cloud Monitoring log-based alert, --notify-email).
+    Returns True when a line was written.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    key = "signin-" + email.replace("/", "_")
+    now = time.time()
+    try:
+        last = (store.kv_get(key) or {}).get("ts", 0)
+    except Exception:  # noqa: BLE001 - never block sign-in on the cache
+        last = 0
+    if now - last < SIGNIN_EVERY:
+        return False
+    try:
+        store.kv_put(key, {"ts": now})
+    except Exception:  # noqa: BLE001
+        pass
+    payload = {"kind": "compass_signin", "email": email, "name": (name or "")[:80], "method": method, "org": (org or "")[:80],
+               "message": f"Data Cloud Compass sign-in: {name or email} <{email}> ({method}{', ' + org if org else ''})"}
+    if os.environ.get("K_SERVICE") or os.environ.get("LOG_REQUESTS") == "on":
+        try:
+            sys.stdout.write(json.dumps({"severity": "NOTICE", **payload}) + "\n")
+            sys.stdout.flush()
+        except Exception:  # noqa: BLE001
+            pass
+    return True

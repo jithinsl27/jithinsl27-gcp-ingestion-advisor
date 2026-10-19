@@ -276,3 +276,21 @@ def test_reset_clears_everything_and_undo_restores(page):
     assert page.locator("#sourceList li").count() == 0
     page.click("#toast .toast-action")
     page.wait_for_function(f"document.querySelectorAll('#sourceList li').length === {n}", timeout=15_000)
+
+
+def test_beta_notice_with_feedback_email(browser, base_url):
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    ctx.add_init_script("localStorage.setItem('data-cloud-compass:identity', JSON.stringify({name: 'UI Test', email: 'ui@example.com'}));")
+    pg = ctx.new_page()
+    pg.goto(base_url + "/")
+    pg.wait_for_selector("#betaDialog[open]", timeout=10_000)
+    text = pg.inner_text("#betaDialog")
+    assert "beta" in text.lower() and "jithinsl@google.com" in text and "screenshot" in text
+    assert pg.get_attribute("#betaMailBtn", "href").startswith("mailto:jithinsl@google.com")
+    pg.click("#betaDialog button[value=ok]")
+    pg.reload()
+    pg.wait_for_timeout(1500)
+    assert pg.locator("#betaDialog[open]").count() == 0          # once per browser session
+    pg.click("#feedbackBtn")                                      # Feedback (marked Beta) opens it again
+    pg.wait_for_selector("#betaDialog[open]")
+    ctx.close()

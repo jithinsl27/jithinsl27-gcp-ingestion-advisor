@@ -4,6 +4,7 @@
  * Sign-in uses Google Identity Services; the ID token is sent as a Bearer token.
  * Deployments with AUTH_DEV_USER (local / tests) are signed in without Google.
  */
+import { showBeta } from "./beta.js";
 import { S } from "./state.js";
 import { $, api, clone, esc, toast } from "./core.js";
 import { money } from "./cost.js";
@@ -43,6 +44,7 @@ async function onSignedIn() {
   try {
     const me = await api.me();
     S.user = me;
+    showBeta();
   } catch (e) {
     setToken(null);
     S.user = null;

@@ -84,6 +84,8 @@ The diagram edges, the Integrations narrative, the bill of materials and the exp
 - **Products**: the checkbox on each costed pill (or *Include in pricing* in its settings) keeps the product in the architecture but takes it out of the numbers; it shows as *Not priced*.
 - **Service lines**: on the Consumption estimate tab, untick any service (e.g. Datastream, Composer, contingency) to leave it out of every total, the roadmap and workload sizing; unticked lines stay listed so you can tick them back.
 
+**Beta.** Data Cloud Compass is in beta: a notice explains this once per browser session (after the welcome screen or sign-in). Send feedback - with a screenshot or a note - to **jithinsl@google.com**; the **Feedback** button (marked *Beta*) opens the notice again.
+
 ## 5. Modules
 
 The app is organised as modules in the left-hand navigation. Click a module to open it; each one starts with a short description and a row of **insights** (the key figures for that module), and the navigation shows a badge with the count or headline figure.

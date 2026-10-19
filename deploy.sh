@@ -6,6 +6,7 @@
 #               [--oauth-client-id CLIENT_ID] [--allowed-domains example.com,partner.com]
 #               [--firestore-location LOCATION] [--cors-origins https://you.github.io] [--private]
 #               [--feedback-url https://forms.gle/...] [--admin-key KEY]
+#               [--notify-email you@example.com | --notify-email ""]
 #
 # What it sets up (idempotent - safe to re-run for every release):
 #   * APIs: Cloud Run, Cloud Build, Artifact Registry, Firestore, Vertex AI, Cloud Billing,
@@ -14,6 +15,8 @@
 #   * a runtime service account with only what the app needs (Firestore, Vertex AI, the secret)
 #   * a Cloud Billing API key (in Secret Manager) for live list prices and region availability
 #   * the Cloud Run service, built from this folder
+#   * an e-mail alert when someone signs in (Cloud Monitoring log-based alert, --notify-email;
+#     default jithinsl@google.com, the app owner; pass --notify-email "" to turn it off)
 #
 # Sign-in (needed for saving, sharing and the AI assist): create an OAuth client ID
 # (APIs & Services -> Credentials -> Create credentials -> OAuth client ID -> Web application),
@@ -35,6 +38,7 @@ CORS_ORIGINS="${CORS_ORIGINS:-https://jithinsl27.github.io}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
 FEEDBACK_URL="${FEEDBACK_URL:-}"
 ADMIN_KEY="${ADMIN_KEY:-}"
+NOTIFY_EMAIL="${NOTIFY_EMAIL-jithinsl@google.com}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --gemini-model) GEMINI_MODEL="$2"; shift 2 ;;
     --feedback-url) FEEDBACK_URL="$2"; shift 2 ;;
     --admin-key) ADMIN_KEY="$2"; shift 2 ;;
+    --notify-email) NOTIFY_EMAIL="$2"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -70,7 +75,7 @@ PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(proje
 echo "==> Enabling APIs..."
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
   firestore.googleapis.com aiplatform.googleapis.com cloudbilling.googleapis.com secretmanager.googleapis.com \
-  apikeys.googleapis.com iam.googleapis.com --quiet
+  apikeys.googleapis.com iam.googleapis.com monitoring.googleapis.com logging.googleapis.com --quiet
 
 echo "==> Firestore (saved scenarios)..."
 if ! gcloud firestore databases describe --database="(default)" >/dev/null 2>&1; then
@@ -154,6 +159,47 @@ gcloud run deploy "${SERVICE}" \
   --set-env-vars "${ENV_VARS}" \
   ${SECRET_FLAG} \
   --quiet
+
+
+# ---------------------------------------------------------------- e-mail when someone signs in
+if [[ -n "${NOTIFY_EMAIL}" ]]; then
+  echo "==> Sign-in e-mail alerts to ${NOTIFY_EMAIL}..."
+  CH_NAME="Data Cloud Compass sign-ins (${NOTIFY_EMAIL})"
+  CHANNEL="$(gcloud beta monitoring channels list --filter="displayName=\"${CH_NAME}\"" --format='value(name)' 2>/dev/null | head -n1 || true)"
+  if [[ -z "${CHANNEL}" ]]; then
+    CHANNEL="$(gcloud beta monitoring channels create --type=email --display-name="${CH_NAME}" \
+      --channel-labels="email_address=${NOTIFY_EMAIL}" --format='value(name)' 2>/dev/null || true)"
+  fi
+  POLICY_NAME="Data Cloud Compass - someone signed in (${SERVICE})"
+  if [[ -z "${CHANNEL}" ]]; then
+    echo "    could not create the e-mail channel - add it in Monitoring -> Alerting -> Edit notification channels"
+  elif gcloud alpha monitoring policies list --filter="displayName=\"${POLICY_NAME}\"" --format='value(name)' 2>/dev/null | grep -q .; then
+    echo "    alert already set up"
+  else
+    POLICY_FILE="$(mktemp)"
+    cat > "${POLICY_FILE}" <<JSON
+{
+  "displayName": "${POLICY_NAME}",
+  "documentation": {"content": "Someone signed in to Data Cloud Compass (or entered their name and e-mail on the first visit). The e-mail, name and method are in the labels below. At most one e-mail every 5 minutes; each person is reported at most every 12 hours.", "mimeType": "text/markdown"},
+  "combiner": "OR",
+  "conditions": [{
+    "displayName": "compass_signin log line",
+    "conditionMatchedLog": {
+      "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${SERVICE}\" AND jsonPayload.kind=\"compass_signin\"",
+      "labelExtractors": {"email": "EXTRACT(jsonPayload.email)", "name": "EXTRACT(jsonPayload.name)", "method": "EXTRACT(jsonPayload.method)"}
+    }
+  }],
+  "alertStrategy": {"notificationRateLimit": {"period": "300s"}, "autoClose": "1800s"},
+  "notificationChannels": ["${CHANNEL}"],
+  "enabled": true
+}
+JSON
+    gcloud alpha monitoring policies create --policy-from-file="${POLICY_FILE}" --quiet >/dev/null \
+      && echo "    alert created: an e-mail goes to ${NOTIFY_EMAIL} when someone signs in" \
+      || echo "    could not create the alert - see docs/deployment.md (Sign-in e-mails) to add it in the Console"
+    rm -f "${POLICY_FILE}"
+  fi
+fi
 
 URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
 echo ""

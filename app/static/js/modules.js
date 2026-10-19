@@ -19,6 +19,7 @@ import { clone, toast } from "./core.js";
 import { bindReadiness, readiness, readinessProgress, renderReadiness } from "./readiness.js";
 import { bindBomEditor, ed as bomEd, envSpecSection, renderBomEditor } from "./bomedit.js";
 import { bindSlotsPage, renderSlotsPage } from "./slotspage.js";
+import { showBeta } from "./beta.js";
 import { bindUseCases, renderUseCases } from "./usecases.js";
 import { bindChargeback, loadChargeback, renderChargeback } from "./cbpage.js";
 import { bindUsage, loadUsage, renderUsage } from "./usagepage.js";
@@ -183,8 +184,7 @@ export function renderHead() {
   { const m = monitorSummary(); badge("monitor", m ? `${m.used}/${m.total}` : ""); }
   { const p = readinessProgress(); badge("kickoff", p ? `${p.done}/${p.total}` : ""); }
   badge("usecases", (S.scenario.use_cases || []).length ? String(S.scenario.use_cases.length) : "");
-  const fb = feedbackUrl();
-  $("#feedbackBtn").hidden = !fb;
+  $("#feedbackBtn").hidden = false;
 }
 
 export const feedbackUrl = () => (window.COMPASS_CONFIG && window.COMPASS_CONFIG.feedbackUrl) || S.config?.feedback_url || "";
@@ -432,7 +432,8 @@ export function bindModules(showTab) {
     showTab(c.dataset.goto);
   });
   document.addEventListener("click", (e) => { const g = e.target.closest("[data-goto-tab]"); if (g) showTab(g.dataset.gotoTab); });
-  $("#feedbackBtn").addEventListener("click", () => { const u = feedbackUrl(); if (u) window.open(u, "_blank", "noopener"); });
+  // a feedback form (FEEDBACK_URL) when one is configured, else the beta notice with the feedback e-mail
+  $("#feedbackBtn").addEventListener("click", () => { const u = feedbackUrl(); if (u) window.open(u, "_blank", "noopener"); else showBeta(true); });
   const setTop = () => document.documentElement.style.setProperty("--top", ($(".topbar")?.offsetHeight || 66) + "px");
   setTop();
   window.addEventListener("resize", setTop);
