@@ -1,7 +1,7 @@
 # Infrastructure-as-code deployment of Data Cloud Compass.
 #
 # 1. Build the image once:   gcloud builds submit --config cloudbuild.yaml   (or use deploy.sh)
-# 2. terraform init && terraform apply -var project_id=... -var image=REGION-docker.pkg.dev/PROJECT/ingestion-advisor/app:TAG
+# 2. terraform init && terraform apply -var project_id=... -var image=REGION-docker.pkg.dev/PROJECT/data-cloud-compass/app:TAG
 #
 # Optionally creates a Cloud Build trigger on your GitHub repository for continuous deployment.
 
@@ -26,13 +26,13 @@ resource "google_project_service" "apis" {
 
 resource "google_artifact_registry_repository" "repo" {
   location      = var.region
-  repository_id = "ingestion-advisor"
+  repository_id = "data-cloud-compass"
   format        = "DOCKER"
   depends_on    = [google_project_service.apis]
 }
 
 resource "google_service_account" "run" {
-  account_id   = "ingestion-advisor-run"
+  account_id   = "data-cloud-compass-run"
   display_name = "Data Cloud Compass (Cloud Run runtime)"
 }
 
@@ -104,7 +104,7 @@ resource "google_cloud_run_v2_service_iam_member" "invokers" {
 
 resource "google_cloudbuild_trigger" "main" {
   count    = var.github_owner != "" ? 1 : 0
-  name     = "ingestion-advisor-main"
+  name     = "data-cloud-compass-main"
   location = "global"
   github {
     owner = var.github_owner

@@ -221,3 +221,49 @@ def test_usage_admin_page(page):
     goto(page, "usage")
     page.wait_for_selector("#usageBody table", timeout=15_000)      # open locally without an admin key
     assert "ui@example.com" in page.inner_text("#usageBody")
+
+
+def test_product_monitor_cards(page):
+    goto(page, "monitor")
+    page.wait_for_selector("#monitorBody .mon-card")
+    names = page.locator("#monitorBody .mon-card h3").all_inner_texts()
+    for n in ("BigQuery", "Looker", "Apigee API management", "Gemini Enterprise", "Gemini Enterprise Agent Platform"):
+        assert n in names
+    off = page.locator('#monitorBody .mon-card.off [data-mon-add]')
+    if off.count():
+        before = page.locator("#monitorBody .mon-card.on").count()
+        off.first.click()
+        page.wait_for_function(f"document.querySelectorAll('#monitorBody .mon-card.on').length > {before}", timeout=15_000)
+
+
+def test_data_flow_page_merges_ingestion_and_integrations(page):
+    assert page.locator('.modnav [data-tab="platform"]').count() == 0
+    goto(page, "recs")
+    page.wait_for_selector("#recsBody *")
+    assert page.locator("#tab-recs #platformBody").count() == 1
+    assert "Integrations" in page.inner_text("#tab-recs")
+
+
+def test_technical_enquiry_shows_answer_and_links(page):
+    import json
+    fake = {"question": "q", "answer": "Slots are units of compute.\n- Commitments cover baseline slots.", "grounded": True, "model": "gemini-3.8-flash",
+            "references": [{"title": "BigQuery · Slots", "url": "https://cloud.google.com/bigquery/docs/slots", "host": "cloud.google.com"}]}
+    page.route("**/api/enquiry", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(fake)))
+    goto(page, "enquiry")
+    page.fill("#eqQ", "What is a BigQuery slot?")
+    page.click("#eqForm button[type=submit]")
+    page.wait_for_selector(".eq-item .eq-refs a")
+    assert page.get_attribute(".eq-item .eq-refs a", "href").startswith("https://cloud.google.com/")
+    assert "Commitments cover baseline slots." in page.inner_text(".eq-item .eq-a li")
+
+
+def test_reset_clears_everything_and_undo_restores(page):
+    goto(page, "overview")
+    n = page.locator("#sourceList li").count()
+    assert n > 0
+    page.once("dialog", lambda d: d.accept())
+    page.click("#resetBtn")
+    page.wait_for_selector(".ov-empty")
+    assert page.locator("#sourceList li").count() == 0
+    page.click("#toast .toast-action")
+    page.wait_for_function(f"document.querySelectorAll('#sourceList li').length === {n}", timeout=15_000)

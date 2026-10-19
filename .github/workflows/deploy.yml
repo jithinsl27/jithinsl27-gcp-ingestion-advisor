@@ -36,11 +36,11 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
       - name: Deploy
         run: |
-          gcloud run deploy "${{ vars.GCP_SERVICE || 'ingestion-advisor' }}" --source . \
+          gcloud run deploy "${{ vars.GCP_SERVICE || 'data-cloud-compass' }}" --source . \
             --project "${{ vars.GCP_PROJECT_ID }}" --region "${{ vars.GCP_REGION || 'us-central1' }}" \
             --update-env-vars "APP_VERSION=${GITHUB_SHA::7}" --quiet
       - name: Smoke test
         run: |
-          URL=$(gcloud run services describe "${{ vars.GCP_SERVICE || 'ingestion-advisor' }}" --project "${{ vars.GCP_PROJECT_ID }}" --region "${{ vars.GCP_REGION || 'us-central1' }}" --format='value(status.url)')
+          URL=$(gcloud run services describe "${{ vars.GCP_SERVICE || 'data-cloud-compass' }}" --project "${{ vars.GCP_PROJECT_ID }}" --region "${{ vars.GCP_REGION || 'us-central1' }}" --format='value(status.url)')
           curl -fsS "$URL/healthz"
           curl -fsS -X POST "$URL/api/estimate" -H 'Content-Type: application/json' -d @samples/retail-bank-ksa.json | head -c 200

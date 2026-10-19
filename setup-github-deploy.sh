@@ -2,7 +2,7 @@
 # One-time set-up so every push to main deploys Cloud Run from GitHub Actions - no keys stored.
 # Run in Cloud Shell after ./deploy.sh has created the service:
 #
-#   ./setup-github-deploy.sh --project PROJECT_ID [--region us-central1] [--repo owner/name] [--service ingestion-advisor]
+#   ./setup-github-deploy.sh --project PROJECT_ID [--region us-central1] [--repo owner/name] [--service data-cloud-compass]
 #
 # Creates a Workload Identity Federation pool + GitHub provider (trusting only this repository),
 # a deployer service account with the roles `gcloud run deploy --source` needs, and - when the
@@ -14,7 +14,7 @@ retry() { local n=0; until "$@"; do n=$((n+1)); [[ $n -ge 8 ]] && return 1; echo
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 REGION="${REGION:-us-central1}"
-SERVICE="${SERVICE:-ingestion-advisor}"
+SERVICE="${SERVICE:-data-cloud-compass}"
 REPO="${REPO:-$(git config --get remote.origin.url 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')}"
 
 while [[ $# -gt 0 ]]; do

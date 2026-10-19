@@ -44,7 +44,7 @@ When the script finishes it prints the service URL. Open it, click **Load sample
 If you deployed with `--private`, open it through a local proxy:
 
 ```sh
-gcloud run services proxy ingestion-advisor --region us-central1
+gcloud run services proxy data-cloud-compass --region us-central1
 ```
 
 and then use the web preview on port 8080 <walkthrough-web-preview-icon></walkthrough-web-preview-icon>.

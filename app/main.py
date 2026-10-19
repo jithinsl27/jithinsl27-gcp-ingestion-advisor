@@ -43,6 +43,7 @@ from .estimator import estimate, load_regions, load_static_regions
 from .store import get_store
 from . import usage as US
 from . import chargeback as CB
+from . import enquiry as EQ
 from .plan import build_plan
 from .workload import workload_estimate
 
@@ -642,6 +643,24 @@ def cb_save(req: ChargebackRequest, request: Request):
 def cb_delete(rid: str):
     get_store().cb_delete(rid)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- customer technical enquiry
+class Enquiry(BaseModel):
+    question: str = Field(..., min_length=3, max_length=1000)
+    history: list[dict] = Field(default_factory=list, max_length=6)
+
+
+@app.post("/api/enquiry")
+def enquiry(q: Enquiry, request: Request):
+    name, email = US.identity(request)
+    AS._check_rate(email or US.client_ip(request) or "anonymous")
+    try:
+        out = EQ.ask(q.question, email, q.history)
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    US.record(get_store(), request, 200, 0.0, action="technical enquiry", detail=q.question[:200])
+    return out
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

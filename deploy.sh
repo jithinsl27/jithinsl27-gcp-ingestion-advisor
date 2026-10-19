@@ -2,7 +2,7 @@
 # One-command deployment of Data Cloud Compass to Cloud Run (run it in Cloud Shell).
 #
 # Usage:
-#   ./deploy.sh --project PROJECT_ID [--region us-central1] [--service ingestion-advisor]
+#   ./deploy.sh --project PROJECT_ID [--region us-central1] [--service data-cloud-compass]
 #               [--oauth-client-id CLIENT_ID] [--allowed-domains example.com,partner.com]
 #               [--firestore-location LOCATION] [--cors-origins https://you.github.io] [--private]
 #               [--feedback-url https://forms.gle/...] [--admin-key KEY]
@@ -26,7 +26,7 @@ retry() { local n=0; until "$@"; do n=$((n+1)); [[ $n -ge 8 ]] && return 1; echo
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 REGION="${REGION:-us-central1}"
-SERVICE="${SERVICE:-ingestion-advisor}"
+SERVICE="${SERVICE:-data-cloud-compass}"
 PUBLIC=true
 OAUTH_CLIENT_ID="${GOOGLE_OAUTH_CLIENT_ID:-}"
 ALLOWED_DOMAINS="${ALLOWED_DOMAINS:-}"
@@ -117,8 +117,8 @@ for role in roles/storage.objectViewer roles/artifactregistry.writer roles/loggi
 done
 
 # Keep the feedback link and admin key from the previous deploy unless new ones are given
-existing_env() {
-  gcloud run services describe "${SERVICE}" --region "${REGION}" --format=json 2>/dev/null | python3 -c "
+existing_env() {   # $1 = variable, $2 = service (default: this one)
+  gcloud run services describe "${2:-${SERVICE}}" --region "${REGION}" --format=json 2>/dev/null | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -129,6 +129,9 @@ except Exception:
 }
 [[ -z "${FEEDBACK_URL}" ]] && FEEDBACK_URL="$(existing_env FEEDBACK_URL)"
 [[ -z "${ADMIN_KEY}" ]] && ADMIN_KEY="$(existing_env ADMIN_KEY)"
+# moving from the old service name (ingestion-advisor): carry its settings over
+[[ -z "${FEEDBACK_URL}" ]] && FEEDBACK_URL="$(existing_env FEEDBACK_URL ingestion-advisor)"
+[[ -z "${ADMIN_KEY}" ]] && ADMIN_KEY="$(existing_env ADMIN_KEY ingestion-advisor)"
 [[ -z "${ADMIN_KEY}" ]] && ADMIN_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(12))')"
 
 AUTH_FLAG="--no-allow-unauthenticated"

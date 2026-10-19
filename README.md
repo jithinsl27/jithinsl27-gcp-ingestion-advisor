@@ -27,6 +27,9 @@
 - **three commercial plans with the specification per environment**: pay as you go 1 year, 1-year commitment and 3-year commitment (year 1 / 2 / 3), each with BigQuery baseline / commitment and max slots per environment (100-slot minimum, steps of 50), products, quantities and prices; click the total for the **editable bill of materials** (quantity and unit price, region) - edits recalculate the whole app;
 - **top 5 use cases** recommended from the customer's data, plus the customer's own list;
 - **Workload and BigQuery slots** pages written for business users - the workload drives BigQuery sizing and every plan;
+- **product monitor**: cards for BigQuery (total slots per project), Looker, Apigee, Gemini Enterprise and Gemini Enterprise Agent Platform - used / not used, how much and the monthly cost;
+- **customer technical enquiry**: natural-language questions answered only from Google's public documentation, with reference links (Gemini 3.8 Flash with Google Search grounding);
+- **reset - start fresh** on the overview clears everything for a new discovery;
 - **charge-back**: upload the negotiated price sheet (Excel, CSV, Google Sheets link, PDF or scanned image read by Gemini) and price any department's request - sources, pipelines, reports, AI use cases - with a ledger per department;
 - **usage tracking**: name and email on the first visit, Cloud Logging for every call and an admin usage page;
 - **kickoff readiness from the finalised architecture**: a customer / partner checklist (CDC prerequisites, connectivity lead times, security controls, AI evaluation sets …), milestones with exit criteria, and the recommended team size and skills;

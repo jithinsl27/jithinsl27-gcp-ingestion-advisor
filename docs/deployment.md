@@ -33,7 +33,7 @@ Options:
 |---|---|---|
 | `--project` | current gcloud project | where to deploy |
 | `--region` | `us-central1` | Cloud Run region (e.g. `me-central2` for KSA) |
-| `--service` | `ingestion-advisor` | Cloud Run service name |
+| `--service` | `data-cloud-compass` | Cloud Run service name |
 | `--oauth-client-id` | none | turns on Google sign-in (saving, sharing, AI assist, Drive export) |
 | `--allowed-domains` | any Google account | comma-separated e-mail domains allowed to sign in |
 | `--firestore-location` | same as `--region` (falls back to `nam5`) | where saved scenarios are stored |
@@ -88,9 +88,9 @@ From then on, `deploy.yml` runs the tests and deploys on every push to `main` (a
 Colleagues without Google Cloud console access can use the app straight from its **Cloud Run URL** - no console, no `gcloud`:
 
 1. Deploy as in section 1 (`./deploy.sh --region us-central1`). The service is public by default (`--allow-unauthenticated`); estimating, pricing plans, exports to file and the proposal work without signing in.
-2. Share the URL `deploy.sh` prints (`https://ingestion-advisor-….run.app`). To see it again: `gcloud run services describe ingestion-advisor --region us-central1 --format='value(status.url)'`.
+2. Share the URL `deploy.sh` prints (`https://data-cloud-compass-….run.app`). To see it again: `gcloud run services describe data-cloud-compass --region us-central1 --format='value(status.url)'`.
 3. **Feedback button** - create a Google Form, then either
-   - set it on the service: `gcloud run services update ingestion-advisor --region us-central1 --update-env-vars FEEDBACK_URL=https://forms.gle/…`, or
+   - set it on the service: `gcloud run services update data-cloud-compass --region us-central1 --update-env-vars FEEDBACK_URL=https://forms.gle/…`, or
    - set `feedbackUrl` in `app/static/config.js` and redeploy (this also applies to the GitHub Pages demo).
 
    A **Feedback** button then appears in the header for every user.
@@ -115,7 +115,7 @@ The price book (Firestore `system/pricebook`) and charge-back requests (`chargeb
 
 - **Allow-list in the app** (recommended): `--allowed-domains` (or `ALLOWED_EMAILS`) restricts who can sign in, save and use the AI assist; estimates stay open.
 - **IAM only**: `--private`, grant `roles/run.invoker` to a group; users open it with `gcloud run services proxy`. The GitHub Pages demo cannot reach a private service.
-- **Identity-Aware Proxy**: `gcloud beta run services update ingestion-advisor --region REGION --iap` and grant `roles/iap.httpsResourceAccessor`. As with `--private`, the Pages demo cannot reach it.
+- **Identity-Aware Proxy**: `gcloud beta run services update data-cloud-compass --region REGION --iap` and grant `roles/iap.httpsResourceAccessor`. As with `--private`, the Pages demo cannot reach it.
 
 ## Data residency
 

@@ -61,6 +61,7 @@ export const api = window.ADVISOR_API || {
   cbExtract: (file, region) => { const f = new FormData(); f.append("file", file); return call("POST", `/api/chargeback/pricebook/extract?region=${encodeURIComponent(region)}`, f); },
   cbExtractLink: (url, region) => call("POST", "/api/chargeback/pricebook/extract-link", { url, region }),
   cbPrice: (req) => call("POST", "/api/chargeback/price", req),
+  enquiry: (b) => call("POST", "/api/enquiry", b),
   cbRequests: () => call("GET", "/api/chargeback/requests"),
   cbSave: (req) => call("POST", "/api/chargeback/requests", req),
   cbDelete: (id) => call("DELETE", `/api/chargeback/requests/${encodeURIComponent(id)}`),

@@ -3,7 +3,7 @@
 There is one pricing engine - the Python service on Cloud Run. The demo is the
 same front end (app/static) published as static files that call that service:
 
-    COMPASS_API_URL=https://ingestion-advisor-xxxx.run.app python demo/build_demo.py
+    COMPASS_API_URL=https://data-cloud-compass-xxxx.run.app python demo/build_demo.py
 
 Outputs demo/dist/ (index.html + static/). The Cloud Run service must allow the
 Pages origin (CORS_ORIGINS, default https://jithinsl27.github.io - set by deploy.sh).

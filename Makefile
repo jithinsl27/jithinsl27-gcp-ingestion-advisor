@@ -6,6 +6,6 @@ run:
 test:
 	python -m pytest -q
 docker:
-	docker build -t ingestion-advisor . && docker run --rm -p 8080:8080 ingestion-advisor
+	docker build -t data-cloud-compass . && docker run --rm -p 8080:8080 data-cloud-compass
 deploy:
 	./deploy.sh

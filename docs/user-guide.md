@@ -90,12 +90,13 @@ The app is organised as modules in the left-hand navigation. Click a module to o
 
 | Module | What you see |
 |---|---|
-| **Overview** | One card per module with its key insight - click a card to open that module, or a pricing figure to open that plan |
+| **Overview** | One card per module with its key insight - click a card to open that module, or a pricing figure to open that plan. **Reset - start fresh** clears everything (sources, architecture, environments, settings, edits and results) for a new discovery; *Undo* brings it back, and scenarios saved in the cloud are not touched |
+| **Product monitor** | One card per key product - BigQuery (total slots across environments, committed baseline, demand, layer sizes), Looker, Apigee, Gemini Enterprise, Gemini Enterprise Agent Platform, plus ingestion and platform services - showing *Used* / *Not used*, how much and the monthly cost; add a missing product with one click |
+| **Customer technical enquiry** | Ask a technical question in plain language. Gemini 3.8 Flash searches Google's public documentation only (cloud.google.com and related Google sites) and answers with the reference links; if the documentation does not cover it you are told so. Suggested questions follow the architecture |
 | **Use cases** | The top 5 use cases recommended from the customer's data, plus the customer's own list (feeds the proposal and exports) |
 | **Source systems** | Add, edit, import and include / exclude sources; each card shows its target and ingestion chain |
 | **Architecture** | Product picker and the presentation-ready diagram (targets: BigQuery lakehouse, Cloud Storage data lake, AlloyDB / Cloud SQL) |
-| **Ingestion patterns** | Per-source pattern, rationale, alternatives and discovery checks |
-| **Platform & integrations** | How each selected product connects to BigQuery |
+| **Data flow & integrations** | One page: (1) ingestion - per-source pattern, rationale, alternatives and discovery checks; (2) integrations - how each BI, AI, API, database and governance product connects to BigQuery |
 | **Workload** | What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms, and what it means for BigQuery |
 | **BigQuery slots** | Slots per environment: demand, recommended baseline / commitment for each plan, max, monthly cost and assumptions |
 | **Environments** | Cost per environment and the per-environment sizing |

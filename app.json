@@ -1,5 +1,5 @@
 {
-  "name": "ingestion-advisor",
+  "name": "data-cloud-compass",
   "env": {},
   "options": {
     "allow-unauthenticated": true,

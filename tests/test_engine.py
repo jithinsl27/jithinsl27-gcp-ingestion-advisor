@@ -609,3 +609,18 @@ def test_price_sheet_pdf_text_fallback_and_bad_files():
         CB.read_price_file("quote.docx", b"x", known, None)
     with pytest.raises(ValueError):
         CB.google_sheet_rows("https://example.com/not-a-sheet")
+
+
+def test_enquiry_keeps_only_google_documentation_sources():
+    from types import SimpleNamespace as N
+    from app import enquiry as EQ
+    meta = N(grounding_chunks=[N(web=N(uri="https://cloud.google.com/bigquery/docs/slots", title="cloud.google.com", domain=None)),
+                               N(web=N(uri="https://medium.com/some-post", title="medium.com", domain=None)),
+                               N(web=N(uri="https://docs.cloud.google.com/apigee/docs/api-platform/fundamentals/environments-overview", title="docs.cloud.google.com", domain=None))])
+    refs = EQ.references_from(meta)
+    assert [r["host"] for r in refs] == ["cloud.google.com", "docs.cloud.google.com"]
+    assert refs[0]["title"] == "BigQuery · Slots"
+    from fastapi.testclient import TestClient
+    from app.main import app
+    r = TestClient(app).post("/api/enquiry", json={"question": "hi"})
+    assert r.status_code in (422, 503)

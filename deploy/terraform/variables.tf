@@ -11,12 +11,12 @@ variable "region" {
 
 variable "service_name" {
   type    = string
-  default = "ingestion-advisor"
+  default = "data-cloud-compass"
 }
 
 variable "image" {
   type        = string
-  description = "Container image, e.g. us-central1-docker.pkg.dev/PROJECT/ingestion-advisor/app:TAG"
+  description = "Container image, e.g. us-central1-docker.pkg.dev/PROJECT/data-cloud-compass/app:TAG"
 }
 
 variable "public" {

@@ -3,8 +3,8 @@
 #   gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=us-central1
 substitutions:
   _REGION: us-central1
-  _SERVICE: ingestion-advisor
-  _REPO: ingestion-advisor
+  _SERVICE: data-cloud-compass
+  _REPO: data-cloud-compass
   _ALLOW_UNAUTH: "--allow-unauthenticated"
 
 steps:
