@@ -624,3 +624,45 @@ def test_enquiry_keeps_only_google_documentation_sources():
     from app.main import app
     r = TestClient(app).post("/api/enquiry", json={"question": "hi"})
     assert r.status_code in (422, 503)
+
+
+# ---------------------------------------------------------------- year-by-year slot plan (1-yr / 3-yr commitments)
+def _telco(**bq):
+    sc = json.loads((Path(__file__).parents[1] / "samples" / "telco-dwh-modernisation.json").read_text())
+    sc = sc.get("scenario", sc)
+    return {**sc, "bq": {**(sc.get("bq") or {}), "mode": "editions", "edition": "enterprise", **bq}}
+
+
+@pytest.mark.parametrize("bq", [{}, {"commit_strategy": "average"}, {"shared_commitment": True}], ids=["optimal", "average", "shared"])
+def test_slot_plan_years_match_the_bill_of_materials(bq):
+    r = estimate(_telco(**bq))
+    plan = r["bigquery"]["plan"]
+    rows = [b for b in r["bom"] if b["service"] == "BigQuery compute"]
+    assert abs(sum(b["year1"] for b in rows) - plan["totals"][0]["cost"]["payg"]) < 1
+    assert abs(sum(b["three_year"] for b in rows) - plan["three_year"]["payg"]) < 1
+    assert abs(sum(b["cud3"]["three_year"] for b in rows) - plan["three_year"]["cud3"]) < 1
+    assert abs(sum(b["cud1"]["year1"] for b in rows) - plan["totals"][0]["cost"]["cud1"]) < 1
+
+
+def test_three_year_commitment_never_shrinks_and_demand_grows():
+    plan = estimate(_telco(commit_strategy="average"))["bigquery"]["plan"]
+    for e in plan["environments"]:
+        c3 = [y["commitment"]["cud3"] for y in e["years"]]
+        assert c3 == sorted(c3)
+        assert sum(y["cud3_topup"] for y in e["years"]) == c3[-1]
+        for y in e["years"]:
+            for o in ("payg", "cud1", "cud3"):
+                b = y["baseline"][o]
+                assert b == 0 or (b >= 100 and b % 50 == 0)
+    prod = plan["environments"][0]["years"]
+    assert prod[0]["avg_slots"] < prod[1]["avg_slots"] < prod[2]["avg_slots"]     # 20 % yearly growth
+    assert prod[0]["max"] <= prod[1]["max"] <= prod[2]["max"]
+
+
+def test_cost_optimal_commitment_is_cheapest_and_shared_is_not_dearer():
+    opt = estimate(_telco())["bigquery"]["plan"]["three_year"]
+    avg = estimate(_telco(commit_strategy="average"))["bigquery"]["plan"]["three_year"]
+    shared = estimate(_telco(shared_commitment=True))["bigquery"]["plan"]["three_year"]
+    assert opt["cud3"] <= avg["cud3"] + 0.01 and opt["cud1"] <= avg["cud1"] + 0.01
+    assert opt["cud3"] <= opt["payg"] + 0.01
+    assert shared["cud3"] <= opt["cud3"] + 0.01

@@ -13,6 +13,7 @@ import { bindCompare, openCompare } from "./compare.js";
 import { bindDiscover } from "./discover.js";
 import { loadSamples, restore, syncForm, withDefaults } from "./scenario.js";
 import { showModule } from "./modules.js";
+import { initTips } from "./tips.js";
 
 // ------------------------------------------------------------------ boot
 export async function boot() {
@@ -38,6 +39,7 @@ export async function boot() {
   restore();
   restoreCloudRef();
   bindEvents();
+  initTips();
   bindBq();
   bindNotices();
   bindAccount(openCompare);

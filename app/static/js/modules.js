@@ -18,7 +18,7 @@ import { changed } from "./events.js";
 import { clone, toast } from "./core.js";
 import { bindReadiness, readiness, readinessProgress, renderReadiness } from "./readiness.js";
 import { bindBomEditor, ed as bomEd, envSpecSection, renderBomEditor } from "./bomedit.js";
-import { renderSlotsPage } from "./slotspage.js";
+import { bindSlotsPage, renderSlotsPage } from "./slotspage.js";
 import { bindUseCases, renderUseCases } from "./usecases.js";
 import { bindChargeback, loadChargeback, renderChargeback } from "./cbpage.js";
 import { bindUsage, loadUsage, renderUsage } from "./usagepage.js";
@@ -35,7 +35,7 @@ export const MODULES = {
   usage: ["Usage", "Who is using Data Cloud Compass and what they do (admin key required)."],
   arch: ["Target architecture", "Sources, ingestion, raw zone, BigQuery bronze / silver / gold and the BI, AI, API and governance layers."],
   recs: ["Data flow & integrations", "How every source system gets into Google Cloud (the recommended GCP-native ETL / ELT, with rationale and alternatives) and how each BI, AI, API, database and governance product connects to BigQuery."],
-  monitor: ["Product monitor", "Which key Google Cloud products this project uses - BigQuery slots, Looker, Apigee, Gemini Enterprise, Agent Platform and more - how much and what they cost."],
+  monitor: ["Product monitor", "Which key Google Cloud products this project uses - Looker, Apigee, Gemini Enterprise, Agent Platform and more - how much and what they cost; and the BigQuery slots needed each year with 1- and 3-year commitments."],
   enquiry: ["Customer technical enquiry", "Ask any technical question in plain language - answers come only from Google's public documentation, with the reference links."],
   pricing: ["Pricing", "Whole-programme cost: pay as you go, 1-year or 3-year commitment - by month, product and quantity."],
   env: ["Environments", "Production, development, test, DR … each sized as a share of production."],
@@ -53,8 +53,10 @@ const pct = (a, b) => (b ? Math.round((100 * a) / b) + "%" : "0%");
 const sumArr = (a, lo = 0, hi = a.length) => a.slice(lo, hi).reduce((x, y) => x + y, 0);
 export const pp = () => S.planResult?.pricing?.[plans.basis] || S.planResult?.pricing?.ramped;
 
-export function showModule(id) {
+export function showModule(id, sub) {
   if (id === "platform") id = "recs";              // Integrations now live on the Data flow & integrations page
+  if (id === "slots") { id = "monitor"; sub = "slots"; }   // BigQuery slots now live in the Product monitor
+  if (id === "monitor") nav.sub = sub || nav.sub || "products";
   if (!$("#tab-" + id)) id = "overview";
   nav.tab = id;
   $$(".modnav button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
@@ -78,11 +80,15 @@ export function renderModules() {
   if (nav.tab === "proposal") renderProposal();
   if (nav.tab === "kickoff") renderReadiness();
   if (nav.tab === "usecases") renderUseCases();
-  if (nav.tab === "slots") renderSlotsPage();
   if (nav.tab === "chargeback") renderChargeback();
   if (nav.tab === "usage") renderUsage();
   if (nav.tab === "workload") renderWorkloadSummary();
-  if (nav.tab === "monitor") renderMonitor();
+  if (nav.tab === "monitor") {
+    $$(".mon-sub [data-mon-sub]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.monSub === nav.sub)));
+    $("#monitorBody").hidden = nav.sub === "slots";
+    $("#slotsBody").hidden = nav.sub !== "slots";
+    if (nav.sub === "slots") renderSlotsPage(); else renderMonitor();
+  }
   if (nav.tab === "enquiry") renderEnquiry();
   if (bomEd.open) renderBomEditor();
 }
@@ -118,7 +124,7 @@ function insightChips(id) {
   }
   if (id === "monitor") {
     const m = monitorSummary();
-    if (m) { chip("Products used", `${m.used} of ${m.total}`); chip("BigQuery", esc(m.slots)); }
+    if (m && nav.sub !== "slots") { chip("Products used", `${m.used} of ${m.total}`); chip("BigQuery", esc(m.slots)); }
   }
   if (id === "enquiry") chip("Questions answered", String(enquiryCount()));
   if (id === "recs") {
@@ -139,11 +145,14 @@ function insightChips(id) {
     chip("Recommended", String((S.result?.use_cases || []).length));
     chip("Customer's list", String((S.scenario.use_cases || []).length));
   }
-  if (id === "slots" && S.result?.bigquery?.active) {
-    const b = S.result.bigquery, t = b.project_totals || {};
+  if (id === "monitor" && nav.sub === "slots" && S.result?.bigquery?.active) {
+    const b = S.result.bigquery, pl = b.plan;
     chip("Model", S.scenario.bq?.mode === "editions" ? `${EDITION_NAME[b.edition]} edition` : "On-demand");
-    chip("Production demand", `${b.avg_slots} avg · ${Math.round(b.peak_slots)} peak`);
-    if (S.scenario.bq?.mode === "editions") { chip("Max slots, all envs", String(t.cud1?.max || 0)); chip("3-yr commitment", `${t.cud3?.commitment || 0} slots`, "good"); }
+    if (S.scenario.bq?.mode === "editions" && pl) {
+      chip("Max slots, Y1 → Y3", `${pl.totals[0].max} → ${pl.totals[2].max}`);
+      chip("3-yr commitment, Y1 → Y3", `${pl.totals[0].commitment.cud3} → ${pl.totals[2].commitment.cud3} slots`, "good");
+      chip("3-yr compute saving", money(pl.three_year.payg - pl.three_year.cud3), "good");
+    } else chip("Production demand", `${b.avg_slots} avg · ${Math.round(b.peak_slots)} peak`);
   }
   if (id === "kickoff" && readiness()) {
     const p = readinessProgress(), r = readiness();
@@ -173,7 +182,6 @@ export function renderHead() {
   { const m = monitorSummary(); badge("monitor", m ? `${m.used}/${m.total}` : ""); }
   { const p = readinessProgress(); badge("kickoff", p ? `${p.done}/${p.total}` : ""); }
   badge("usecases", (S.scenario.use_cases || []).length ? String(S.scenario.use_cases.length) : "");
-  badge("slots", S.scenario.bq?.mode === "editions" && S.result?.bigquery?.project_totals ? String(S.result.bigquery.project_totals.cud1.max) : "");
   const fb = feedbackUrl();
   $("#feedbackBtn").hidden = !fb;
 }
@@ -389,6 +397,8 @@ export function resetAll() {
 
 export function bindModules(showTab) {
   bindMonitor(showTab);
+  bindSlotsPage();
+  $$(".mon-sub [data-mon-sub]").forEach((b) => b.addEventListener("click", () => { nav.sub = b.dataset.monSub; renderModules(); }));
   bindEnquiry();
   $("#resetBtn")?.addEventListener("click", () => {
     if (window.confirm("Reset Data Cloud Compass?\n\nThis clears all source systems, the architecture, environments, settings, edits and results so you can start a new discovery. Saved scenarios in the cloud are not deleted.")) resetAll();

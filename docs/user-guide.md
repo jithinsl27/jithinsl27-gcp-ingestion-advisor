@@ -91,14 +91,13 @@ The app is organised as modules in the left-hand navigation. Click a module to o
 | Module | What you see |
 |---|---|
 | **Overview** | One card per module with its key insight - click a card to open that module, or a pricing figure to open that plan. **Reset - start fresh** clears everything (sources, architecture, environments, settings, edits and results) for a new discovery; *Undo* brings it back, and scenarios saved in the cloud are not touched |
-| **Product monitor** | One card per key product - BigQuery (total slots across environments, committed baseline, demand, layer sizes), Looker, Apigee, Gemini Enterprise, Gemini Enterprise Agent Platform, plus ingestion and platform services - showing *Used* / *Not used*, how much and the monthly cost; add a missing product with one click |
+| **Product monitor** | One card per key product - BigQuery (total slots across environments, committed baseline, demand, layer sizes), Looker, Apigee, Gemini Enterprise, Gemini Enterprise Agent Platform, plus ingestion and platform services - showing *Used* / *Not used*, how much and the monthly cost; add a missing product with one click. A second view, **BigQuery slots**, sizes slots year by year (below) |
 | **Customer technical enquiry** | Ask a technical question in plain language. Gemini 3.8 Flash searches Google's public documentation only (cloud.google.com and related Google sites) and answers with the reference links; if the documentation does not cover it you are told so. Suggested questions follow the architecture |
 | **Use cases** | The top 5 use cases recommended from the customer's data, plus the customer's own list (feeds the proposal and exports) |
 | **Source systems** | Add, edit, import and include / exclude sources; each card shows its target and ingestion chain |
 | **Architecture** | Product picker and the presentation-ready diagram (targets: BigQuery lakehouse, Cloud Storage data lake, AlloyDB / Cloud SQL) |
 | **Data flow & integrations** | One page: (1) ingestion - per-source pattern, rationale, alternatives and discovery checks; (2) integrations - how each BI, AI, API, database and governance product connects to BigQuery |
 | **Workload** | What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms, and what it means for BigQuery |
-| **BigQuery slots** | Slots per environment: demand, recommended baseline / commitment for each plan, max, monthly cost and assumptions |
 | **Environments** | Cost per environment and the per-environment sizing |
 | **Pricing** | The three commercial plans with the recommended specification per environment and the editable bill of materials (below) |
 | **Roadmap** | See section 7 |
@@ -130,7 +129,13 @@ The **Use cases** module recommends the **top 5 use cases** from the data in sco
 
 **Workload** asks in plain terms what the customer will run: how much data, pipelines, reports and queries, and dashboards. Changing any number switches on **Use these numbers to size BigQuery and pricing**, so BigQuery compute, slots and every plan follow it; *What this means* shows the data scanned per month, the computing power needed and the BigQuery cost. Working hours, regions and the standalone workload-only estimate are under *Advanced*.
 
-**BigQuery slots** explains slots and shows, per environment: average and busiest-hour demand, the recommended **baseline / commitment for pay as you go, 1-year and 3-year**, the max with autoscaling, the monthly cost of each plan and how the environment is sized. Rules: a baseline or commitment starts at **100 slots** and grows in steps of **50**; autoscaling adds slots in steps of 50 and is always pay as you go. Where a commitment does not pay off (demand only part of the day), the page shows what a 100-slot commitment would cost instead. Override any baseline or max per environment, switch on-demand / editions, and read the assumptions (slot-hours per TiB, scan by job type, batch window, business hours, reference month).
+**BigQuery slots** (in **Product monitor**, second view) sizes slots **separately for year 1, 2 and 3**, because data grows every year. Pick a **pricing option** - pay as you go, 1-year commitment (re-sized and renewed each year) or 3-year commitment (one commitment for the term that can only grow) - and tick the **environments** to add up (for example production only, or production and development). The page shows:
+
+- **Year cards**: committed slots (or the maximum for pay as you go), autoscaling headroom, any 3-year **top-up**, and the cost per year and for three years with the saving - or extra cost - against pay as you go.
+- **Slots and cost by environment and year**: average slots in use, busiest hour, max slots, committed slots, top-up, autoscaled slot-hours and cost.
+- **Compare the options**: the three options side by side, years 1-3, with totals and savings.
+
+**Commitment sizing** offers *Cost-optimal* (the commitment with the lowest total cost over the year, including ramp-up months) or *Cover average demand* (the year's average rounded down to 50 slots; environments averaging under 100 slots stay on autoscaling). **Share one commitment across environments** sizes one commitment on the combined demand, as reservations can borrow each other's idle committed slots. Rules: a commitment starts at **100 slots** and grows in steps of **50**; autoscaling is always pay as you go and is billed with a ×1.25 allowance for 50-slot steps and the 1-minute minimum. Commitments need Enterprise or Enterprise Plus. Hover the **i** next to any heading to see how that figure is calculated. You can still override any baseline or max per environment, switch on-demand / editions, and read the assumptions. The same year-by-year numbers feed Pricing, the exports and the proposal.
 
 ### Charge-back
 

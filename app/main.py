@@ -155,6 +155,8 @@ class BigQuerySettings(BaseModel):
     slot_hours_per_tib: Optional[float] = Field(None, gt=0, le=10_000)
     measured_scan_tib_month: Optional[float] = Field(None, ge=0, le=10_000_000)
     measured_slot_hours_month: Optional[float] = Field(None, ge=0, le=1e10)
+    shared_commitment: Optional[bool] = None
+    commit_strategy: Optional[Literal["optimal", "average"]] = None
     shape: Optional[BigQueryShape] = None
 
 

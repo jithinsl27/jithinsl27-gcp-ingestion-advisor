@@ -212,8 +212,84 @@ def size(slot_hours: dict, S: dict, pricing: dict, uplift: float, comp_types: se
         "baseline": baseline, "max": max_slots, "auto_baseline": auto_baseline, "auto_max": auto_max,
         "baseline_by_option": by_option, "slot_min": SLOT_MIN, "slot_step": SLOT_STEP,
         "profile": [round(p, 1) for p in prof], "avg_slots": round(sph_total / HOURS, 1), "peak_slots": round(peak, 1),
-        "heavy_burst_slots": round(heavy_burst, 1), "slot_hours_month": round(sph_total, 1),
+        "heavy_burst_slots": round(heavy_burst, 1), "adhoc_burst_slots": round(adhoc_burst, 1), "slot_hours_month": round(sph_total, 1),
         "autoscale_slot_hours_month": round(sh - baseline * HOURS, 1), "autoscale_overhead": AUTOSCALE_OVERHEAD,
         "month_cost": {"payg": round(payg, 2), "cud1": round(c1, 2), "cud3": round(c3, 2)},
         "comparison": comparison, "warnings": warnings,
     }
+
+
+# --------------------------------------------------------------------------- year-by-year plan (1-yr and 3-yr commitments)
+OPT_IDX = {"payg": 0, "cud1": 1, "cud3": 2}
+
+
+def year_of(month: int) -> int:
+    return (month - 1) // 12 + 1
+
+
+def _year_cost(profs, baseline, max_slots, prices, idx):
+    """Cost of one year's live months at a fixed baseline (commitment billed only once BigQuery is live)."""
+    return sum(month_cost(p, baseline, max_slots, prices)[idx] for p in profs)
+
+
+def best_year_baseline(profs, max_slots, prices, option, floor=0):
+    """Baseline that minimises the whole year's cost - ramp-up months included - for one pricing option.
+
+    floor: a 3-year commitment can only grow, so later years never go below the earlier commitment.
+    """
+    idx = OPT_IDX[option]
+    cands = [b for b in [0] + list(range(SLOT_MIN, int(max_slots) + SLOT_STEP, SLOT_STEP)) if b <= max_slots and b >= floor]
+    if floor and floor not in cands:
+        cands = [floor] + cands
+    best_b, best = (cands[0] if cands else floor), None
+    for b in cands:
+        c = _year_cost(profs, b, max(max_slots, b), prices, idx)
+        if best is None or c < best - 1e-9:
+            best_b, best = b, c
+    return best_b
+
+
+def plan_years(profs_by_year: dict, max_by_year: dict, prices, *, allow_baseline=True, baseline_override=None, strategy="optimal"):
+    """Slots and cost for years 1-3 under pay as you go, 1-year commitments (renewed each year) and one 3-year commitment.
+
+    profs_by_year: {year: [24-hour profile per live month]}; max_by_year: {year: max reservation slots}.
+    Returns {year: {...}} with demand, max, baseline per option, the 3-year top-up and the cost per option.
+    """
+    out, c3_prev = {}, 0
+    for y in (1, 2, 3):
+        profs = profs_by_year.get(y) or []
+        mx = float(max_by_year.get(y) or 0)
+        sh = [sum(p) * 30 for p in profs]
+        if baseline_override not in (None, ""):
+            b = float(min(snap_baseline(float(baseline_override)), mx)) if allow_baseline else 0.0
+            base = {"payg": b, "cud1": b, "cud3": max(b, c3_prev) if profs else c3_prev}
+        elif not allow_baseline or not profs or not mx:
+            base = {"payg": 0.0, "cud1": 0.0, "cud3": float(c3_prev)}
+        else:
+            base = {"payg": float(best_year_baseline(profs, mx, prices, "payg")),
+                    "cud1": float(best_year_baseline(profs, mx, prices, "cud1")),
+                    "cud3": float(best_year_baseline(profs, mx, prices, "cud3", floor=c3_prev))}
+            if strategy == "average":
+                # an environment averaging under 100 slots is left to autoscaling (the minimum commitment would sit idle)
+                a = float(min(mx, res_baseline(sum(sh) / (len(profs) * HOURS))))
+                base["cud1"], base["cud3"] = a, max(a, float(c3_prev))
+        n = len(profs)
+        # the alternative the architect may prefer: commit to the average demand (at least 100 slots)
+        avg_c = float(min(mx, max(SLOT_MIN, floor_step(sum(sh) / (n * HOURS))))) if (n and mx and allow_baseline) else 0.0
+        alt = None
+        if avg_c:
+            a3 = max(avg_c, float(c3_prev))
+            alt = {"slots": {"cud1": avg_c, "cud3": a3},
+                   "cost": {"cud1": round(_year_cost(profs, avg_c, max(mx, avg_c), prices, 1), 2),
+                            "cud3": round(_year_cost(profs, a3, max(mx, a3), prices, 2), 2)}}
+        cost = {o: round(_year_cost(profs, base[o], max(mx, base[o]), prices, OPT_IDX[o]), 2) for o in OPT_IDX}
+        auto = {o: round(sum(autoscale_slot_hours(p, base[o], max(mx, base[o])) for p in profs), 1) for o in OPT_IDX}
+        out[y] = {"year": y, "live_months": n, "max": max(mx, base["cud3"]),
+                  "avg_slots": round(sum(sh) / (n * HOURS), 1) if n else 0.0,
+                  "peak_slots": round(max((max(p) for p in profs), default=0.0), 1),
+                  "slot_hours": round(sum(sh), 1),
+                  "baseline": base, "commitment": {"payg": 0.0, "cud1": base["cud1"], "cud3": base["cud3"]},
+                  "cud3_topup": max(0.0, base["cud3"] - c3_prev),
+                  "autoscale_slot_hours": auto, "cost": cost, "at_average": alt}
+        c3_prev = base["cud3"]
+    return out

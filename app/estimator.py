@@ -81,6 +81,8 @@ BQ_DEFAULTS = {
     "slot_hours_per_tib": 60.0,
     "measured_scan_tib_month": None,   # from INFORMATION_SCHEMA.JOBS (customer's current estate)
     "measured_slot_hours_month": None,
+    "shared_commitment": False,    # one commitment shared by all environments (idle-slot sharing) vs one per environment
+    "commit_strategy": "optimal",  # optimal = lowest total cost | average = commit to the average slot demand
 }
 
 
@@ -100,6 +102,8 @@ def bq_settings(scenario: dict) -> dict:
         b["mode"] = "ondemand"
     if b["edition"] not in ("auto",) + SL.EDITIONS:
         b["edition"] = "auto"
+    if b["commit_strategy"] not in ("optimal", "average"):
+        b["commit_strategy"] = "optimal"
     if b["scan_basis"] not in ("auto", "heuristic", "workload", "measured"):
         b["scan_basis"] = "auto"
     b["slot_hours_per_tib"] = max(0.1, float(b["slot_hours_per_tib"]))
@@ -604,9 +608,59 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
             b = min(b, mx)
             bo = {o: float(min(v, mx)) for o, v in bo.items()}
         env_bq.append((e, float(b), float(mx), ab, am, bo))
+
+    # year-by-year plan: demand grows, so slots are sized for each year (not one reference month for all 36)
+    ed_prices = SL.edition_prices(pricing, edition, bq_up)
+    live = {m: c for m, c in scan_classes.items() if c and sum(c.values())}
+    months_of = {y: [m for m in range(12 * y - 11, 12 * y + 1) if m in live] for y in (1, 2, 3)}
+    prod_profs = {m: SL.profile(class_slot_hours(c), bqs["shape"]) for m, c in live.items()}
+    burst = max(sizing.get("heavy_burst_slots", 0.0), sizing.get("adhoc_burst_slots", 0.0))
+    prod_max = {}
+    for y, ms in months_of.items():
+        if bqs["max_slots"] is not None:
+            mxy = float(sizing["max"])
+        elif ms:
+            mxy = float(SL.res_max(max(max(max(prod_profs[m]) for m in ms), burst, SL.SLOT_MIN)))
+        else:
+            mxy = 0.0
+        prod_max[y] = min(mxy, SL.STANDARD_MAX_SLOTS) if edition == "standard" else mxy
+    env_plans, env_profs = [], []
+    for i, (e, b, mx, ab, am, bo) in enumerate(env_bq):
+        f = 1.0 if i == 0 else e["compute_pct"] / 100.0
+        profs = {m: (prod_profs[m] if i == 0 else SL.profile(class_slot_hours(live[m], f), bqs["shape"])) for m in live} if f > 0 else {}
+        if i == 0:
+            maxy = dict(prod_max)
+            override = bqs["baseline_slots"]
+            allow = edition != "standard"
+        else:
+            maxy = {y: (float(SL.res_max(float(e["bq_max"]))) if e["bq_max"] is not None else float(SL.res_max(prod_max[y] * f)) if f > 0 else 0.0)
+                    for y in (1, 2, 3)}
+            if edition == "standard":
+                maxy = {y: min(v, SL.STANDARD_MAX_SLOTS) for y, v in maxy.items()}
+            override = e["bq_baseline"]
+            allow = edition != "standard" and (e["runtime_pct"] >= 100 or e["bq_baseline"] is not None)
+        plan = SL.plan_years({y: [profs[m] for m in ms if m in profs] for y, ms in months_of.items()}, maxy, ed_prices,
+                             allow_baseline=allow, baseline_override=override, strategy=bqs["commit_strategy"])
+        env_plans.append(plan)
+        env_profs.append(profs)
+    # the reference month's year drives the per-environment spec shown on the Environments and Product pages
+    ref_y = SL.year_of(ref_m)
+    for i, (e, b, mx, ab, am, bo) in enumerate(env_bq):
+        py = env_plans[i][ref_y]
+        if py["live_months"]:
+            env_bq[i] = (e, py["baseline"]["cud1"], py["max"], ab, am, dict(py["baseline"]))
+
+    # optional: one commitment shared by every environment (idle slots are shared between reservations)
+    shared = None
+    if bqs.get("shared_commitment") and edition != "standard" and len(env_bq) > 1:
+        comb = {y: [] for y in (1, 2, 3)}
+        for y, ms in months_of.items():
+            for m in ms:
+                comb[y].append([sum(pf[m][h] for pf in env_profs if m in pf) for h in range(24)])
+        tot_max = {y: sum(pl[y]["max"] for pl in env_plans) for y in (1, 2, 3)}
+        shared = SL.plan_years(comb, tot_max, ed_prices, allow_baseline=True, strategy=bqs["commit_strategy"])
     # per-environment slot specification at the reference month (shown whatever the pricing model)
     bq_specs = []
-    ed_prices = SL.edition_prices(pricing, edition, bq_up)
     for i, (e, b, mx, ab, am, bo) in enumerate(env_bq):
         f = 1.0 if i == 0 else e["compute_pct"] / 100.0
         prof = SL.profile(class_slot_hours(ref_cls, f), bqs["shape"]) if ref_cls else [0.0] * 24
@@ -632,24 +686,38 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
                          "overridden": (bqs["baseline_slots"] is not None or bqs["max_slots"] is not None) if i == 0 else (e["bq_baseline"] is not None or e["bq_max"] is not None)})
     env_bq_lines = []                     # (env_id, m, payg, cud1, cud3, slot_hours) for non-primary envs
     if bq_model == "editions":
-        prices = SL.edition_prices(pricing, edition, bq_up)
-        for m in range(1, 37):
-            cls = scan_classes.get(m)
-            if not cls or not sum(cls.values()):
-                continue
-            for i, (e, b, mx, _ab, _am, bo) in enumerate(env_bq):
-                f = 1.0 if i == 0 else e["compute_pct"] / 100.0
-                if f <= 0 and b <= 0:
+        prices = ed_prices
+        for m in sorted(live):
+            y = SL.year_of(m)
+            rows = []
+            for i, (e, *_r) in enumerate(env_bq):
+                prof = env_profs[i].get(m)
+                pl = env_plans[i][y]
+                if prof is None and not pl["baseline"]["cud3"]:
+                    rows.append(None)
                     continue
-                prof = SL.profile(class_slot_hours(cls, f), bqs["shape"])
-                # each pricing option uses its own best baseline (commitment) - autoscaling is always pay as you go
-                p_ = SL.month_cost(prof, bo["payg"], mx, prices)[0]
-                _p, c1_, _c3, sh_ = SL.month_cost(prof, bo["cud1"], mx, prices)
-                c3_ = SL.month_cost(prof, bo["cud3"], mx, prices)[2]
+                prof = prof or [0.0] * 24
+                mx = pl["max"]
+                # each pricing option uses its own commitment for this year - autoscaling is always pay as you go
+                p_ = SL.month_cost(prof, pl["baseline"]["payg"], max(mx, pl["baseline"]["payg"]), prices)[0]
+                _p, c1_, _c3, sh_ = SL.month_cost(prof, pl["baseline"]["cud1"], max(mx, pl["baseline"]["cud1"]), prices)
+                c3_ = SL.month_cost(prof, pl["baseline"]["cud3"], max(mx, pl["baseline"]["cud3"]), prices)[2]
+                rows.append([p_, c1_, c3_, sh_, sum(prof)])
+            if shared is not None:
+                sp = shared[y]
+                comb = [sum(env_profs[i][m][h] for i in range(len(env_bq)) if m in env_profs[i]) for h in range(24)]
+                pool = [SL.month_cost(comb, sp["baseline"][o], max(sp["max"], sp["baseline"][o]), prices)[k]
+                        for o, k in (("payg", 0), ("cud1", 1), ("cud3", 2))]
+                dem = sum(r[4] for r in rows if r) or 1.0
+                rows = [None if r is None else [pool[0] * r[4] / dem, pool[1] * r[4] / dem, pool[2] * r[4] / dem, r[3], r[4]] for r in rows]
+            for i, r in enumerate(rows):
+                if r is None:
+                    continue
+                p_, c1_, c3_, sh_, _d = r
                 if i == 0:
                     add(m, "BigQuery compute", "_platform", p_, cud1=c1_, cud3=c3_, q=(sh_, "slot-hours"))
                 elif p_ and "BigQuery compute" not in excluded:
-                    env_bq_lines.append((e["id"], m, p_, c1_, c3_, sh_))
+                    env_bq_lines.append((env_bq[i][0]["id"], m, p_, c1_, c3_, sh_))
 
     # ------------------------------------------------------------ Shared platform components (processing region)
     ctx["rid"] = processing_region
@@ -844,6 +912,7 @@ def estimate(scenario: dict, keep_items: bool = False, detail: bool = False) -> 
                                              "max": sum(x["by_option"][o]["max"] for x in bq_specs),
                                              "monthly": round(sum(x["by_option"][o]["monthly"] for x in bq_specs), 2)}
                                          for o in ("payg", "cud1", "cud3")}
+    out["bigquery"]["plan"] = _slot_plan_summary(env_bq, env_plans, shared, bqs, edition, months_of, ed_prices)
     out["bigquery"]["rules"] = {"slot_min": SL.SLOT_MIN, "slot_step": SL.SLOT_STEP, "hours_per_month": SL.HOURS,
                                 "autoscale_overhead": SL.AUTOSCALE_OVERHEAD, "standard_max": SL.STANDARD_MAX_SLOTS}
     drivers = defaultdict(set)
@@ -1118,3 +1187,29 @@ def _summarise(payg, cud, recs, platform, sources, meta, region, scenario, prici
                        f"x{region['uplift']:.2f} for {region['name']}. Excludes taxes, support, egress from other clouds, "
                        "partner licences (Power BI, Tableau, SageMaker and other non-Google tools are not costed) and negotiated discounts. Validate with the Google Cloud Pricing Calculator."),
     }
+
+
+def _slot_plan_summary(env_bq, env_plans, shared, bqs, edition, months_of, prices):
+    """Year 1-3 slots and BigQuery compute cost per environment and in total, for each pricing option."""
+    O = ("payg", "cud1", "cud3")
+    envs = []
+    for (e, *_r), pl in zip(env_bq, env_plans):
+        envs.append({"id": e["id"], "name": e["name"], "years": [pl[y] for y in (1, 2, 3)]})
+    totals = []
+    for y in (1, 2, 3):
+        rows = [pl[y] for pl in env_plans]
+        t = {"year": y, "live_months": len(months_of[y]),
+             "avg_slots": round(sum(r["avg_slots"] for r in rows), 1), "peak_slots": round(sum(r["peak_slots"] for r in rows), 1),
+             "slot_hours": round(sum(r["slot_hours"] for r in rows), 1), "max": sum(r["max"] for r in rows),
+             "commitment": {o: sum(r["commitment"][o] for r in rows) for o in O},
+             "cud3_topup": sum(r["cud3_topup"] for r in rows),
+             "cost": {o: round(sum(r["cost"][o] for r in rows), 2) for o in O}}
+        if shared is not None:
+            sy = shared[y]
+            t.update({"commitment": dict(sy["commitment"]), "cud3_topup": sy["cud3_topup"], "cost": dict(sy["cost"])})
+        totals.append(t)
+    return {"edition": edition, "shared_commitment": shared is not None, "commit_strategy": bqs["commit_strategy"],
+            "shared_requested": bool(bqs.get("shared_commitment")),
+            "rates": {"payg": round(prices[0], 6), "cud1": round(prices[1], 6), "cud3": round(prices[2], 6)},
+            "environments": envs, "shared": [shared[y] for y in (1, 2, 3)] if shared else None, "totals": totals,
+            "three_year": {o: round(sum(t["cost"][o] for t in totals), 2) for o in O}}

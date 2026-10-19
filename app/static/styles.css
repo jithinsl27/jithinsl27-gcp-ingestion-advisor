@@ -1223,3 +1223,40 @@ button.plan-total em { font-style: normal; color: var(--blue); font-size: 12.5px
 .eq-refs ol { margin: 6px 0 0 18px; padding: 0; } .eq-refs li { margin: 3px 0; } .eq-refs small { color: var(--muted); }
 .eq-item footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; color: var(--muted); }
 @media (max-width: 720px) { .eq-row { flex-direction: column; } }
+
+/* ================================================================ hover explanations */
+.tip { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 4px; border-radius: 50%;
+  font: italic 600 10px/1 Georgia, serif; color: var(--muted); border: 1px solid var(--line-strong); background: var(--surface);
+  cursor: help; vertical-align: 1px; text-transform: none; letter-spacing: 0; flex: none; }
+.tip:hover, .tip:focus-visible { color: var(--blue); border-color: var(--blue); outline: none; }
+[data-tip]:not(.tip) { cursor: help; text-decoration: underline dotted var(--line-strong); text-underline-offset: 3px; }
+.tipbox { position: fixed; z-index: 1000; max-width: min(320px, calc(100vw - 16px)); padding: 9px 11px; border-radius: 8px;
+  background: var(--ink); color: var(--surface); font: 400 12.5px/1.45 var(--font-body); box-shadow: var(--shadow-pop); pointer-events: none; }
+
+/* ================================================================ BigQuery slots, year by year */
+.mon-sub { margin-bottom: 16px; }
+.slot-controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-end; margin: 14px 0 8px; }
+.slot-controls > div { display: flex; flex-direction: column; gap: 5px; }
+.ctl-label { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.env-pick { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 4px 0 12px; }
+.slot-years { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin: 12px 0 16px; }
+.slot-years .sy { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 2px; }
+.slot-years .sy span { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; }
+.slot-years .sy b { font-size: 18px; font-weight: 600; }
+.slot-years .sy small { font-size: 12px; color: var(--ink-2); }
+.slot-years .sy em { font-style: normal; font-weight: 600; margin-top: 4px; }
+.slot-years .sy.total { background: var(--blue-soft); border-color: transparent; }
+.slot-years .sy.total b { color: var(--blue); }
+.tbl-scroll { overflow-x: auto; }
+.slot-plan th[scope="rowgroup"] { text-align: left; white-space: nowrap; vertical-align: top; }
+.slot-plan tr.env-end td, .slot-plan tr.env-end th { border-bottom: 2px solid var(--line-strong); }
+.slot-plan tr.slot-total td, .slot-plan tr.slot-total th { background: var(--surface-2); }
+.slot-plan th, .slot-compare th { white-space: nowrap; }
+.slot-compare tr.on th, .slot-compare tr.on td { background: var(--blue-soft); }
+.slot-compare small, .slot-plan small { color: var(--muted); font-size: 11.5px; }
+.slot-controls label.chk, .env-pick label.chk { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; }
+.slot-controls label.chk input, .env-pick label.chk input { margin: 0; width: auto; }
+.bq-ed { display: inline-flex; flex-direction: column; gap: 4px; }
+.warn-txt { color: var(--danger); font-weight: 600; }
+.slot-years .sy small b { font-size: inherit; font-weight: 600; }

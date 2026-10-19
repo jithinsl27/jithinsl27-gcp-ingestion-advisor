@@ -184,14 +184,23 @@ def test_pricing_plans_specs_and_editable_bom(page):
     page.wait_for_function(f"(() => {{ const b = document.querySelector('button.plan-total b'); return b && parseFloat(b.textContent.replace(/[^0-9.]/g, '')) > {before}; }})()", timeout=15_000)
 
 
-def test_bigquery_slots_page_per_environment(page):
-    goto(page, "slots")
-    page.wait_for_selector("#slotsBody .slot-env")
+def test_bigquery_slots_by_year_in_product_monitor(page):
+    goto(page, "monitor")
+    page.click('.mon-sub [data-mon-sub="slots"]')
+    page.wait_for_selector("#slotsBody .explain")
+    assert page.locator('.modnav [data-tab="slots"]').count() == 0          # no separate menu item any more
     page.click('#slotsBody [data-bq-mode="editions"]')
-    page.wait_for_selector("#slotsBody .slot-edit", timeout=15_000)
-    rows = page.locator("#slotsBody .slot-env tbody tr").count()
-    assert rows >= 1
+    page.wait_for_selector("#slotsBody .slot-plan", timeout=15_000)
     assert "100 slots" in page.inner_text("#slotsBody .explain")
+    # three year cards plus the 3-year total, and a Year 1-3 row per environment
+    assert page.locator("#slotsBody .slot-years .sy").count() == 4
+    assert page.locator("#slotsBody .slot-plan tbody tr").count() % 3 == 0
+    page.click('#slotsBody [data-slot-opt="cud3"]')
+    page.wait_for_selector("#slotsBody .slot-plan th:has-text('Top-up')")
+    # every header explains itself on hover
+    page.hover("#slotsBody .slot-plan thead th .tip >> nth=0")
+    page.wait_for_selector("#tipbox:not([hidden])")
+    assert "slot-hours" in page.inner_text("#tipbox")
 
 
 def test_use_cases_recommend_and_add(page):
