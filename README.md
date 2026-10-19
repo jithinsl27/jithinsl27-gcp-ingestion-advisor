@@ -1,5 +1,7 @@
 # Data Cloud Compass
 
+*Created by **Jithin S L**.*
+
 **From discovery to blueprint on Google Cloud.** A tool for Data & AI architects to use live in customer discovery sessions. Add the customer's source systems and the tools they already use - by hand, through a **guided interview**, from **meeting notes (Gemini)** or an **inventory spreadsheet** - and Data Cloud Compass:
 
 - **draws the target architecture** live: sources → connectivity → CDC / batch ingestion → **Cloud Storage raw zone** → BigQuery **bronze / silver / gold** → BI, AI, APIs and operational databases, with governance and security across every layer;
@@ -133,6 +135,10 @@ GitHub Pages demo (same files) ── CORS ──▶          ├─ slots.py   
 ## Important
 
 Estimates are **ballpark figures for discovery conversations**, based on public list prices (live from the Cloud Billing Catalog when deployed, otherwise reviewed 2026-10-15). Negotiated discounts and Customer Care are included only when you enter them. They exclude taxes, egress from other clouds and partner licences (Power BI, Tableau, SageMaker and the other partner tools are never costed; Looker is quote-based). Validate with the [Google Cloud Pricing Calculator](https://cloud.google.com/products/calculator) before sharing numbers formally.
+
+## Author
+
+Created and owned by **Jithin S L**.
 
 ## License
 
