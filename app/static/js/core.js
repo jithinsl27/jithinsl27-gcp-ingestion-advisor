@@ -58,6 +58,8 @@ export const api = window.ADVISOR_API || {
   cbTemplateCsvUrl: (region) => API_BASE + `/api/chargeback/template?format=csv&region=${encodeURIComponent(region)}`,
   cbPricebook: () => call("GET", "/api/chargeback/pricebook"),
   cbSavePricebook: (b) => call("PUT", "/api/chargeback/pricebook", b),
+  cbPublishDefault: (b, key) => call("PUT", "/api/chargeback/pricebook?scope=default", b, { headers: { "X-Admin-Key": key } }),
+  cbUseDefault: () => call("DELETE", "/api/chargeback/pricebook"),
   cbExtract: (file, region) => { const f = new FormData(); f.append("file", file); return call("POST", `/api/chargeback/pricebook/extract?region=${encodeURIComponent(region)}`, f); },
   cbExtractLink: (url, region) => call("POST", "/api/chargeback/pricebook/extract-link", { url, region }),
   cbPrice: (req) => call("POST", "/api/chargeback/price", req),

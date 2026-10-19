@@ -38,7 +38,10 @@ export function renderChargeback() {
   let html = `<p class="lede">Once the customer has bought Google Cloud with its discounts, the data office can charge each department for what it asks for. Load the negotiated prices once, then price any request: data sources, pipelines, reports and AI use cases.</p>`;
   // ---------------- 1. price book
   html += `<section class="cb-sec"><h3><span class="step">1</span>Negotiated price book</h3>
-    <p class="${n ? "ok-note" : "hint"}">${n ? `<b>${n} negotiated prices</b> in use · ${esc(regionName(cb.book.region))} · updated ${esc(ago(cb.book.updated_at))}${cb.book.updated_by ? ` by ${esc(cb.book.updated_by)}` : ""}${cb.book.note ? ` · ${esc(cb.book.note)}` : ""}` : "No price book yet - requests are priced at Google list prices."}</p>
+    <p class="${n ? "ok-note" : "hint"}">${n ? `<b>${n} negotiated prices</b> in use - <b>${cb.book.scope === "mine" ? "your own price book" : "the default price book"}</b> · ${esc(regionName(cb.book.region))} · updated ${esc(ago(cb.book.updated_at))}${cb.book.updated_by ? ` by ${esc(cb.book.updated_by)}` : ""}${cb.book.note ? ` · ${esc(cb.book.note)}` : ""}` : "No price book yet - requests are priced at Google list prices."}</p>
+    <p class="hint">Each person keeps their own price book and ledger, so trying prices out never changes anyone else's. ${cb.book.has_default ? "Until you upload your own, you use the default published by the admin." : "The admin can publish a default that everyone starts from."}</p>
+    ${n ? `<div class="cb-actions">${cb.book.scope === "mine" && cb.book.has_default ? `<button type="button" class="btn ghost small" data-cb-usedefault>Go back to the default</button>` : ""}
+      ${cb.book.scope === "mine" ? `<button type="button" class="btn ghost small" data-cb-publish>Publish mine as the default (admin)</button>` : ""}</div>` : ""}
     <div class="cb-actions">
       <label>Price region <select data-cb-region>${regionOptions()}</select></label>
       <button type="button" class="btn ghost small" data-cb-template>Download template (Excel)</button>
@@ -101,7 +104,7 @@ function reviewTable() {
       <td class="num"><input type="number" min="0" step="any" data-rv="${i}" data-rv-f="price" value="${x.price ?? ""}" placeholder="list price"></td>
       <td>${esc({ exact: "exact", closest: "closest name", none: "no match", "not in sheet": "not in sheet" }[x.match] || x.match)}</td></tr>`).join("")}</tbody></table></div>
     <div class="cb-actions"><button type="button" class="btn primary small" data-cb-savebook>Save price book</button><button type="button" class="btn ghost small" data-cb-cancelreview>Cancel</button>
-      <span class="hint">Saved prices are shared with everyone who opens Charge-back.</span></div></div>`;
+      <span class="hint">Saved as your own price book - nobody else's prices change.</span></div></div>`;
 }
 
 function resultBlock() {
@@ -198,6 +201,22 @@ export function bindChargeback() {
       try {
         cb.book = await api.cbSavePricebook({ region: region(), currency: "USD", items, note: `From ${String(cb.review.file || "").slice(0, 120)}` });
         cb.review = null; toast("Price book saved"); renderChargeback(); priceNow();
+      } catch (err) { toast(err.message, 6000); }
+      return;
+    }
+    if (t.closest("[data-cb-usedefault]")) {
+      try { await api.cbUseDefault(); cb.book = await api.cbPricebook(); toast("Back to the default price book"); renderChargeback(); priceNow(); } catch (err) { toast(err.message, 6000); }
+      return;
+    }
+    if (t.closest("[data-cb-publish]")) {
+      let key = ""; try { key = sessionStorage.getItem("data-cloud-compass:admin-key") || ""; } catch (_) { /* ignore */ }
+      key = window.prompt("Admin key (ADMIN_KEY on the Cloud Run service) to publish this price book as the default for everyone:", key) || "";
+      if (!key) return;
+      try {
+        const b = cb.book;
+        await api.cbPublishDefault({ region: b.region, currency: b.currency || "USD", items: b.items, note: b.note || "" }, key.trim());
+        try { sessionStorage.setItem("data-cloud-compass:admin-key", key.trim()); } catch (_) { /* ignore */ }
+        cb.book = await api.cbPricebook(); toast("Published as the default price book"); renderChargeback();
       } catch (err) { toast(err.message, 6000); }
       return;
     }

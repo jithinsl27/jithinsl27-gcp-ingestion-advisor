@@ -666,3 +666,29 @@ def test_cost_optimal_commitment_is_cheapest_and_shared_is_not_dearer():
     assert opt["cud3"] <= avg["cud3"] + 0.01 and opt["cud1"] <= avg["cud1"] + 0.01
     assert opt["cud3"] <= opt["payg"] + 0.01
     assert shared["cud3"] <= opt["cud3"] + 0.01
+
+
+def test_chargeback_price_book_and_ledger_are_per_person(monkeypatch):
+    monkeypatch.setenv("K_SERVICE", "compass")            # behave like Cloud Run: admin needs the key
+    monkeypatch.setenv("ADMIN_KEY", "k3y")
+    a = {"X-Compass-User": "Ana", "X-Compass-Email": "ana@example.com"}
+    b = {"X-Compass-User": "Ben", "X-Compass-Email": "ben@example.com"}
+    adm = {"X-Admin-Key": "k3y"}
+    item = {"service": "Datastream (CDC)", "unit": "GiB", "price": 1.0, "list_price": 2.0}
+    # admin publishes a default; Ana saves her own; Ben still sees the default
+    assert client.put("/api/chargeback/pricebook?scope=default", json={"items": [item], "note": "default"}, headers=a).status_code == 403
+    assert client.put("/api/chargeback/pricebook?scope=default", json={"items": [item], "note": "default"}, headers={**a, **adm}).status_code == 200
+    assert client.put("/api/chargeback/pricebook", json={"items": [{**item, "price": 0.5}], "note": "ana"}, headers=a).status_code == 200
+    assert client.get("/api/chargeback/pricebook", headers=a).json()["scope"] == "mine"
+    gb = client.get("/api/chargeback/pricebook", headers=b).json()
+    assert gb["scope"] == "default" and gb["note"] == "default"
+    # Ana's ledger entry is hers alone; Ben cannot delete it
+    req = {"department": "Finance", "title": "Board pack", "sources": [{"kind": "database_cdc", "count": 1, "daily_gb": 5, "history_gb": 100}]}
+    rid = client.post("/api/chargeback/requests", json=req, headers=a).json()["id"]
+    assert any(x["id"] == rid for x in client.get("/api/chargeback/requests", headers=a).json())
+    assert not any(x["id"] == rid for x in client.get("/api/chargeback/requests", headers=b).json())
+    assert client.delete(f"/api/chargeback/requests/{rid}", headers=b).status_code == 403
+    assert client.delete(f"/api/chargeback/requests/{rid}", headers=a).status_code == 200
+    # Ana goes back to the default
+    client.delete("/api/chargeback/pricebook", headers=a)
+    assert client.get("/api/chargeback/pricebook", headers=a).json()["scope"] == "default"

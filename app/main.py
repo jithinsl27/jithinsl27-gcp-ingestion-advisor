@@ -578,18 +578,64 @@ def cb_template(region: str = "us-central1", format: str = "json"):
     return {"region": region, "rows": rows}
 
 
+def _owner(request) -> str:
+    """Who is asking: the signed-in Google account when there is one, else the e-mail entered on the first visit."""
+    authz = request.headers.get("authorization", "")
+    if authz:
+        try:
+            return auth.current_user(authz)["email"]
+        except HTTPException:
+            pass
+    return US.identity(request)[1]
+
+
+def _book_key(owner: str) -> str:
+    return "pricebook-user-" + owner.replace("/", "_")
+
+
+def _price_book(request):
+    """The price book that applies to this person: their own, else the default published by the admin."""
+    owner = _owner(request)
+    return (get_store().kv_get(_book_key(owner)) if owner else None) or get_store().kv_get("pricebook")
+
+
 @app.get("/api/chargeback/pricebook")
-def cb_pricebook_get():
-    return get_store().kv_get("pricebook") or {"items": [], "region": "us-central1", "currency": "USD"}
+def cb_pricebook_get(request: Request):
+    owner = _owner(request)
+    mine = get_store().kv_get(_book_key(owner)) if owner else None
+    default = get_store().kv_get("pricebook")
+    if mine:
+        return {**mine, "scope": "mine", "has_default": bool(default and default.get("items"))}
+    if default and default.get("items"):
+        return {**default, "scope": "default", "has_default": True}
+    return {"items": [], "region": "us-central1", "currency": "USD", "scope": "none", "has_default": False}
 
 
 @app.put("/api/chargeback/pricebook")
-def cb_pricebook_put(book: PriceBook, request: Request):
+def cb_pricebook_put(book: PriceBook, request: Request, scope: Literal["mine", "default"] = "mine"):
+    """Save your own price book, or (with the admin key) publish the default everyone starts from."""
     import time as _t
     doc = {**book.model_dump(), "updated_at": _t.time(), "updated_by": _who(request)}
-    get_store().kv_put("pricebook", doc)
-    US.record(get_store(), request, 200, 0.0, action="price book saved", detail=f"{len(book.items)} prices")
-    return doc
+    if scope == "default":
+        if not US.admin_ok(request):
+            raise HTTPException(status_code=403, detail="Publishing the default price book needs the admin key (ADMIN_KEY).")
+        get_store().kv_put("pricebook", doc)
+    else:
+        owner = _owner(request)
+        if not owner:
+            raise HTTPException(status_code=400, detail="Sign in or enter your e-mail first, so the price book is saved as yours.")
+        get_store().kv_put(_book_key(owner), doc)
+    US.record(get_store(), request, 200, 0.0, action="price book saved", detail=f"{scope}: {len(book.items)} prices")
+    return {**doc, "scope": scope}
+
+
+@app.delete("/api/chargeback/pricebook")
+def cb_pricebook_delete(request: Request):
+    """Drop your own price book and go back to the default."""
+    owner = _owner(request)
+    if owner:
+        get_store().kv_delete(_book_key(owner))
+    return {"ok": True}
 
 
 @app.post("/api/chargeback/pricebook/extract")
@@ -623,26 +669,35 @@ def cb_pricebook_extract_link(link: SheetLink, request: Request):
 
 
 @app.post("/api/chargeback/price")
-def cb_price(req: ChargebackRequest):
-    return CB.price_request(req.model_dump(), get_store().kv_get("pricebook"))
+def cb_price(req: ChargebackRequest, request: Request):
+    return CB.price_request(req.model_dump(), _price_book(request))
 
 
 @app.get("/api/chargeback/requests")
-def cb_requests():
-    return get_store().cb_list()
+def cb_requests(request: Request):
+    """Your own ledger (the admin sees everyone's). Requests saved before ledgers were personal stay visible to all."""
+    rows = get_store().cb_list()
+    if US.admin_ok(request):
+        return rows
+    owner = _owner(request)
+    return [x for x in rows if not x.get("owner") or (owner and x.get("owner") == owner)]
 
 
 @app.post("/api/chargeback/requests")
 def cb_save(req: ChargebackRequest, request: Request):
-    res = CB.price_request(req.model_dump(), get_store().kv_get("pricebook"))
+    res = CB.price_request(req.model_dump(), _price_book(request))
     doc = CB.new_record(req.model_dump(), res, _who(request))
+    doc["owner"] = _owner(request)
     get_store().cb_put(doc)
     US.record(get_store(), request, 200, 0.0, action="charge-back saved", detail=f"{doc['department']}: {doc['title']}")
     return doc
 
 
 @app.delete("/api/chargeback/requests/{rid}")
-def cb_delete(rid: str):
+def cb_delete(rid: str, request: Request):
+    row = next((x for x in get_store().cb_list() if x.get("id") == rid), None)
+    if row and row.get("owner") and row["owner"] != _owner(request) and not US.admin_ok(request):
+        raise HTTPException(status_code=403, detail="Only the person who saved this request can delete it")
     get_store().cb_delete(rid)
     return {"ok": True}
 

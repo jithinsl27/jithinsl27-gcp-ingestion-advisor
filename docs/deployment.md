@@ -45,11 +45,19 @@ The script is idempotent - re-run it for every release (or let GitHub deploy, se
 
 ### Turn on Google sign-in
 
-1. Console → **APIs & Services → OAuth consent screen**: configure it (*Internal* for Workspace organisations). Enable the **Google Drive API** if you want Drive exports.
-2. **Credentials → Create credentials → OAuth client ID → Web application**. Authorised JavaScript origins: your Cloud Run URL and your GitHub Pages origin (`https://<owner>.github.io`).
-3. `./deploy.sh --project YOUR_PROJECT --region REGION --oauth-client-id CLIENT_ID --allowed-domains yourcompany.com`
+Sign-in gives every tester their own saved scenarios (Firestore, under their Google account), a real identity in **Usage (admin)**, and the AI assist. Nobody sees anyone else's work unless it is shared. About five minutes in the Console:
+
+1. **APIs & Services → OAuth consent screen** (Google Auth Platform → Branding / Audience). App name *Data Cloud Compass*, your support e-mail. Audience: **Internal** for a Workspace organisation (only your company's accounts), or **External** for any Google account - add testers' e-mails under *Test users* while the app is in testing. Enable the **Google Drive API** if you want Drive exports.
+2. **APIs & Services → Credentials → Create credentials → OAuth client ID → Web application**. Name: *Data Cloud Compass*. **Authorised JavaScript origins**: your Cloud Run URL (e.g. `https://data-cloud-compass-xxxxx.us-central1.run.app`) and your GitHub Pages origin (`https://<owner>.github.io`). No redirect URIs are needed. Copy the **Client ID**.
+3. Redeploy with it:
+   ```
+   ./deploy.sh --project YOUR_PROJECT --region REGION --oauth-client-id CLIENT_ID
+   ```
+   Add `--allowed-domains yourcompany.com,partner.com` (or set `ALLOWED_EMAILS`) to limit who can sign in; leave it out to let any Google account sign in.
 
 The browser signs in with Google Identity Services and sends the ID token; the service verifies it against the client ID and the allow-list. Without a client ID the app works fully for estimating - only saving, sharing and the AI assist are off (Export → Save scenario JSON still works).
+
+**Working side by side.** The scenario someone is working on lives in their own browser, so testers never overwrite each other. Saved scenarios belong to their owner. The Charge-back price book and ledger are also per person (below).
 
 ### Live prices and availability
 
@@ -109,7 +117,7 @@ The diagram ships with its own icons. To show Google's official product icons in
 
 ## Charge-back data
 
-The price book (Firestore `system/pricebook`) and charge-back requests (`chargeback` collection) are shared by everyone who opens the module. Reading PDFs and images uses Gemini on Vertex AI in the deployment's project (`GEMINI_MODEL`, default `gemini-3.8-flash`); Excel, CSV and Google Sheets links do not.
+Each person has their own price book (Firestore `system/pricebook-user-<email>`) and sees only their own charge-back requests (`chargeback` collection, field `owner`); the person is the signed-in Google account, or the e-mail entered on the first visit when sign-in is off. The admin can publish a **default** price book (`system/pricebook`) that everyone uses until they upload their own - *Publish mine as the default* asks for the `ADMIN_KEY`; with the key the admin also sees every request. Reading PDFs and images uses Gemini on Vertex AI in the deployment's project (`GEMINI_MODEL`, default `gemini-3.8-flash`); Excel, CSV and Google Sheets links do not.
 
 ## Restricting access
 

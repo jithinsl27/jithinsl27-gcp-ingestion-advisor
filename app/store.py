@@ -143,6 +143,9 @@ class MemoryStore:
     def kv_put(self, key, value):
         self.kv[key] = value
 
+    def kv_delete(self, key):
+        self.kv.pop(key, None)
+
     # ------------------------------------------------------------------ usage events (who uses the tool)
     def log_event(self, ev):
         with self.lock:
@@ -281,6 +284,9 @@ class FirestoreStore(MemoryStore):
     def kv_put(self, key, value):
         import json
         self.db.collection("system").document(key).set({"json": json.dumps(value), "updated_at": _now()})
+
+    def kv_delete(self, key):
+        self.db.collection("system").document(key).delete()
 
     def log_event(self, ev):
         self.db.collection("usage").add(dict(ev))
