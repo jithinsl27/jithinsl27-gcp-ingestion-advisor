@@ -106,6 +106,10 @@ def test_proposal_is_at_most_15_pages(page):
     assert page.locator("#ppPages .pp-page").count() <= 15
     page.uncheck('[data-pp-sec="monthly"]')
     page.wait_for_function("document.querySelector('#ppCount').textContent.includes('14 pages')", timeout=10_000)
+    # commercial options: every year shows whole currency amounts (no stray decimals)
+    import re
+    page_txt = page.locator("#ppPages .pp-page:not(.cover)", has_text="Commercial options").first.inner_text()
+    assert not re.search(r"\$[\d,]+\.\d", page_txt), page_txt[:400]
 
 
 def test_kickoff_readiness_checklist_milestones_and_team(page):
