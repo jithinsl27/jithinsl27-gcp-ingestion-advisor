@@ -157,8 +157,8 @@
         { type: "table", head: ["Option", "Year 1", "Year 2", "Year 3", "Total", "Saving vs pay as you go"], widths: [26, 14, 14, 14, 16, 16], rows: [
           ["Pay as you go - 1 year", m(plans.payg_1y.total), "-", "-", m(plans.payg_1y.total), "-"],
           ["1-year commitment", m(plans.commit_1y.total), "-", "-", m(plans.commit_1y.total), m(plans.commit_1y.saving)],
-          ["Pay as you go - 3 years", ...plans.payg_3y.by_year.map(m), m(plans.payg_3y.total), "-"],
-          ["3-year commitment", ...plans.commit_3y.by_year.map(m), m(plans.commit_3y.total), m(plans.commit_3y.saving)],
+          ["Pay as you go - 3 years", ...plans.payg_3y.by_year.map((v) => m(v)), m(plans.payg_3y.total), "-"],
+          ["3-year commitment", ...plans.commit_3y.by_year.map((v) => m(v)), m(plans.commit_3y.total), m(plans.commit_3y.saving)],
         ] },
         { type: "chart", kind: "grouped", labels: ["Year 1", "Year 2", "Year 3"], series: [
           { name: "Pay as you go", values: plans.payg_3y.by_year, color: "#FBBC04" }, { name: "3-year commitment", values: plans.commit_3y.by_year, color: "#188038" }],
