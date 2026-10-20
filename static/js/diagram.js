@@ -389,7 +389,7 @@ export function renderDiagram() {
   const badge = (x, y) => `<g class="dg-gov-badge"><title>Governed by Knowledge Catalog (Dataplex): catalog, lineage, profiling and quality</title><rect x="${x}" y="${y}" width="66" height="17" rx="8.5"/><text x="${x + 33}" y="${y + 12}" text-anchor="middle">Dataplex</text></g>`;
   let govSvg = "";
   if (govd.has("bigquery") && info.some((o) => o.r && tgtOf(o) === "data_platform")) govSvg += badge(col.bq + cw.bq - 76, bqY + 12);
-  if (govd.has("mesh") && meshPos) govSvg += badge(meshPos.x + cw.bq - 76, meshPos.y + meshH - 24);
+  if (govd.has("mesh") && meshPos) govSvg += badge(meshPos.x + cw.bq - 106, meshPos.y + 8);
   if (govd.has("lake") && lakePos) govSvg += badge(lakePos.x + cw.bq - 76, lakePos.y + 6);
   if (govd.has("sources")) govSvg += badge(col.src + 112, 9);
   host.innerHTML = `<svg id="archSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Target data and AI architecture on Google Cloud" xmlns="http://www.w3.org/2000/svg">${headSvg}${edges}${band}${nodes}${over}${govSvg}${legendSvg}</svg>`;
@@ -487,7 +487,8 @@ export function bqModelName() {
   if (b.mode !== "editions") return "On-demand (per TiB)";
   const r = S.result?.bigquery;
   const ed = r?.edition || (b.edition !== "auto" ? b.edition : "enterprise");
-  return `${{ standard: "Standard", enterprise: "Enterprise", enterprise_plus: "Enterprise Plus" }[ed]} edition${r ? ` (${r.baseline} → ${r.max} slots)` : ""}`;
+  const t = r?.plan?.totals;
+  return `${{ standard: "Standard", enterprise: "Enterprise", enterprise_plus: "Enterprise Plus" }[ed]} edition${t ? ` · up to ${t[0].max} → ${t[2].max} slots (Y1 → Y3)` : r ? ` (${r.baseline} → ${r.max} slots)` : ""}`;
 }
 
 export function clip(s, n) { s = String(s); n = Math.floor(n); return s.length > n ? s.slice(0, n - 1) + "…" : s; }

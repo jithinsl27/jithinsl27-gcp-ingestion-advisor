@@ -230,8 +230,16 @@ export function renderOverview() {
   html += card("pricing", "Where the money goes", groups.map((g) => `<div class="bar-row"><span>${esc(g.group)}</span><i style="width:${Math.max(3, (100 * g.year1) / maxG)}%;background:${GROUP_COLORS[g.group] || "#9AA0A6"}"></i><b>${moneyShort(g.year1)}</b></div>`).join("")
     + (top.length ? `<p class="ov-note">Biggest lines: ${top.map((t) => esc(t.service || t.key)).join(", ")}</p>` : ""));
   html += card("env", "Environments", (r?.environments || []).map((e) => kv(e.name, `${moneyShort(e.year1)}/yr`)).join(""));
-  html += card("workload", "Sizing & BigQuery slots", sl ? kv("Average / peak", `${sl.avg_slots} / ${Math.round(sl.peak_slots)} slots`) + kv("Reservation", `${sl.baseline_slots} → ${sl.max_slots} slots`)
-    + kv("Recommended", sl.model === "editions" ? EDITION_NAME[sl.edition] + " edition" : "On-demand") : "<p>Calculating…</p>");
+  {
+    // the year-by-year slot plan (same numbers as Product monitor -> BigQuery slots and Pricing)
+    const bq = S.result?.bigquery, pl = bq?.plan;
+    const ed = S.scenario.bq?.mode === "editions";
+    html += card("slots", "BigQuery slots", pl && ed
+      ? kv("Max slots, Y1 → Y3", `${pl.totals[0].max} → ${pl.totals[2].max}`) + kv("3-yr commitment, Y1 → Y3", `${pl.totals[0].commitment.cud3} → ${pl.totals[2].commitment.cud3} slots`)
+        + kv("Edition", EDITION_NAME[bq.edition] || "-")
+      : sl ? kv("Average / peak", `${sl.avg_slots} / ${Math.round(sl.peak_slots)} slots`) + kv("Pricing", "On-demand (per TiB)")
+        + kv("Recommended", sl.model === "editions" ? EDITION_NAME[sl.edition] + " edition" : "On-demand") : "<p>Calculating…</p>");
+  }
   html += card("roadmap", "Roadmap", S.planResult ? kv("Programme", `${S.planResult.horizon} months, ${S.planResult.teams} squads`)
     + kv("First data live", `Month ${S.planResult.pricing?.go_live?.first ?? "-"}`) + kv("All sources live", `Month ${S.planResult.pricing?.go_live?.all ?? "-"}`) : "<p>Calculating…</p>");
   { const r = readiness(), p = readinessProgress();
