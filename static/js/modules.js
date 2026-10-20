@@ -22,7 +22,7 @@ import { bindBomEditor, ed as bomEd, envSpecSection, renderBomEditor } from "./b
 import { bindSlotsPage, renderSlotsPage } from "./slotspage.js";
 import { showBeta } from "./beta.js";
 import { reviewThen } from "./review.js";
-import { bindUseCases, renderUseCases } from "./usecases.js";
+import { bindUseCaseDialog, bindUseCases, renderUseCases } from "./usecases.js";
 import { bindChargeback, loadChargeback, renderChargeback } from "./cbpage.js";
 import { bindUsage, loadUsage, renderUsage } from "./usagepage.js";
 import { track } from "./identity.js";
@@ -426,6 +426,7 @@ export function bindModules(showTab) {
   bindReadiness();
   bindBomEditor(() => plans.plan);
   bindUseCases();
+  bindUseCaseDialog();
   bindChargeback();
   bindUsage();
   $$(".modnav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));

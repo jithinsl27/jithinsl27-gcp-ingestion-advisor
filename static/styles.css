@@ -1348,3 +1348,26 @@ button.plan-total em { font-style: normal; color: var(--blue); font-size: 12.5px
 .review-looker label.rv-skip input { width: 16px; height: 16px; margin: 1px 0 0; flex: none; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .review-looker { background: #3a3220; } }
 :root[data-theme="dark"] .review-looker { background: #3a3220; }
+
+/* ================================================================ use case details */
+.uc-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.uc-dialog { width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.uc-dlg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+.uc-dlg-head h2 { margin: 0; }
+.uc-kicker { margin: 0 0 2px; font: 600 11px var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: var(--blue); }
+.uc-summary { font-size: 14.5px; color: var(--ink-2); margin: 4px 0 12px; }
+.uc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.uc-cols ul { margin: 4px 0 0; padding-left: 18px; } .uc-cols li { margin: 3px 0; }
+.uc-dialog h3 { font-size: 14.5px; margin: 14px 0 6px; }
+.uc-data td { vertical-align: top; }
+.uc-pt { display: inline-block; font-size: 12px; background: var(--surface-2); border-radius: 6px; padding: 1px 7px; margin: 2px 4px 2px 0; }
+.uc-src { display: inline-block; font-size: 12px; border-radius: 999px; padding: 1px 9px; margin: 2px 4px 2px 0; }
+.uc-src.ok { background: #E6F4EA; color: #137333; } .uc-src.maybe { background: var(--surface-2); color: var(--ink-2); }
+.uc-src.maybe-note { padding-left: 0; color: var(--muted); }
+.uc-src.gap { background: #FCE8E6; color: #A50E0E; }
+.uc-data tr.gap td:first-child b { color: #A50E0E; }
+.uc-build { margin: 4px 0 8px; padding-left: 20px; } .uc-build li { margin: 3px 0; }
+@media (max-width: 720px) { .uc-cols { grid-template-columns: 1fr; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .uc-src.ok { background: #1E3A2B; color: #81C995; } :root:not([data-theme="light"]) .uc-src.gap { background: #3c1f1d; color: #F28B82; } }
+:root[data-theme="dark"] .uc-src.ok { background: #1E3A2B; color: #81C995; } :root[data-theme="dark"] .uc-src.gap { background: #3c1f1d; color: #F28B82; }
+.uc-data th, .uc-data td { text-align: left !important; } .uc-data td:first-child { width: 22%; } .uc-data td:last-child { width: 32%; }
