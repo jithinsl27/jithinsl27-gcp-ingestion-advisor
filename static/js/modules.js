@@ -12,6 +12,7 @@ import { NO_DOWNLOAD, diagramPng, download, googleClientId, slug } from "./expor
 import { envSizingSection } from "./environments.js";
 import { save, syncForm, withDefaults } from "./scenario.js";
 import { bindMonitor, monitorSummary, renderMonitor } from "./monitor.js";
+import { envFinal, envFinalInfo, envFinalStale, setEnvFinal } from "./envfinal.js";
 import { bindEnquiry, enquiryCount, renderEnquiry } from "./enquiry.js";
 import { forgetCloud } from "./account.js";
 import { changed } from "./events.js";
@@ -37,7 +38,7 @@ export const MODULES = {
   usage: ["Usage", "Who is using Data Cloud Compass and what they do (admin key required)."],
   arch: ["Target architecture", "Sources, ingestion, raw zone, BigQuery bronze / silver / gold and the BI, AI, API and governance layers."],
   recs: ["Data flow & integrations", "How every source system gets into Google Cloud (the recommended GCP-native ETL / ELT, with rationale and alternatives) and how each BI, AI, API, database and governance product connects to BigQuery."],
-  monitor: ["Product monitor", "Which key Google Cloud products this project uses - Looker, Apigee, Gemini Enterprise, Agent Platform and more - how much and what they cost; and the BigQuery slots needed each year with 1- and 3-year commitments."],
+  monitor: ["Product monitor", "The four key products - BigQuery, Looker, Apigee and Gemini Enterprise: how much of each and what it costs in year 1, 2 and 3. BigQuery slot details show the slots per environment and year."],
   enquiry: ["Customer technical enquiry", "Ask any technical question in plain language - answers come only from Google's public documentation, with the reference links."],
   pricing: ["Pricing", "Whole-programme cost: pay as you go, 1-year or 3-year commitment - by month, product and quantity."],
   env: ["Environments", "Production, development, test, DR … each sized as a share of production."],
@@ -125,9 +126,13 @@ function insightChips(id) {
     chip("Google Cloud", String(inv.google));
     chip("Partners (not costed)", String(inv.partner));
   }
-  if (id === "monitor") {
+  if (id === "monitor" && nav.sub !== "slots") {
     const m = monitorSummary();
-    if (m && nav.sub !== "slots") { chip("Products used", `${m.used} of ${m.total}`); chip("BigQuery", esc(m.slots)); }
+    if (m) {
+      chip("Status", m.final ? "Final" : "Draft", m.final ? "good" : "");
+      chip("Key products used", `${m.used} of ${m.total}`);
+      chip("BigQuery", esc(m.slots));
+    }
   }
   if (id === "enquiry") chip("Questions answered", String(enquiryCount()));
   if (id === "recs") {
@@ -180,9 +185,9 @@ export function renderHead() {
   const badge = (k, v) => { const el = $(`[data-badge="${k}"]`); if (el) el.textContent = v || ""; };
   badge("sources", S.scenario.sources.length ? String(S.scenario.sources.length) : "");
   badge("pricing", pp() ? moneyShort(pp().plans.payg_1y.total) : "");
-  badge("env", String(S.scenario.environments.length));
   badge("roadmap", S.planResult ? `${S.planResult.horizon} mo` : "");
   { const m = monitorSummary(); badge("monitor", m ? `${m.used}/${m.total}` : ""); }
+  badge("env", envFinal() ? `${S.scenario.environments.length} ✓` : String(S.scenario.environments.length));
   { const p = readinessProgress(); badge("kickoff", p ? `${p.done}/${p.total}` : ""); }
   badge("usecases", (S.scenario.use_cases || []).length ? String(S.scenario.use_cases.length) : "");
   $("#feedbackBtn").hidden = false;
@@ -245,9 +250,8 @@ export function renderOverview() {
   { const r = readiness(), p = readinessProgress();
     html += card("kickoff", "Kickoff readiness", r ? kv("Checklist", `${p.done} of ${p.total} ready`) + kv("Critical open", String(p.critOpen)) + kv("Partner team", `${r.team.partner_fte} FTE, ${r.team.squads} squad(s)`) : "<p>Calculating…</p>"); }
   { const m = monitorSummary();
-    html += card("monitor", "Product monitor", m ? kv("Key products used", `${m.used} of ${m.total}`) + kv("BigQuery", esc(m.slots))
-      + ["looker", "apigee", "gemini_enterprise", "agent_platform"].map((t) => kv(compMeta(t)?.name.replace(/ \(.*\)| API management.*| data agents/g, "") || t,
-        S.scenario.components.some((c) => (c.type === t || (t === "looker" && c.type.startsWith("looker"))) && c.included !== false) ? "Used" : "Not used")).join("") : "<p>Calculating…</p>"); }
+    html += card("monitor", "Product monitor" + (m ? (m.final ? " · Final" : " · Draft") : ""), m
+      ? m.cards.map((c) => kv(c.name, c.used ? `${moneyShort(c.cost[0])} yr 1` : "Not used")).join("") : "<p>Calculating…</p>"); }
   html += card("enquiry", "Customer technical enquiry", `<p>Ask a technical question in plain language - answered only from Google's public documentation, with links.</p>`);
   html += card("proposal", "Proposal", `<p>Generate a customer-ready proposal (up to 15 pages) as PDF, Word or Google Docs.</p>`);
   html += `</div>`;
@@ -406,6 +410,12 @@ export function resetAll() {
 }
 
 export function bindModules(showTab) {
+  $("#envBody")?.addEventListener("change", (e) => {
+    if (e.target.id !== "envFinal") return;
+    setEnvFinal(e.target.checked);
+    changed();
+    toast(e.target.checked ? "Environments finalised - Product monitor now shows Final figures" : "Environments back to draft");
+  });
   bindMonitor(showTab);
   bindSlotsPage();
   $$(".mon-sub [data-mon-sub]").forEach((b) => b.addEventListener("click", () => { nav.sub = b.dataset.monSub; renderModules(); }));
@@ -455,7 +465,12 @@ export function renderEnvBody() {
   const envs = S.result?.environments || [];
   if (!envs.length) { host.innerHTML = ""; return; }
   const max = Math.max(...envs.map((e) => e.three_year), 1);
-  host.innerHTML = `<h3>Cost by environment</h3><div style="overflow-x:auto"><table class="env-table"><thead><tr><th>Environment</th><th>Sizing vs ${esc(envs[0].name)}</th><th>Per month (yr 1)</th><th>Year 1</th><th>3 years</th></tr></thead><tbody>`
+  const fin = envFinal(), fi = envFinalInfo();
+  const finBox = `<div class="env-final${fin ? " on" : ""}"><label><input type="checkbox" id="envFinal" ${fin ? "checked" : ""}>
+      <span><b>Environments finalised</b> - the customer has agreed these ${envs.length} environment${envs.length === 1 ? "" : "s"} and their sizing.</span></label>
+      <small>${fin ? `Finalised${fi.by ? ` by ${esc(fi.by)}` : ""} on ${new Date(fi.at).toLocaleDateString()}. Product monitor now shows Final figures; changing an environment clears this.`
+        : envFinalStale() ? "The environments changed after they were finalised - review and tick again." : "Until this is ticked, Product monitor marks its figures as Draft."}</small></div>`;
+  host.innerHTML = finBox + `<h3>Cost by environment</h3><div style="overflow-x:auto"><table class="env-table"><thead><tr><th>Environment</th><th>Sizing vs ${esc(envs[0].name)}</th><th>Per month (yr 1)</th><th>Year 1</th><th>3 years</th></tr></thead><tbody>`
     + envs.map((e, i) => `<tr><td><span class="env-dot e${Math.min(i, 5)}"></span>${esc(e.name)}<span class="share" style="width:${Math.max(2, (60 * e.three_year) / max)}px"></span></td>
       <td class="env-f">${i === 0 ? "Baseline - sized by your sources, products and workload" : S.catalog.environment_factors.map((f) => `${esc(f.name.replace(" %", ""))} ${+e.factors[f.id]}%`).join(" · ") + (e.slots ? ` · slots ${e.slots.baseline} → ${e.slots.max}` : "")}</td>
       <td>${money(e.monthly_year1)}</td><td>${money(e.year1)}</td><td>${money(e.three_year)}</td></tr>`).join("")
