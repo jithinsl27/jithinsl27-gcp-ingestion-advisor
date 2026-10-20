@@ -44,6 +44,14 @@
     const lake = r.platform.lakehouse || {};
     const tg = r.platform.targets || {};
     const sl = wl?.slots;
+    const live_ = (x) => x.c.included !== false;
+    const partners = comps.filter((x) => live_(x) && x.meta?.vendor === "partner");
+    const lookerNoQuote = comps.some((x) => live_(x) && x.c.type === "looker" && !(+x.c.settings.annual_quote_usd > 0));
+    const pricingNotes = [
+      partners.length ? `Partner products in this design - ${partners.map((x) => x.meta.name).join(", ")} - are not priced here. Please contact the partner${partners.length > 1 ? "s" : ""} for ISV licence pricing.` : null,
+      lookerNoQuote ? "The Looker licence is quote-based and is not included in these figures. Request a Looker quote from Google Cloud and add it to the estimate." : null,
+    ].filter(Boolean);
+    const bqPlan = r.bigquery?.plan, bqEd = sc.bq?.mode === "editions";
     const pages = [];
     const on = (id) => opts.sections.includes(id);
     const page = (id, title, blocks) => { if (on(id)) pages.push({ id, title, blocks: blocks.filter(Boolean) }); };
@@ -126,7 +134,7 @@
     const use = comps.filter((x) => ["bi", "ai", "integration", "database"].includes(x.meta.category)).slice(0, 12);
     page("consumption", "Analytics, AI & integration", [
       { type: "table", head: ["Product", "Vendor", "How it connects"], widths: [26, 14, 60],
-        rows: use.map((x) => [x.meta.name, x.meta.vendor === "google" ? "Google Cloud" : "Partner (not costed)",
+        rows: use.map((x) => [x.meta.name, x.meta.vendor === "google" ? "Google Cloud" : "Partner - contact for ISV pricing",
           x.meta.modes ? (x.meta.modes.notes[x.c.settings[x.meta.modes.key]] || x.meta.method) : x.meta.method]) },
     ]);
 
@@ -141,12 +149,26 @@
     ]);
 
     // 9 capacity
-    page("capacity", "BigQuery capacity & slot sizing", sl ? [
+    page("capacity", "BigQuery capacity & slot sizing", bqEd && bqPlan ? [
+      { type: "p", text: `BigQuery ${ctx.EDITION_NAME[bqPlan.edition] || ""} edition. Data grows every year, so slots are sized separately for year 1, 2 and 3 across ${bqPlan.environments.length} environment${bqPlan.environments.length === 1 ? "" : "s"}.` },
+      { type: "kpis", items: [
+        { label: "Max slots, year 1 → 3", value: `${bqPlan.totals[0].max} → ${bqPlan.totals[2].max}` },
+        { label: "3-year commitment, year 1 → 3", value: `${bqPlan.totals[0].commitment.cud3} → ${bqPlan.totals[2].commitment.cud3}`, note: "slots; it can only grow" },
+        { label: "BigQuery compute, 3 years", value: m(bqPlan.three_year.cud3), note: "3-year commitment" },
+        { label: "Saving vs pay as you go", value: m(bqPlan.three_year.payg - bqPlan.three_year.cud3) }] },
+      { type: "table", head: ["Year", "Average slots", "Busiest hour", "Max slots", "1-yr committed", "3-yr committed", "Cost - pay as you go", "Cost - 3-yr commitment"],
+        widths: [8, 11, 11, 10, 12, 12, 18, 18],
+        rows: bqPlan.totals.map((t) => [`Year ${t.year}`, String(t.avg_slots), String(Math.round(t.peak_slots)), String(t.max), String(t.commitment.cud1), String(t.commitment.cud3), m(t.cost.payg), m(t.cost.cud3)]) },
+      sl ? { type: "chart", kind: "bars", labels: sl.profile.map((_, h) => `${String(h).padStart(2, "0")}h`), values: sl.profile, title: "Average slot demand by hour of day (production, slots)", color: "#1A73E8", plain: true } : null,
+      { type: "ul", items: ["Commitments start at 100 slots and grow in steps of 50; autoscaling above the commitment is billed at the pay-as-you-go rate.",
+        "1-year commitments are re-sized each year; a 3-year commitment covers all three years and can only be increased.",
+        ...(sl ? sl.edition_reasons.slice(0, 2) : [])] },
+    ] : sl ? [
       { type: "kpis", items: [
         { label: "Average demand", value: `${sl.avg_slots} slots` }, { label: "Peak hour", value: `${Math.round(sl.peak_slots)} slots` },
         { label: "Reservation", value: `${sl.baseline_slots} → ${sl.max_slots}`, note: "baseline → max autoscale" },
         { label: "Recommended", value: sl.model === "editions" ? ctx.EDITION_NAME[sl.edition] : "On-demand", note: m(sl.model === "editions" ? sl.costs.recommended_month : sl.costs.ondemand_month) + " / month" }] },
-      { type: "chart", kind: "bars", labels: sl.profile.map((_, h) => `${String(h).padStart(2, "0")}h`), values: sl.profile, title: "Average slot demand by hour of day", color: "#1A73E8" },
+      { type: "chart", kind: "bars", labels: sl.profile.map((_, h) => `${String(h).padStart(2, "0")}h`), values: sl.profile, title: "Average slot demand by hour of day (slots)", color: "#1A73E8", plain: true },
       { type: "ul", items: [...sl.recommendations.slice(0, 4), ...sl.edition_reasons.slice(0, 2)] },
     ] : [{ type: "note", text: "Open the Sizing & slots module to size BigQuery capacity." }]);
 
@@ -164,6 +186,7 @@
           { name: "Pay as you go", values: plans.payg_3y.by_year, color: "#FBBC04" }, { name: "3-year commitment", values: plans.commit_3y.by_year, color: "#188038" }],
           title: `Yearly consumption (${ctx.currency})` },
         { type: "note", text: "Commitment pricing applies to services that offer committed-use discounts; other services stay pay as you go. Partner licences, taxes and support are not included." },
+        ...pricingNotes.map((t) => ({ type: "note", text: t })),
       ]);
       // 11 products
       const key = PLAN_KEY[opts.plan] || "payg", months = chosen.months;
@@ -203,6 +226,7 @@
         `Public list prices reviewed ${r.pricing_meta.last_reviewed}, regional uplift for ${r.region.name}, ${sc.annual_growth_pct}% annual data growth, ${sc.contingency_pct}% contingency.`,
         "Volumes, change rates and query patterns are discovery estimates and will be validated in the pilot.",
         "Partner licences (BI, ISV connectors, catalogues), taxes, support and professional services are excluded.",
+        ...pricingNotes,
       ] },
       { type: "h", text: "Risks & dependencies" },
       { type: "ul", items: [...new Set(recs.flatMap((x) => x.caveats))].slice(0, 6).concat(["Data-residency and security sign-off for every region used."]) },
@@ -236,6 +260,8 @@
   }
 
   // ------------------------------------------------------------------ charts (self-contained SVG)
+  /** Axis labels for charts that are not money (slots, counts). */
+  const plainNum = (v) => Math.round(v).toLocaleString();
   function chartSvg(b, fmt) {
     const W = 760, H = 230, L = 64, R = 10, T = 28, B = 28;
     const vals = b.kind === "grouped" ? b.series.flatMap((s) => s.values) : b.values;
@@ -273,7 +299,7 @@
       case "table": return `<table class="pp-table${b.small ? " small" : ""}"><colgroup>${(b.widths || []).map((w) => `<col style="width:${w}%">`).join("")}</colgroup><thead><tr>${b.head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
         <tbody>${b.rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
       case "img": return `<img class="pp-img" src="${b.data}" alt="" style="max-height:${(b.maxH || 0.62) * 100}%">`;
-      case "chart": return `<div class="pp-chart">${chartSvg(b, ctx.moneyShort)}</div>`;
+      case "chart": return `<div class="pp-chart">${chartSvg(b, b.plain ? plainNum : ctx.moneyShort)}</div>`;
       default: return "";
     }
   }
@@ -339,7 +365,7 @@
             rows: [new TableRow({ tableHeader: true, children: b.head.map((h, k) => cell(h, true, w[k])) }),
             ...b.rows.map((r) => new TableRow({ children: r.map((c, k) => cell(c, false, w[k])) }))] }), para(""));
         } else if (b.type === "img" && b.bytes) kids.push(imgRun(b.bytes, b.w, b.h, b.maxH));
-        else if (b.type === "chart") { const png = await svgPng(chartSvg(b, ctx.moneyShort)); kids.push(imgRun(png.bytes, png.w, png.h, 0.3)); }
+        else if (b.type === "chart") { const png = await svgPng(chartSvg(b, b.plain ? plainNum : ctx.moneyShort)); kids.push(imgRun(png.bytes, png.w, png.h, 0.3)); }
       }
     }
     void PAGE_W;

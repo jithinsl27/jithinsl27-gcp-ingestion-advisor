@@ -8,6 +8,10 @@ import { $, $$, api, esc } from "./core.js";
 import { money } from "./cost.js";
 import { optShort } from "./pricing.js";
 import { pp } from "./modules.js";
+import { changed, refreshNow } from "./events.js";
+
+/** Looker is in the architecture but has no licence quote yet (it is quote-based). */
+const lookerNoQuote = () => S.scenario.components.find((c) => c.type === "looker" && c.included !== false && !(+c.settings.annual_quote_usd > 0));
 
 let pending = null;
 let reviewedKey = null;
@@ -45,6 +49,10 @@ export function reviewThen(what, go) {
   pending = { go, what };
   $("#reviewWhat").textContent = `You are about to export: ${what}. Take a moment to check it before it is shared.`;
   $("#reviewFigs").innerHTML = figures();
+  const lk = lookerNoQuote();
+  $("#reviewLooker").innerHTML = lk ? `<div class="review-looker" role="alert"><b>Looker price missing.</b> Looker is in the architecture, but its licence is quote-based and no quote has been entered, so it is not in the totals.
+      <label>Annual Looker licence quote (USD)<input type="number" min="0" step="1000" id="rvLookerQuote" placeholder="e.g. 120000"></label>
+      <label class="rv-skip"><input type="checkbox" id="rvLookerSkip"> Continue without Looker pricing - the proposal will say the Looker licence is excluded</label></div>` : "";
   $$("[data-rv-check]", d).forEach((c) => (c.checked = false));
   $("#reviewGo").disabled = true;
   d.showModal();
@@ -53,17 +61,31 @@ export function reviewThen(what, go) {
 export function bindReview() {
   const d = $("#reviewDialog");
   if (!d) return;
-  d.addEventListener("change", () => { $("#reviewGo").disabled = !$$("[data-rv-check]", d).every((c) => c.checked); });
+  const valid = () => $$("[data-rv-check]", d).every((c) => c.checked)
+    && (!$("#rvLookerQuote") || +$("#rvLookerQuote").value > 0 || $("#rvLookerSkip").checked);
+  d.addEventListener("change", () => { $("#reviewGo").disabled = !valid(); });
+  d.addEventListener("input", () => { $("#reviewGo").disabled = !valid(); });
   $("#reviewCancel").addEventListener("click", () => { pending = null; d.close(); });
   d.addEventListener("cancel", () => { pending = null; });
-  $("#reviewForm").addEventListener("submit", (e) => {
+  $("#reviewForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!$$("[data-rv-check]", d).every((c) => c.checked)) return;
-    reviewedKey = key();
+    if (!valid()) return;
+    const q = $("#rvLookerQuote") ? +$("#rvLookerQuote").value : 0;
     const p = pending;
     pending = null;
+    if (q > 0) {
+      // add the quote, then wait for every figure to include it before exporting
+      const lk = lookerNoQuote();
+      if (lk) lk.settings.annual_quote_usd = q;
+      $("#reviewGo").disabled = true;
+      $("#reviewGo").textContent = "Updating…";
+      changed();
+      await refreshNow();
+      $("#reviewGo").textContent = "Export";
+    }
+    reviewedKey = key();
     d.close();
-    api.usageEvent("export reviewed", p?.what || "");
+    api.usageEvent("export reviewed", (p?.what || "") + (q > 0 ? " · Looker quote added" : $("#rvLookerSkip")?.checked ? " · without Looker pricing" : ""));
     p?.go();
   });
 }

@@ -1341,3 +1341,10 @@ button.plan-total em { font-style: normal; color: var(--blue); font-size: 12.5px
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .env-final.on { background: #1E3A2B; } :root:not([data-theme="light"]) .mon-warn { background: #3a3220; } }
 :root[data-theme="dark"] .env-final.on { background: #1E3A2B; } :root[data-theme="dark"] .mon-warn { background: #3a3220; }
 .mon-yrs td.qn, .mon-yrs td:only-child { color: #B06000; }
+.review-looker { background: #FEF7E0; border: 1px solid #F9AB00; border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.review-looker label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+.review-looker label input[type=number] { max-width: 220px; }
+.review-looker label.rv-skip { flex-direction: row; align-items: flex-start; gap: 8px; }
+.review-looker label.rv-skip input { width: 16px; height: 16px; margin: 1px 0 0; flex: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .review-looker { background: #3a3220; } }
+:root[data-theme="dark"] .review-looker { background: #3a3220; }
