@@ -267,6 +267,7 @@ export function renderDiagram() {
   const chipH = Math.min(24, Math.max(18, (bqY + bqH - 34 - chipY) / inside.length - 4));
   inside.splice(Math.max(0, Math.floor((bqY + bqH - 30 - chipY) / (chipH + 4))));
   if (hasMesh) {
+    const govd0 = comps.some((x) => x.c.type === "knowledge_catalog" && x.c.included !== false) && (plat.dataplex_scope || []).includes("mesh");
     const doms = (S.result.domains || []).map((d) => d.domain);
     const f = fitText(doms.join(" · "), cw.bq - 24, 11, 9.5, 600);
     nodes += `<g class="dg-node mesh" data-drop="mesh"><title>Data mesh - each domain owns its BigQuery project and publishes data products through BigQuery sharing (Analytics Hub), governed by Dataplex: ${esc(doms.join(", "))}</title>
@@ -274,7 +275,7 @@ export function renderDiagram() {
       <g class="dg-ico">${productIcon(meshPos.x + cw.bq - 30, meshPos.y + 8, 18, "bigquery")}</g>
       <text x="${meshPos.x + 12}" y="${meshPos.y + 19}" style="font-weight:700">Data mesh · ${doms.length} domain${doms.length === 1 ? "" : "s"}</text>
       <text class="sub" x="${meshPos.x + 12}" y="${meshPos.y + 36}" style="font-size:${f.fs}px;font-weight:600">${esc(f.t)}</text>
-      <text class="sub" x="${meshPos.x + 12}" y="${meshPos.y + 52}">Data products · BigQuery sharing</text></g>`;
+      <text class="sub" x="${meshPos.x + 12}" y="${meshPos.y + 52}">${govd0 ? "Data products" : "Data products · BigQuery sharing"}</text></g>`;
   }
   if (hasLake) nodes += node(lakePos.x, lakePos.y, cw.bq, "Cloud Storage data lake", `Target · ${fmtGB(plat.data_lake_gib_month12 || 0)} at M12 · BigLake`, "raw", `data-drop="lake"`, "", nodeH, pi("gcs_lake"));
   if (hasOpdb) nodes += node(opdbPos.x, opdbPos.y, cw.bq, "AlloyDB / Cloud SQL", "Target · operational database (DMS)", "comp google database", "", "", nodeH, pi("op_db"));
@@ -389,7 +390,7 @@ export function renderDiagram() {
   const badge = (x, y) => `<g class="dg-gov-badge"><title>Governed by Knowledge Catalog (Dataplex): catalog, lineage, profiling and quality</title><rect x="${x}" y="${y}" width="66" height="17" rx="8.5"/><text x="${x + 33}" y="${y + 12}" text-anchor="middle">Dataplex</text></g>`;
   let govSvg = "";
   if (govd.has("bigquery") && info.some((o) => o.r && tgtOf(o) === "data_platform")) govSvg += badge(col.bq + cw.bq - 76, bqY + 12);
-  if (govd.has("mesh") && meshPos) govSvg += badge(meshPos.x + cw.bq - 106, meshPos.y + 8);
+  if (govd.has("mesh") && meshPos) govSvg += badge(meshPos.x + cw.bq - 76, meshPos.y + meshH - 23);
   if (govd.has("lake") && lakePos) govSvg += badge(lakePos.x + cw.bq - 76, lakePos.y + 6);
   if (govd.has("sources")) govSvg += badge(col.src + 112, 9);
   host.innerHTML = `<svg id="archSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Target data and AI architecture on Google Cloud" xmlns="http://www.w3.org/2000/svg">${headSvg}${edges}${band}${nodes}${over}${govSvg}${legendSvg}</svg>`;
