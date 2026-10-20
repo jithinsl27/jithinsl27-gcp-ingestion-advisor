@@ -105,8 +105,7 @@ def test_proposal_is_at_most_15_pages(page):
     page.wait_for_selector("#ppPages .pp-page", timeout=15_000)
     assert page.locator("#ppPages .pp-page").count() <= 15
     page.uncheck('[data-pp-sec="monthly"]')
-    page.wait_for_timeout(600)
-    assert "14 pages" in page.inner_text("#ppCount")
+    page.wait_for_function("document.querySelector('#ppCount').textContent.includes('14 pages')", timeout=10_000)
 
 
 def test_kickoff_readiness_checklist_milestones_and_team(page):
