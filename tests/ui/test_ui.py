@@ -324,6 +324,9 @@ def test_export_needs_a_human_review_first(page):
         boxes.nth(i).check()
     assert page.is_disabled("#reviewGo")                       # every point must be confirmed
     boxes.nth(3).check()
+    if page.locator("#rvLookerSkip").count():             # sample has Looker without a quote
+        assert page.is_disabled("#reviewGo")
+        page.check("#rvLookerSkip")
     with page.expect_download() as dl:
         page.click("#reviewGo")
     assert dl.value.suggested_filename.endswith("-costs.csv")
@@ -337,3 +340,30 @@ def test_export_needs_a_human_review_first(page):
     with page.expect_download():
         page.click('[data-export="json"]')
     assert page.locator("#reviewDialog[open]").count() == 0
+
+
+def test_export_asks_for_the_looker_quote_when_missing(page):
+    page.wait_for_selector("#overviewBody .plan-card", timeout=15_000)
+    page.click("#exportBtn")
+    page.click('[data-export="csv"]')
+    page.wait_for_selector("#reviewDialog[open] #rvLookerQuote")
+    assert "Looker price missing" in page.inner_text("#reviewLooker")
+    for i in range(4):
+        page.locator("#reviewDialog [data-rv-check]").nth(i).check()
+    assert page.is_disabled("#reviewGo")                       # quote or explicit skip still needed
+    page.fill("#rvLookerQuote", "150000")
+    assert not page.is_disabled("#reviewGo")
+    with page.expect_download():
+        page.click("#reviewGo")
+    quote = page.evaluate("JSON.parse(localStorage.getItem('ingestion-advisor:scenario:v2')).scenario.components.find(c => c.type === 'looker').settings.annual_quote_usd")
+    assert quote == 150000
+
+
+def test_proposal_flags_partner_isv_pricing_and_missing_looker_quote(page):
+    page.wait_for_selector("#overviewBody .plan-card", timeout=15_000)
+    goto(page, "proposal")
+    page.wait_for_selector("#ppPages .pp-page", timeout=15_000)
+    txt = page.inner_text("#ppPages")
+    assert "contact the partner" in txt.lower() and "ISV" in txt
+    assert "Looker licence is quote-based" in txt
+    assert "Max slots, year 1" in txt or "Average demand" in txt

@@ -305,6 +305,12 @@ export function scheduleEstimate(delay) {
   S.estimateTimer = setTimeout(() => { runEstimate(); runWorkload(); runPlan(); }, delay);
 }
 
+/** Recalculate now (no debounce) and resolve once the estimate, workload and plan are all up to date. */
+export async function refreshNow() {
+  clearTimeout(S.estimateTimer);
+  await Promise.all([runEstimate(), runWorkload(), runPlan()]);
+}
+
 export function payload() {
   const p = clone(S.scenario);
   p.analytics_tib_month = p.analytics_tib_month || null;
