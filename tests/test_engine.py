@@ -750,3 +750,39 @@ def test_no_formatter_passed_straight_to_map():
            for i, line in enumerate(p.read_text().splitlines())
            if re.search(r"\.map\((m|ms|money|moneyShort|fmt|fmtQty|unitPrice|fmtGB)\)", line)]
     assert not bad, bad
+
+
+# ---------------------------------------------------------------- use case details
+def test_every_library_use_case_has_curated_details():
+    from app.usecases import USE_CASES
+    from app.usecase_details import DETAILS, KEYWORDS
+    for u in USE_CASES:
+        d = DETAILS[u["id"]]
+        assert d["summary"] and len(d["benefits"]) >= 3 and len(d["kpis"]) >= 3 and d["build"]
+        for req in d["data"]:
+            assert len(req["points"]) >= 3 and req["data"] in KEYWORDS
+
+
+def test_use_case_details_map_data_to_the_customers_sources():
+    sc = {"customer": "Jits", "sources": [
+        {"id": "a", "name": "Subscriber & billing (PostgreSQL)", "type": "postgresql"},
+        {"id": "b", "name": "Content catalogue (MongoDB)", "type": "mongodb"},
+        {"id": "c", "name": "CRM (Salesforce)", "type": "salesforce"}]}
+    d = client.post("/api/usecases/details", json={"id": "churn", "scenario": sc}).json()
+    billing = next(x for x in d["data"] if x["data"] == "Billing and payments")
+    assert billing["sources"] == ["Subscriber & billing (PostgreSQL)"]          # matched by name, not just by database type
+    assert "Content catalogue (MongoDB)" in billing["possible"]
+    assert d["method"] == "curated" and d["coverage"]["total"] == len(d["data"])
+    fraud = client.post("/api/usecases/details", json={"id": "fraud", "scenario": sc}).json()
+    assert any(not x["covered"] for x in fraud["data"])                           # gaps are flagged
+
+
+def test_customer_use_case_details_use_gemini(monkeypatch):
+    from app import assist as AS
+    fake = {"summary": "Recommend titles.", "benefits": ["More watch time", "Less churn", "Better discovery"],
+            "kpis": ["Watch time", "Click-through", "Churn"], "build": ["BigQuery", "Vertex AI", "Looker"],
+            "data": [{"data": "Viewing history", "points": ["user ID", "title ID", "minutes watched", "date"], "sources": ["Playback (Kafka)", "Not a source"]}]}
+    monkeypatch.setattr(AS, "ai_json", lambda prompt, schema, who, temperature=0.2: (fake, "gemini-3.8-flash"))
+    sc = {"sources": [{"id": "p", "name": "Playback (Kafka)", "type": "kafka"}]}
+    d = client.post("/api/usecases/details", json={"name": "Personalised recommendations", "scenario": sc}).json()
+    assert d["method"] == "gemini" and d["data"][0]["sources"] == ["Playback (Kafka)"]       # unknown names dropped

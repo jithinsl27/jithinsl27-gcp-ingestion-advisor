@@ -65,6 +65,7 @@ export const api = window.ADVISOR_API || {
   cbPrice: (req) => call("POST", "/api/chargeback/price", req),
   enquiry: (b) => call("POST", "/api/enquiry", b),
   cbRequests: () => call("GET", "/api/chargeback/requests"),
+  ucDetails: (b) => call("POST", "/api/usecases/details", b),
   cbSave: (req) => call("POST", "/api/chargeback/requests", req),
   cbDelete: (id) => call("DELETE", `/api/chargeback/requests/${encodeURIComponent(id)}`),
 };

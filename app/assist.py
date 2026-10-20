@@ -213,6 +213,36 @@ def gemini(text: str, email: str) -> dict:
     raise HTTPException(status_code=502, detail=f"Gemini could not process the request: {type(last).__name__}: {str(last)[:300]}")
 
 
+def ai_json(prompt: str, schema: dict, who: str, temperature: float = 0.2) -> tuple[dict, str]:
+    """Gemini with a JSON response schema (shared by use case details and the risk register).
+
+    Raises HTTPException 503 when Gemini is not available here, 429 over the hourly limit, 502 on failure.
+    """
+    if os.environ.get("ASSIST", "on") == "off":
+        raise HTTPException(status_code=503, detail="Gemini is turned off on this deployment")
+    _check_rate(who or "anonymous")
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail="Gemini is not installed on this deployment") from e
+    try:
+        client = genai.Client(vertexai=True, project=os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT"),
+                              location=os.environ.get("GEMINI_LOCATION", "global"))
+    except Exception as e:  # noqa: BLE001 - no Google Cloud credentials (e.g. a local run)
+        raise HTTPException(status_code=503, detail="Gemini is not available on this deployment (no Google Cloud credentials)") from e
+    cfg = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=temperature,
+                                      max_output_tokens=4096)
+    last = None
+    for model in dict.fromkeys(m for m in (os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"), "gemini-2.5-flash") if m):
+        try:
+            r = client.models.generate_content(model=model, contents=prompt, config=cfg)
+            return json.loads(r.text), model
+        except Exception as e:  # noqa: BLE001 - try the fallback model, then report
+            last = e
+    raise HTTPException(status_code=502, detail=f"Gemini could not process the request: {type(last).__name__}: {str(last)[:300]}")
+
+
 def clean(data: dict) -> dict:
     """Keep only valid values (the schema should guarantee it - this is the safety net)."""
     types_ = {s["id"] for s in SOURCE_TYPES}

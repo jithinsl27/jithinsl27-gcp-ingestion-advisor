@@ -707,6 +707,32 @@ def cb_delete(rid: str, request: Request):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- use case details
+class UseCaseDetailRequest(BaseModel):
+    id: Optional[str] = Field(None, max_length=40)
+    name: str = Field("", max_length=200)
+    notes: str = Field("", max_length=1000)
+    scenario: dict = Field(default_factory=dict)
+
+
+@app.post("/api/usecases/details")
+def usecase_details(req: UseCaseDetailRequest, request: Request):
+    """Curated details for a library use case; Gemini-generated (same layout) for the customer's own."""
+    from . import usecase_details as UD
+    if req.id:
+        d = UD.details(req.id, req.scenario)
+        if d:
+            return d
+    if not req.name.strip():
+        raise HTTPException(status_code=422, detail="Name the use case")
+    name, email = US.identity(request)
+    data, model = AS.ai_json(UD.ai_prompt(req.name, req.notes, req.scenario), UD.ai_schema(), email or US.client_ip(request))
+    out = UD.clean_ai(req.name, data, req.scenario)
+    out["model"] = model
+    US.record(get_store(), request, 200, 0.0, action="use case described", detail=req.name[:120])
+    return out
+
+
 # ---------------------------------------------------------------- customer technical enquiry
 class Enquiry(BaseModel):
     question: str = Field(..., min_length=3, max_length=1000)
