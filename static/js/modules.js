@@ -20,6 +20,7 @@ import { clone, toast } from "./core.js";
 import { bindReadiness, readiness, readinessProgress, renderReadiness } from "./readiness.js";
 import { bindBomEditor, ed as bomEd, envSpecSection, renderBomEditor } from "./bomedit.js";
 import { bindSlotsPage, renderSlotsPage } from "./slotspage.js";
+import { bindRisks, renderRisks, risksSummary } from "./risks.js";
 import { showBeta } from "./beta.js";
 import { reviewThen } from "./review.js";
 import { bindUseCaseDialog, bindUseCases, renderUseCases } from "./usecases.js";
@@ -44,6 +45,7 @@ export const MODULES = {
   env: ["Environments", "Production, development, test, DR … each sized as a share of production."],
   workload: ["Workload", "What the customer will run - data, pipelines, reports, dashboards and queries - in plain terms. It drives BigQuery sizing and pricing."],
   kickoff: ["Kickoff readiness", "What the customer and partner must have ready before kickoff for this architecture, the milestones with exit criteria, and the team size and skills."],
+  risks: ["Risks", "The monthly risk register: write a risk in plain language, see what it changes in the roadmap and the cost, get recommendations, and apply it when agreed."],
   roadmap: ["Roadmap", "Delivery plan by squad, go-live month per source and product, and the ramped monthly spend."],
   proposal: ["Proposal", "Generate a customer proposal of up to 15 pages - PDF, Word or Google Docs."],
   settings: ["Settings & assumptions", "Engagement settings, commercial terms, lakehouse layers, sizing constants and price sources."],
@@ -84,6 +86,7 @@ export function renderModules() {
   if (nav.tab === "kickoff") renderReadiness();
   if (nav.tab === "usecases") renderUseCases();
   if (nav.tab === "chargeback") renderChargeback();
+  if (nav.tab === "risks") renderRisks();
   if (nav.tab === "usage") renderUsage();
   if (nav.tab === "workload") renderWorkloadSummary();
   if (nav.tab === "monitor") {
@@ -135,6 +138,12 @@ function insightChips(id) {
     }
   }
   if (id === "enquiry") chip("Questions answered", String(enquiryCount()));
+  if (id === "risks") {
+    const k = risksSummary();
+    chip("Open risks", String(k.open), k.open ? "" : "good");
+    chip("Applied to the plan", String(k.applied));
+    if (k.applied) chip("Applied, 3-year effect", (k.applied3y >= 0 ? "+" : "−") + money(Math.abs(k.applied3y)));
+  }
   if (id === "recs") {
     chip("CDC sources", String(recs.filter((r) => r.engine.includes("datastream")).length));
     chip("Distinct services", String(new Set(recs.flatMap((r) => r.chain)).size));
@@ -187,6 +196,7 @@ export function renderHead() {
   badge("pricing", pp() ? moneyShort(pp().plans.payg_1y.total) : "");
   badge("roadmap", S.planResult ? `${S.planResult.horizon} mo` : "");
   { const m = monitorSummary(); badge("monitor", m ? `${m.used}/${m.total}` : ""); }
+  { const k = risksSummary(); badge("risks", k.open ? String(k.open) : ""); }
   badge("env", envFinal() ? `${S.scenario.environments.length} ✓` : String(S.scenario.environments.length));
   { const p = readinessProgress(); badge("kickoff", p ? `${p.done}/${p.total}` : ""); }
   badge("usecases", (S.scenario.use_cases || []).length ? String(S.scenario.use_cases.length) : "");
@@ -418,6 +428,7 @@ export function bindModules(showTab) {
   });
   bindMonitor(showTab);
   bindSlotsPage();
+  bindRisks();
   $$(".mon-sub [data-mon-sub]").forEach((b) => b.addEventListener("click", () => { nav.sub = b.dataset.monSub; renderModules(); }));
   bindEnquiry();
   $("#resetBtn")?.addEventListener("click", () => {

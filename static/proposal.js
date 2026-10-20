@@ -229,7 +229,9 @@
         ...pricingNotes,
       ] },
       { type: "h", text: "Risks & dependencies" },
-      { type: "ul", items: [...new Set(recs.flatMap((x) => x.caveats))].slice(0, 6).concat(["Data-residency and security sign-off for every region used."]) },
+      { type: "ul", items: (sc.risks || []).filter((x) => x.status !== "closed").slice(0, 5).map((x) => `${x.summary || x.text} (raised month ${x.month}, ${x.likelihood} likelihood, ${x.impact} impact${x.status === "applied" ? " - included in this plan" : " - not yet in the figures"}).`)
+        .concat([...new Set(recs.flatMap((x) => x.caveats))].slice(0, 6 - Math.min(3, (sc.risks || []).filter((x) => x.status !== "closed").length)))
+        .concat(["Data-residency and security sign-off for every region used."]) },
     ]);
 
     // 15 kickoff readiness, team & next steps
