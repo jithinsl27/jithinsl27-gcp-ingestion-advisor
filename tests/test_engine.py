@@ -740,3 +740,13 @@ def test_signin_notification_is_logged_once_per_person(monkeypatch, capsys):
     out = [json.loads(l) for l in capsys.readouterr().out.splitlines() if "compass_signin" in l]
     assert len(out) == 1 and out[0]["email"] == "new.person@example.com" and out[0]["kind"] == "compass_signin"
     assert USG.signin(st, "", "nobody") is False
+
+
+def test_no_formatter_passed_straight_to_map():
+    """arr.map(money) passes the index as money()'s 'digits' argument - year 2 gets 1 decimal, year 3 gets 2."""
+    import re
+    root = Path(__file__).parents[1] / "app" / "static"
+    bad = [f"{p.name}:{i + 1}" for p in root.rglob("*.js") if "vendor" not in p.parts
+           for i, line in enumerate(p.read_text().splitlines())
+           if re.search(r"\.map\((m|ms|money|moneyShort|fmt|fmtQty|unitPrice|fmtGB)\)", line)]
+    assert not bad, bad

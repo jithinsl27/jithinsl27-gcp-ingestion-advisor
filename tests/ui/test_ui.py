@@ -119,8 +119,7 @@ def test_kickoff_readiness_checklist_milestones_and_team(page):
     total = page.locator("#kickoffBody [data-kitem]").count()
     assert total > 20
     page.locator("#kickoffBody [data-kitem]").first.check()
-    page.wait_for_timeout(200)
-    assert page.inner_text('.modnav [data-badge="kickoff"]') == f"1/{total}"
+    page.wait_for_function(f"document.querySelector('.modnav [data-badge=\"kickoff\"]').textContent === '1/{total}'", timeout=10_000)
     page.click('[data-kowner="Partner"]')
     assert 0 < page.locator("#kickoffBody [data-kitem]").count() < total
     page.click('[data-kview="milestones"]')
@@ -235,12 +234,24 @@ def test_usage_admin_page(page):
     assert "ui@example.com" in page.inner_text("#usageBody")
 
 
-def test_product_monitor_cards(page):
+def test_product_monitor_four_products_draft_until_environments_finalised(page):
     goto(page, "monitor")
     page.wait_for_selector("#monitorBody .mon-card")
-    names = page.locator("#monitorBody .mon-card h3").all_inner_texts()
-    for n in ("BigQuery", "Looker", "Apigee API management", "Gemini Enterprise", "Gemini Enterprise Agent Platform"):
-        assert n in names
+    assert page.locator("#monitorBody .mon-card h3").all_inner_texts() == ["BigQuery", "Looker", "Apigee", "Gemini Enterprise"]
+    assert "draft" in page.inner_text("#monitorBody .mon-state").lower()
+    # each used product shows year 1-3 cost and a 3-year total
+    used = page.locator("#monitorBody .mon-card.on")
+    assert used.count() >= 1 and used.first.locator(".mon-yrs .tot td").count() == 3
+    # Looker without a quote asks for it, and the quote flows into the card
+    if page.locator("#monitorBody [data-mon-quote]").count():
+        page.fill("#monitorBody [data-mon-quote]", "120000")
+        page.press("#monitorBody [data-mon-quote]", "Tab")
+        page.wait_for_function("!document.querySelector('#monitorBody [data-mon-quote]')", timeout=15_000)
+    # finalise the environments -> Final
+    goto(page, "env")
+    page.check("#envFinal")
+    goto(page, "monitor")
+    page.wait_for_function("document.querySelector('#monitorBody .mon-state').textContent.includes('Final')", timeout=15_000)
     off = page.locator('#monitorBody .mon-card.off [data-mon-add]')
     if off.count():
         before = page.locator("#monitorBody .mon-card.on").count()
