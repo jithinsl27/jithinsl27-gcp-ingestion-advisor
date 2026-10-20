@@ -59,7 +59,8 @@ def build_plan(scenario: dict) -> dict:
     items = []
     for i, (s, r) in enumerate(zip(sources, recs)):
         items.append({"idx": i, "id": s.get("id") or s["type"], "name": s.get("name") or s["type"],
-                      "pattern": r.pattern, "primary": r.primary, "effort_weeks": source_effort(s, r)})
+                      "pattern": r.pattern, "primary": r.primary, "effort_weeks": source_effort(s, r),
+                      "override": s.get("go_live_override")})
     order = sorted(items, key=lambda x: (x["effort_weeks"], x["idx"]))
     free_at = [FOUNDATION_WEEKS] * teams
     for it in order:
@@ -70,6 +71,12 @@ def build_plan(scenario: dict) -> dict:
         free_at[t] = it["end_week"]
         it["build_start_month"] = int(it["start_week"] // WEEKS_PER_MONTH) + 1
         it["go_live_month"] = min(36, max(2, math.ceil(it["end_week"] / WEEKS_PER_MONTH)))
+        it["planned_month"] = it["go_live_month"]
+        if it.get("override"):
+            # a go-live month set by the architect or by an applied risk (e.g. "source X slips to month 5")
+            it["go_live_month"] = min(36, max(2, int(it["override"])))
+            it["build_start_month"] = max(1, min(it["build_start_month"], it["go_live_month"] - 1))
+            it["overridden"] = True
     waves = sorted(order, key=lambda x: (x["go_live_month"], x["idx"]))
     go_lives = sorted(w["go_live_month"] for w in waves)
     first_live = go_lives[0] if go_lives else 2

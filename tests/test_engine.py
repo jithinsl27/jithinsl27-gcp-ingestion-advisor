@@ -786,3 +786,62 @@ def test_customer_use_case_details_use_gemini(monkeypatch):
     sc = {"sources": [{"id": "p", "name": "Playback (Kafka)", "type": "kafka"}]}
     d = client.post("/api/usecases/details", json={"name": "Personalised recommendations", "scenario": sc}).json()
     assert d["method"] == "gemini" and d["data"][0]["sources"] == ["Playback (Kafka)"]       # unknown names dropped
+
+
+# ---------------------------------------------------------------- monthly risk register
+def _jits_like():
+    return {"region": "us-central1", "sources": [
+        {"id": "s1", "name": "Subscriber & billing (PostgreSQL)", "type": "postgresql", "frequency": "near_realtime", "initial_volume_gb": 3000, "daily_change_gb": 25, "tables": 200},
+        {"id": "s2", "name": "Ad server impressions (Amazon S3)", "type": "s3", "frequency": "hourly", "initial_volume_gb": 12000, "daily_change_gb": 90, "tables": 15},
+        {"id": "s3", "name": "Ticketing & live events (SQL Server)", "type": "sqlserver", "frequency": "hourly", "initial_volume_gb": 1500, "daily_change_gb": 8, "tables": 140}],
+        "components": [], "environments": [{"id": "prod", "name": "Production", "preset": "prod"}]}
+
+
+@pytest.mark.parametrize("text,kind,check", [
+    ("The subscriber billing database won't be ready for month 3, expect month 5", "delay", lambda c: c["source_id"] == "s1" and c["month"] == 5),
+    ("Ticketing slips by 2 months", "delay", lambda c: c["source_id"] == "s3"),
+    ("Ad server impressions volume will double", "volume", lambda c: c["source_id"] == "s2" and c["factor"] == 2.0),
+    ("Customer moved ticketing to phase 2", "descope", lambda c: c["source_id"] == "s3"),
+    ("Partner team lead resigned", "none", lambda c: True),
+])
+def test_risk_rules_parser(text, kind, check):
+    from app import risks as RK
+    from app.plan import build_plan
+    sc = _jits_like()
+    golive = {w["id"]: w["go_live_month"] for w in build_plan(sc)["waves"]}
+    c = RK.rules_parse(text, sc, golive)["changes"][0]
+    assert c["kind"] == kind and check(c)
+
+
+def test_risk_impact_and_plan_override():
+    from app import risks as RK
+    sc = _jits_like()
+    imp = RK.impact(sc, [{"kind": "delay", "source_id": "s1", "month": 8}])
+    row = next(r for r in imp["golive_changes"] if r["id"] == "s1")
+    assert row["after"] == 8 and row["before"] < 8
+    assert imp["payg"]["delta"][0] < 0                       # later go-live -> less spend in year 1
+    assert any("month 8" in r for r in imp["recommendations"])
+    up = RK.impact(sc, [{"kind": "volume", "source_id": "s2", "factor": 2}])
+    assert sum(up["payg"]["delta"]) > 0
+    gone = RK.impact(sc, [{"kind": "descope", "source_id": "s3"}])
+    assert any(r["id"] == "s3" and r["after"] is None for r in gone["golive_changes"])
+    assert RK.apply(sc, [{"kind": "delay", "source_id": "s1", "month": 8}])["sources"][0]["go_live_override"] == 8
+    assert "go_live_override" not in sc["sources"][0]       # the input scenario is untouched
+
+
+def test_risk_parse_api_uses_gemini_then_falls_back(monkeypatch):
+    from app import assist as AS
+    from fastapi import HTTPException
+    sc = _jits_like()
+    fake = {"summary": "Billing late", "likelihood": "high", "impact": "medium", "recommendations": ["Ask the vendor for a date"],
+            "changes": [{"kind": "delay", "source_id": "s1", "month": 6}, {"kind": "delay", "source_id": "nope", "month": 4}]}
+    monkeypatch.setattr(AS, "ai_json", lambda p, s, w, t=0.2: (fake, "gemini-3.8-flash"))
+    r = client.post("/api/risks/parse", json={"text": "billing is late", "month": 2, "scenario": sc}).json()
+    assert r["risk"]["method"] == "gemini" and r["risk"]["changes"] == [{"kind": "delay", "source_id": "s1", "month": 6}]
+    assert r["risk"]["recommendations"][0] == "Ask the vendor for a date" and r["impact"]["golive_changes"]
+
+    def off(*a, **k):
+        raise HTTPException(status_code=503, detail="off")
+    monkeypatch.setattr(AS, "ai_json", off)
+    r = client.post("/api/risks/parse", json={"text": "Subscriber billing slips to month 7", "scenario": sc}).json()
+    assert r["risk"]["method"] == "rules" and r["risk"]["changes"][0]["month"] == 7 and "rules" in r["note"]

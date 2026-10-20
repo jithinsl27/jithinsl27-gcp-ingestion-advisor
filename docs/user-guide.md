@@ -104,6 +104,7 @@ The app is organised as modules in the left-hand navigation. Click a module to o
 | **Environments** | Cost per environment and the per-environment sizing. Tick **Environments finalised** once the customer agrees them: Product monitor then shows Final figures. Changing an environment afterwards clears the tick |
 | **Pricing** | The three commercial plans with the recommended specification per environment and the editable bill of materials (below) |
 | **Roadmap** | See section 7 |
+| **Risks** | The monthly risk register. Write a risk in plain language ("Subscriber billing won't be ready for month 3, expect month 5", "ad data will double", "move ticketing to phase 2"). Compass reads it - with Gemini, or built-in rules when Gemini is not available - into changes (go-live month, de-scope, data volume), shows the before / after go-live months, cost per year and monthly spend, and recommends mitigations. Edit the changes if needed, then **Apply to the plan** (roadmap, pricing and exports update; **Revert** undoes it) or **Save as open risk**. A likelihood × impact matrix summarises open risks, and the proposal lists them under Risks & dependencies |
 | **Proposal** | Generate a customer proposal of up to 15 pages |
 | **Kickoff** | Pre-kickoff checklist for customer and partner, milestones with exit criteria, team size and skills |
 | **Charge-back** | Negotiated price book and pricing of department requests (below) |

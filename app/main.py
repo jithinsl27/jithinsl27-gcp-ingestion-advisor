@@ -117,6 +117,7 @@ class Source(BaseModel):
     iot_option: Optional[Literal["native", "mqtt_broker", "litmus", "clearblade", "mde"]] = None
     target: Literal["data_platform", "data_lake", "operational_db", "data_mesh"] = "data_platform"
     domain: str = Field("", max_length=60)                 # data mesh: business domain that owns the data
+    go_live_override: Optional[int] = Field(None, ge=2, le=36)   # go-live month set by the architect or an applied risk
     custom_name: str = Field("", max_length=120)         # product name when type == "custom"
     like_type: Optional[str] = Field(None, max_length=40)  # catalogued type the custom source behaves like
 
@@ -705,6 +706,52 @@ def cb_delete(rid: str, request: Request):
         raise HTTPException(status_code=403, detail="Only the person who saved this request can delete it")
     get_store().cb_delete(rid)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- monthly risk register
+class RiskParseRequest(BaseModel):
+    text: str = Field(..., min_length=3, max_length=1500)
+    month: Optional[int] = Field(None, ge=1, le=36)
+    scenario: dict = Field(default_factory=dict)
+
+
+class RiskImpactRequest(BaseModel):
+    changes: list[dict] = Field(default_factory=list, max_length=20)
+    scenario: dict = Field(default_factory=dict)
+
+
+@app.post("/api/risks/parse")
+def risk_parse(req: RiskParseRequest, request: Request):
+    """Plain-language risk -> structured changes (Gemini, or the rules parser when Gemini is unavailable) + impact."""
+    from . import risks as RK
+    from .plan import build_plan
+    before = build_plan(req.scenario)
+    golive = {w["id"]: w["go_live_month"] for w in before["waves"]}
+    name, email = US.identity(request)
+    note = ""
+    try:
+        data, model = AS.ai_json(RK.prompt(req.text, req.scenario, golive, req.month), RK.schema(), email or US.client_ip(request), 0.1)
+        parsed = {**RK.clean(data, req.scenario), "method": "gemini", "model": model}
+        if parsed["changes"] == [{"kind": "none"}]:
+            alt = RK.rules_parse(req.text, req.scenario, golive)
+            if alt["changes"] != [{"kind": "none"}]:
+                parsed["changes"] = alt["changes"]
+    except HTTPException as e:
+        parsed = RK.rules_parse(req.text, req.scenario, golive)
+        note = "Read with the built-in rules (Gemini is not available here) - check the changes below." if e.status_code == 503 else f"Gemini was not available ({e.detail}) - read with the built-in rules."
+    changes = [c for c in parsed["changes"] if c.get("kind") != "none"]
+    imp = RK.impact(req.scenario, changes, before)
+    parsed["recommendations"] = list(dict.fromkeys(parsed.get("recommendations", []) + imp["recommendations"]))[:7]
+    US.record(get_store(), request, 200, 0.0, action="risk analysed", detail=req.text[:120])
+    return {"risk": parsed, "impact": imp, "golive": golive, "note": note}
+
+
+@app.post("/api/risks/impact")
+def risk_impact(req: RiskImpactRequest):
+    """Before / after roadmap and cost for a set of changes (used when the architect edits a parsed risk)."""
+    from . import risks as RK
+    changes = [c for c in req.changes if c.get("kind") in ("delay", "descope", "volume")]
+    return RK.impact(req.scenario, changes)
 
 
 # ---------------------------------------------------------------- use case details
